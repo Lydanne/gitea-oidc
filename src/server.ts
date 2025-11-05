@@ -1,9 +1,29 @@
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import middie from '@fastify/middie';
+// @ts-ignore
 import { Provider, type Configuration } from 'oidc-provider';
 
 const app = fastify({ logger: true });
+
+// 日志开关 - 设置为 false 可关闭所有自定义日志
+const ENABLE_DETAILED_LOGGING = true;
+
+function logInfo(message: string, ...args: any[]) {
+  if (ENABLE_DETAILED_LOGGING) {
+    console.log(message, ...args);
+  }
+}
+
+function logWarn(message: string, ...args: any[]) {
+  if (ENABLE_DETAILED_LOGGING) {
+    console.warn(message, ...args);
+  }
+}
+
+function logError(message: string, ...args: any[]) {
+  console.error(message, ...args); // 错误日志始终输出
+}
 
 async function start() {
   // 注册中间件插件
@@ -21,7 +41,7 @@ async function start() {
       token_endpoint_auth_method: 'client_secret_basic',
     }],
     interactions: {
-      url: async (ctx: any, interaction: any) => {
+      url: async (ctx, interaction) => {
         return `/interaction/${interaction.uid}`;
       },
     },
@@ -37,28 +57,28 @@ async function start() {
       registration: { enabled: false },
       revocation: { enabled: true },
     },
-    findAccount: async (ctx: any, sub: string, token: any) => {
-      console.log(`[查找账户] sub: ${sub}, token类型: ${token?.constructor?.name || 'unknown'}`);
+    findAccount: async (ctx, sub, token) => {
+      logInfo(`[查找账户] sub: ${sub}, token类型: ${token?.constructor?.name || 'unknown'}`);
       
       // 硬编码用户
       const accounts: Record<string, any> = {
         'testuser': {
           accountId: 'testuser',
           async claims(use: string, scope: string, claims: any, rejected: any) {
-            console.log(`[声明生成] 用户: testuser, scope: ${scope}, claims:`, claims);
+            logInfo(`[声明生成] 用户: testuser, scope: ${scope}, claims:`, claims);
             const userClaims = {
               sub: 'testuser',
               name: 'Test User',
               email: 'test@example.com',
             };
-            console.log(`[返回声明]`, userClaims);
+            logInfo(`[返回声明]`, userClaims);
             return userClaims;
           },
         },
       };
       
       const account = accounts[sub];
-      console.log(`[账户查找结果] ${sub}: ${account ? '找到' : '未找到'}`);
+      logInfo(`[账户查找结果] ${sub}: ${account ? '找到' : '未找到'}`);
       return account;
     },
     ttl: {
@@ -77,12 +97,12 @@ async function start() {
   // 添加中间件打印所有OIDC请求
   app.addHook('preHandler', (request, reply, done) => {
     if (request.url.startsWith('/oidc')) {
-      console.log(`[OIDC请求] ${request.method} ${request.url}`);
+      logInfo(`[OIDC请求] ${request.method} ${request.url}`);
       if (request.query && Object.keys(request.query).length > 0) {
-        console.log(`[查询参数]`, request.query);
+        logInfo(`[查询参数]`, request.query);
       }
       if (request.body && Object.keys(request.body).length > 0) {
-        console.log(`[请求体]`, request.body);
+        logInfo(`[请求体]`, request.body);
       }
     }
     done();
@@ -91,15 +111,15 @@ async function start() {
   // 自定义交互页面（简化版）
   app.get('/interaction/:uid', async (request, reply) => {
     const { uid } = request.params as { uid: string };
-    console.log(`[交互页面] 用户访问交互页面, UID: ${uid}`);
+    logInfo(`[交互页面] 用户访问交互页面, UID: ${uid}`);
     
     const interaction = await oidc.interactionDetails(request.raw, reply.raw);
     if (!interaction) {
-      console.log(`[交互页面] 交互详情未找到, UID: ${uid}`);
+      logWarn(`[交互页面] 交互详情未找到, UID: ${uid}`);
       return reply.code(404).send('Interaction not found');
     }
 
-    console.log(`[交互详情]`, {
+    logInfo(`[交互详情]`, {
       uid: interaction.uid,
       prompt: interaction.prompt,
       params: interaction.params,
@@ -128,19 +148,19 @@ async function start() {
     const { uid } = request.params as { uid: string };
     const { username, password } = request.body as { username: string; password: string };
 
-    console.log(`[登录尝试] UID: ${uid}, 用户名: ${username}`);
+    logInfo(`[登录尝试] UID: ${uid}, 用户名: ${username}`);
 
     // 简化认证（仅检查硬编码用户）
     if (username === 'testuser' && password === 'password') {
-      console.log(`[登录成功] 用户 ${username} 认证通过，正在完成交互`);
+      logInfo(`[登录成功] 用户 ${username} 认证通过，正在完成交互`);
       
       const result = await oidc.interactionFinished(request.raw, reply.raw, {
         login: { accountId: username },
       });
       
-      console.log(`[交互完成] 结果:`, result);
+      logInfo(`[交互完成] 结果:`, result);
     } else {
-      console.log(`[登录失败] 用户名或密码错误: ${username}`);
+      logWarn(`[登录失败] 用户名或密码错误: ${username}`);
       reply.code(401).send('Invalid credentials');
     }
   });
@@ -149,7 +169,7 @@ async function start() {
     await app.listen({ port: 3000, host: '0.0.0.0' });
     console.log('OIDC IdP server listening on http://localhost:3000');
   } catch (err) {
-    app.log.error(err);
+    logError('服务器启动失败:', err);
     process.exit(1);
   }
 };

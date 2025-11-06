@@ -18,6 +18,9 @@ import type {
   PluginHookName,
   AuthProviderConfig,
 } from '../types/auth.js';
+import { PluginPermission } from '../types/auth.js';
+import { AuthErrors } from '../utils/authErrors';
+import { PermissionChecker } from './PermissionChecker';
 
 export interface AuthCoordinatorConfig {
   /** Fastify 实例 */
@@ -39,6 +42,7 @@ export class AuthCoordinator implements IAuthCoordinator {
   private userRepository: UserRepository;
   private providersConfig: Record<string, AuthProviderConfig>;
   private providers = new Map<string, AuthProvider>();
+  private permissionChecker = new PermissionChecker();
   private initialized = false;
 
   constructor(config: AuthCoordinatorConfig) {
@@ -56,20 +60,53 @@ export class AuthCoordinator implements IAuthCoordinator {
       throw new Error(`Provider ${provider.name} already registered`);
     }
 
+    // 获取插件元数据并注册权限
+    const metadata = provider.getMetadata?.();
+    if (metadata) {
+      this.permissionChecker.registerPlugin(metadata.name, metadata.permissions);
+      this.app.log.info(
+        `Registered permissions for ${metadata.name}: ${metadata.permissions.join(', ')}`
+      );
+    }
+
     this.providers.set(provider.name, provider);
     this.app.log.info(`Registered auth provider: ${provider.name}`);
 
-    // 注册插件路由
-    this.registerProviderRoutes(provider);
+    // 注册插件路由（需要权限）
+    if (provider.registerRoutes) {
+      this.permissionChecker.requirePermission(
+        provider.name,
+        PluginPermission.REGISTER_ROUTES
+      );
+      this.registerProviderRoutes(provider);
+    }
 
-    // 注册插件静态资源
-    this.registerProviderStaticAssets(provider);
+    // 注册插件静态资源（需要权限）
+    if (provider.registerStaticAssets) {
+      this.permissionChecker.requirePermission(
+        provider.name,
+        PluginPermission.REGISTER_STATIC
+      );
+      this.registerProviderStaticAssets(provider);
+    }
 
-    // 注册插件 Webhook
-    this.registerProviderWebhooks(provider);
+    // 注册插件 Webhook（需要权限）
+    if (provider.registerWebhooks) {
+      this.permissionChecker.requirePermission(
+        provider.name,
+        PluginPermission.REGISTER_WEBHOOK
+      );
+      this.registerProviderWebhooks(provider);
+    }
 
-    // 注册插件中间件（受限）
-    this.registerProviderMiddleware(provider);
+    // 注册插件中间件（需要权限，受限）
+    if (provider.registerMiddleware) {
+      this.permissionChecker.requirePermission(
+        provider.name,
+        PluginPermission.REGISTER_MIDDLEWARE
+      );
+      this.registerProviderMiddleware(provider);
+    }
   }
 
   /**
@@ -426,8 +463,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     if (!authMethod) {
       return {
         success: false,
-        error: 'No authentication method specified',
-        errorCode: 'NO_AUTH_METHOD',
+        error: AuthErrors.missingParameter(['authMethod']),
       };
     }
 
@@ -436,8 +472,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     if (!provider) {
       return {
         success: false,
-        error: `Unknown authentication method: ${authMethod}`,
-        errorCode: 'UNKNOWN_AUTH_METHOD',
+        error: AuthErrors.providerNotFound(authMethod),
       };
     }
 
@@ -446,8 +481,7 @@ export class AuthCoordinator implements IAuthCoordinator {
       if (!provider.canHandle(context)) {
         return {
           success: false,
-          error: `Provider ${authMethod} cannot handle this request`,
-          errorCode: 'CANNOT_HANDLE',
+          error: AuthErrors.providerDisabled(authMethod),
         };
       }
 
@@ -467,8 +501,10 @@ export class AuthCoordinator implements IAuthCoordinator {
       
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Authentication failed',
-        errorCode: 'AUTH_ERROR',
+        error: AuthErrors.internalError(
+          err instanceof Error ? err : undefined,
+          { provider: authMethod }
+        ),
       };
     }
   }

@@ -7,6 +7,66 @@
 import type { FastifyRequest, FastifyReply, FastifyInstance, RouteOptions } from 'fastify';
 
 /**
+ * 认证错误码
+ */
+export enum AuthErrorCode {
+  // 通用错误 (1xxx)
+  UNKNOWN_ERROR = 'AUTH_1000',
+  INVALID_REQUEST = 'AUTH_1001',
+  MISSING_PARAMETER = 'AUTH_1002',
+  
+  // 认证失败 (2xxx)
+  INVALID_CREDENTIALS = 'AUTH_2001',
+  USER_NOT_FOUND = 'AUTH_2002',
+  PASSWORD_INCORRECT = 'AUTH_2003',
+  ACCOUNT_LOCKED = 'AUTH_2004',
+  ACCOUNT_DISABLED = 'AUTH_2005',
+  
+  // OAuth 错误 (3xxx)
+  INVALID_STATE = 'AUTH_3001',
+  STATE_EXPIRED = 'AUTH_3002',
+  OAUTH_CALLBACK_FAILED = 'AUTH_3003',
+  TOKEN_EXCHANGE_FAILED = 'AUTH_3004',
+  USERINFO_FETCH_FAILED = 'AUTH_3005',
+  
+  // 配置错误 (4xxx)
+  PROVIDER_NOT_FOUND = 'AUTH_4001',
+  PROVIDER_DISABLED = 'AUTH_4002',
+  INVALID_CONFIGURATION = 'AUTH_4003',
+  
+  // 系统错误 (5xxx)
+  INTERNAL_ERROR = 'AUTH_5001',
+  DATABASE_ERROR = 'AUTH_5002',
+  NETWORK_ERROR = 'AUTH_5003',
+}
+
+/**
+ * 认证错误详情
+ */
+export interface AuthError {
+  /** 错误码 */
+  code: AuthErrorCode;
+  
+  /** 错误消息（英文，用于日志） */
+  message: string;
+  
+  /** 用户友好的错误消息（可本地化） */
+  userMessage?: string;
+  
+  /** 错误详情和上下文 */
+  details?: Record<string, any>;
+  
+  /** 原始错误（用于调试） */
+  cause?: Error;
+  
+  /** 是否可重试 */
+  retryable?: boolean;
+  
+  /** 建议的操作 */
+  suggestedAction?: string;
+}
+
+/**
  * 插件路由定义
  * 插件可以注册自定义路由
  */
@@ -242,6 +302,44 @@ export interface AuthProvider {
 }
 
 /**
+ * 插件权限枚举
+ */
+export enum PluginPermission {
+  /** 读取用户信息 */
+  READ_USER = 'read:user',
+  
+  /** 创建用户 */
+  CREATE_USER = 'create:user',
+  
+  /** 更新用户 */
+  UPDATE_USER = 'update:user',
+  
+  /** 删除用户 */
+  DELETE_USER = 'delete:user',
+  
+  /** 读取配置 */
+  READ_CONFIG = 'read:config',
+  
+  /** 访问 State Store */
+  ACCESS_STATE_STORE = 'access:state_store',
+  
+  /** 注册路由 */
+  REGISTER_ROUTES = 'register:routes',
+  
+  /** 注册静态资源 */
+  REGISTER_STATIC = 'register:static',
+  
+  /** 注册 Webhook */
+  REGISTER_WEBHOOK = 'register:webhook',
+  
+  /** 注册中间件 */
+  REGISTER_MIDDLEWARE = 'register:middleware',
+  
+  /** 发送 HTTP 请求（外部 API） */
+  HTTP_REQUEST = 'http:request',
+}
+
+/**
  * 插件元数据
  * 用于管理界面展示插件信息
  */
@@ -266,6 +364,9 @@ export interface PluginMetadata {
   
   /** 插件图标 URL */
   icon?: string;
+  
+  /** 插件所需权限 */
+  permissions: PluginPermission[];
   
   /** 支持的功能特性 */
   features?: string[];
@@ -347,10 +448,7 @@ export interface AuthResult {
   userInfo?: UserInfo;
 
   /** 错误信息（认证失败时） */
-  error?: string;
-
-  /** 错误代码 */
-  errorCode?: string;
+  error?: AuthError;
 
   /** 是否需要重定向 */
   redirect?: {

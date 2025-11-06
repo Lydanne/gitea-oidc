@@ -15,7 +15,10 @@ import type {
   UserRepository,
   AuthProviderConfig,
   LocalAuthConfig,
+  PluginMetadata,
 } from '../types/auth.js';
+import { PluginPermission } from '../types/auth.js';
+import { AuthErrors } from '../utils/authErrors';
 
 export class LocalAuthProvider implements AuthProvider {
   readonly name = 'local';
@@ -110,10 +113,12 @@ export class LocalAuthProvider implements AuthProvider {
     const { username, password } = context.body;
 
     if (!username || !password) {
+      const missing = [];
+      if (!username) missing.push('username');
+      if (!password) missing.push('password');
       return {
         success: false,
-        error: '请输入用户名和密码',
-        errorCode: 'MISSING_CREDENTIALS',
+        error: AuthErrors.missingParameter(missing),
       };
     }
 
@@ -122,8 +127,7 @@ export class LocalAuthProvider implements AuthProvider {
     if (!hashedPassword) {
       return {
         success: false,
-        error: '用户名或密码错误',
-        errorCode: 'INVALID_CREDENTIALS',
+        error: AuthErrors.invalidCredentials({ username }),
       };
     }
 
@@ -132,8 +136,7 @@ export class LocalAuthProvider implements AuthProvider {
     if (!isValid) {
       return {
         success: false,
-        error: '用户名或密码错误',
-        errorCode: 'INVALID_CREDENTIALS',
+        error: AuthErrors.passwordIncorrect(username),
       };
     }
 
@@ -285,6 +288,20 @@ export class LocalAuthProvider implements AuthProvider {
       "'": '&#039;',
     };
     return text.replace(/[&<>"']/g, m => map[m]);
+  }
+
+  getMetadata(): PluginMetadata {
+    return {
+      name: this.name,
+      displayName: this.displayName,
+      version: '1.0.0',
+      description: '本地密码认证，支持 htpasswd 文件',
+      author: 'Gitea OIDC Team',
+      permissions: [
+        PluginPermission.READ_USER,
+        PluginPermission.CREATE_USER,
+      ],
+    };
   }
 
   async destroy(): Promise<void> {

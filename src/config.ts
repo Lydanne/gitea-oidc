@@ -281,7 +281,7 @@ const defaultConfig: GiteaOidcConfig = {
  * 
  * @returns {GiteaOidcConfig} 合并后的完整配置对象
  */
-export function loadConfig(): GiteaOidcConfig {
+export async function loadConfig(): Promise<GiteaOidcConfig> {
   const jsConfigPath = join(process.cwd(), 'gitea-oidc.config.js');
   const jsonConfigPath = join(process.cwd(), 'gitea-oidc.config.json');
   
@@ -321,18 +321,20 @@ export function loadConfig(): GiteaOidcConfig {
   }
   
   // 深度合并配置（用户配置覆盖默认配置）
-  const config = deepMerge(defaultConfig, userConfig);
+  const mergedConfig = deepMerge(defaultConfig, userConfig);
   
-  // 验证配置
-  try {
-    validateConfig(config);
-  } catch (error) {
-    console.error(`❌ 配置验证失败: ${error}`);
-    console.log('⚠️  使用默认配置继续运行');
-    return defaultConfig;
+  // 使用 Zod 验证配置
+  const { validateConfig: zodValidateConfig, printValidationResult } = await import('./utils/configValidator');
+  const validation = zodValidateConfig(mergedConfig);
+  
+  printValidationResult(validation);
+  
+  if (!validation.valid) {
+    console.error('❌ 配置验证失败，程序无法继续运行');
+    process.exit(1);
   }
   
-  return config;
+  return validation.config!;
 }
 
 /**
@@ -419,4 +421,4 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
  * 
  * 如果配置文件加载或验证失败，将使用默认配置
  */
-export const config = loadConfig();
+export const config = await loadConfig();

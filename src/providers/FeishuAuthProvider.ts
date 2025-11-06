@@ -17,6 +17,8 @@ import type {
   PluginWebhook,
   PluginMetadata,
 } from '../types/auth.js';
+import { PluginPermission } from '../types/auth.js';
+import { AuthErrors } from '../utils/authErrors';
 
 interface FeishuUserInfo {
   open_id: string;
@@ -100,8 +102,7 @@ export class FeishuAuthProvider implements AuthProvider {
     // 这个方法不会被直接调用，因为飞书使用 OAuth 回调
     return {
       success: false,
-      error: 'Feishu authentication requires OAuth callback',
-      errorCode: 'REQUIRES_CALLBACK',
+      error: AuthErrors.oauthCallbackFailed('Feishu authentication requires OAuth callback'),
     };
   }
 
@@ -109,10 +110,12 @@ export class FeishuAuthProvider implements AuthProvider {
     const { code, state } = context.query;
 
     if (!code || !state) {
+      const missing = [];
+      if (!code) missing.push('code');
+      if (!state) missing.push('state');
       return {
         success: false,
-        error: '缺少必要参数',
-        errorCode: 'MISSING_PARAMETERS',
+        error: AuthErrors.missingParameter(missing),
       };
     }
 
@@ -122,8 +125,7 @@ export class FeishuAuthProvider implements AuthProvider {
     if (!stateData) {
       return {
         success: false,
-        error: 'Invalid or expired state parameter',
-        errorCode: 'INVALID_STATE',
+        error: AuthErrors.stateExpired(),
       };
     }
 
@@ -131,8 +133,7 @@ export class FeishuAuthProvider implements AuthProvider {
     if (stateData.provider !== this.name) {
       return {
         success: false,
-        error: 'State provider mismatch',
-        errorCode: 'STATE_PROVIDER_MISMATCH',
+        error: AuthErrors.invalidState(state as string),
       };
     }
 
@@ -176,8 +177,10 @@ export class FeishuAuthProvider implements AuthProvider {
       
       return {
         success: false,
-        error: err instanceof Error ? err.message : '飞书登录失败',
-        errorCode: 'FEISHU_ERROR',
+        error: AuthErrors.oauthCallbackFailed(
+          '飞书登录失败',
+          { cause: err instanceof Error ? err.message : String(err) }
+        ),
       };
     }
   }
@@ -307,6 +310,14 @@ export class FeishuAuthProvider implements AuthProvider {
       author: 'Gitea OIDC Team',
       homepage: 'https://github.com/your-org/gitea-oidc',
       icon: '/auth/feishu/icon.svg',
+      permissions: [
+        PluginPermission.READ_USER,
+        PluginPermission.CREATE_USER,
+        PluginPermission.ACCESS_STATE_STORE,
+        PluginPermission.HTTP_REQUEST,
+        PluginPermission.REGISTER_ROUTES,
+        PluginPermission.REGISTER_WEBHOOK,
+      ],
       features: [
         'OAuth 2.0 认证',
         '用户信息同步',

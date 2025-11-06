@@ -11,6 +11,7 @@ import { MemoryUserRepository } from './repositories/MemoryUserRepository';
 import { LocalAuthProvider } from './providers/LocalAuthProvider';
 import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
 import type { AuthContext } from './types/auth';
+import { getUserErrorMessage, formatAuthError } from './utils/authErrors';
 
 const app = fastify({ logger: true });
 
@@ -210,11 +211,18 @@ async function start() {
         
         logInfo(`[交互完成] 用户 ${result.userId}`);
       } else {
-        logWarn(`[登录失败] ${result.error || '未知错误'}`);
+        // 记录详细错误日志
+        if (result.error) {
+          logWarn(`[登录失败] ${formatAuthError(result.error)}`);
+        } else {
+          logWarn('[登录失败] 未知错误');
+        }
         
-        // 认证失败，重定向回登录页面并显示错误
-        const errorMessage = encodeURIComponent(result.error || '认证失败');
-        return reply.redirect(`/interaction/${uid}?error=${errorMessage}`);
+        // 认证失败，重定向回登录页面并显示用户友好的错误消息
+        const errorMessage = result.error 
+          ? getUserErrorMessage(result.error)
+          : '认证失败';
+        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent(errorMessage)}`);
       }
     } catch (err) {
       logError('[登录处理] 错误:', err);

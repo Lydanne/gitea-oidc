@@ -11,8 +11,8 @@
   "oidc": {
     "issuer": "http://localhost:3000",
     "cookieKeys": [
-      "your-secret-cookie-key-here",
-      "another-secret-key"
+      "change-this-to-a-random-string-in-production",
+      "and-another-one-for-key-rotation"
     ],
     "ttl": {
       "AccessToken": 3600,
@@ -22,7 +22,7 @@
     },
     "claims": {
       "openid": ["sub"],
-      "profile": ["name", "email"]
+      "profile": ["name", "email", "email_verified", "picture"]
     },
     "features": {
       "devInteractions": { "enabled": false },
@@ -33,25 +33,47 @@
   "clients": [
     {
       "client_id": "gitea",
-      "client_secret": "secret",
+      "client_secret": "gitea-client-secret-change-in-production",
       "redirect_uris": [
         "http://localhost:3001/user/oauth2/gitea/callback"
       ],
       "response_types": ["code"],
-      "grant_types": ["authorization_code"],
+      "grant_types": ["authorization_code", "refresh_token"],
       "token_endpoint_auth_method": "client_secret_basic"
     }
   ],
-  "accounts": {
-    "testuser": {
-      "accountId": "testuser",
-      "name": "Test User",
-      "email": "test@example.com"
+  "auth": {
+    "userRepository": {
+      "type": "memory",
+      "config": {}
     },
-    "admin": {
-      "accountId": "admin",
-      "name": "Administrator",
-      "email": "admin@example.com"
+    "providers": {
+      "local": {
+        "enabled": true,
+        "displayName": "本地密码",
+        "priority": 1,
+        "config": {
+          "passwordFile": ".htpasswd",
+          "passwordFormat": "bcrypt"
+        }
+      },
+      "feishu": {
+        "enabled": false,
+        "displayName": "飞书登录",
+        "priority": 2,
+        "config": {
+          "appId": "cli_your_app_id_here",
+          "appSecret": "your_app_secret_here",
+          "redirectUri": "http://localhost:3000/auth/feishu/callback",
+          "scope": "contact:user.base:readonly",
+          "autoCreateUser": true,
+          "userMapping": {
+            "username": "en_name",
+            "name": "name",
+            "email": "email"
+          }
+        }
+      }
     }
   }
 }

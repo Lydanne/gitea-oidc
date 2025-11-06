@@ -19,9 +19,32 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 
 /**
+ * 认证提供者配置
+ */
+export interface AuthProviderConfig {
+  enabled: boolean;
+  displayName: string;
+  priority?: number;
+  config: Record<string, any>;
+}
+
+/**
+ * 认证系统配置
+ */
+export interface AuthConfig {
+  /** 用户仓储类型 */
+  userRepository: {
+    type: 'memory' | 'database' | 'config';
+    config: Record<string, any>;
+  };
+  /** 认证提供者配置 */
+  providers: Record<string, AuthProviderConfig>;
+}
+
+/**
  * Gitea OIDC IdP 完整配置接口
  * 
- * 包含所有可配置的选项，涵盖服务器、日志、OIDC Provider、客户端和用户账户设置
+ * 包含所有可配置的选项，涵盖服务器、日志、OIDC Provider、客户端和认证系统设置
  */
 export interface GiteaOidcConfig {
   /**
@@ -155,21 +178,10 @@ export interface GiteaOidcConfig {
   }>;
   
   /**
-   * 用户账户配置（硬编码方式）
-   * 适用于简单的用户管理场景
-   * 
-   * 每个用户包含：
-   * - accountId: 账户唯一标识符，用作 sub 声明
-   * - name: 用户显示名称
-   * - email: 用户邮箱地址
-   * 
-   * 注意：生产环境建议连接数据库进行用户管理
+   * 认证系统配置
+   * 包含用户仓储和认证提供者配置
    */
-  accounts: Record<string, {
-    accountId: string;
-    name: string;
-    email: string;
-  }>;
+  auth: AuthConfig;
 }
 
 /**
@@ -229,15 +241,25 @@ const defaultConfig: GiteaOidcConfig = {
     client_secret: 'secret',
     redirect_uris: ['http://localhost:3001/user/oauth2/gitea/callback'],
     response_types: ['code'],
-    grant_types: ['authorization_code'],
+    grant_types: ['authorization_code', 'refresh_token'],
     token_endpoint_auth_method: 'client_secret_basic',
   }],
   
-  accounts: {
-    'testuser': {
-      accountId: 'testuser',
-      name: 'Test User',
-      email: 'test@example.com',
+  auth: {
+    userRepository: {
+      type: 'memory',
+      config: {},
+    },
+    providers: {
+      local: {
+        enabled: true,
+        displayName: '本地密码',
+        priority: 1,
+        config: {
+          passwordFile: '.htpasswd',
+          passwordFormat: 'bcrypt',
+        },
+      },
     },
   },
 };

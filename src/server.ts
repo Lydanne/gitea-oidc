@@ -5,12 +5,12 @@ import { Provider, type Configuration } from 'oidc-provider';
 import { config, type GiteaOidcConfig } from './config';
 
 // 认证系统导入
-import { AuthCoordinator } from './core/AuthCoordinator.js';
-import { MemoryStateStore } from './stores/MemoryStateStore.js';
-import { MemoryUserRepository } from './repositories/MemoryUserRepository.js';
-import { LocalAuthProvider } from './providers/LocalAuthProvider.js';
-import { FeishuAuthProvider } from './providers/FeishuAuthProvider.js';
-import type { AuthContext } from './types/auth.js';
+import { AuthCoordinator } from './core/AuthCoordinator';
+import { MemoryStateStore } from './stores/MemoryStateStore';
+import { MemoryUserRepository } from './repositories/MemoryUserRepository';
+import { LocalAuthProvider } from './providers/LocalAuthProvider';
+import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
+import type { AuthContext } from './types/auth';
 
 const app = fastify({ logger: true });
 

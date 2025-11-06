@@ -3,11 +3,12 @@ import cors from '@fastify/cors';
 import middie from '@fastify/middie';
 // @ts-ignore
 import { Provider, type Configuration } from 'oidc-provider';
+import { config, type GiteaOidcConfig } from './config';
 
 const app = fastify({ logger: true });
 
-// 日志开关 - 设置为 false 可关闭所有自定义日志
-const ENABLE_DETAILED_LOGGING = true;
+// 从配置获取日志设置
+const ENABLE_DETAILED_LOGGING = config.logging.enabled;
 
 function logInfo(message: string, ...args: any[]) {
   if (ENABLE_DETAILED_LOGGING) {
@@ -32,64 +33,48 @@ async function start() {
 
   // 配置OIDC Provider
   const configuration: Configuration = {
-    clients: [{
-      client_id: 'gitea',
-      client_secret: 'secret',
-      redirect_uris: ['http://localhost:3001/user/oauth2/gitea/callback'], // Gitea回调URL
-      response_types: ['code'],
-      grant_types: ['authorization_code'],
-      token_endpoint_auth_method: 'client_secret_basic',
-    }],
+    clients: config.clients as any,
     interactions: {
       url: async (ctx, interaction) => {
         return `/interaction/${interaction.uid}`;
       },
     },
     cookies: {
-      keys: ['some-secret-key'],
+      keys: config.oidc.cookieKeys,
     },
-    claims: {
-      openid: ['sub'],
-      profile: ['name', 'email'],
-    },
-    features: {
-      devInteractions: { enabled: false }, // 禁用开发交互，使用自定义
-      registration: { enabled: false },
-      revocation: { enabled: true },
-    },
+    claims: config.oidc.claims,
+    features: config.oidc.features,
     findAccount: async (ctx, sub, token) => {
       logInfo(`[查找账户] sub: ${sub}, token类型: ${token?.constructor?.name || 'unknown'}`);
       
-      // 硬编码用户
-      const accounts: Record<string, any> = {
-        'testuser': {
-          accountId: 'testuser',
+      // 从配置获取用户账户
+      const accounts: Record<string, any> = {};
+      
+      // 将配置中的账户转换为 oidc-provider 需要的格式
+      for (const [accountId, accountData] of Object.entries(config.accounts)) {
+        accounts[accountId] = {
+          accountId: accountData.accountId,
           async claims(use: string, scope: string, claims: any, rejected: any) {
-            logInfo(`[声明生成] 用户: testuser, scope: ${scope}, claims:`, claims);
+            logInfo(`[声明生成] 用户: ${accountId}, scope: ${scope}, claims:`, claims);
             const userClaims = {
-              sub: 'testuser',
-              name: 'Test User',
-              email: 'test@example.com',
+              sub: accountData.accountId,
+              name: accountData.name,
+              email: accountData.email,
             };
             logInfo(`[返回声明]`, userClaims);
             return userClaims;
           },
-        },
-      };
+        };
+      }
       
       const account = accounts[sub];
       logInfo(`[账户查找结果] ${sub}: ${account ? '找到' : '未找到'}`);
       return account;
     },
-    ttl: {
-      AccessToken: 3600,
-      AuthorizationCode: 600,
-      IdToken: 3600,
-      RefreshToken: 86400,
-    },
+    ttl: config.oidc.ttl,
   };
 
-  const oidc = new Provider(`http://localhost:3000`, configuration);
+  const oidc = new Provider(config.oidc.issuer, configuration);
 
   // 挂载OIDC到Fastify
   app.use('/oidc', oidc.callback());
@@ -150,8 +135,11 @@ async function start() {
 
     logInfo(`[登录尝试] UID: ${uid}, 用户名: ${username}`);
 
-    // 简化认证（仅检查硬编码用户）
-    if (username === 'testuser' && password === 'password') {
+    // 简化认证（检查配置中的用户）
+    const accountData = config.accounts[username];
+    const validPassword = password === 'password'; // 简化密码验证
+    
+    if (accountData && validPassword) {
       logInfo(`[登录成功] 用户 ${username} 认证通过，正在完成交互`);
       
       const result = await oidc.interactionFinished(request.raw, reply.raw, {
@@ -166,8 +154,11 @@ async function start() {
   });
 
   try {
-    await app.listen({ port: 3000, host: '0.0.0.0' });
-    console.log('OIDC IdP server listening on http://localhost:3000');
+    await app.listen({ 
+      port: config.server.port, 
+      host: config.server.host 
+    });
+    console.log(`OIDC IdP server listening on ${config.server.url}`);
   } catch (err) {
     logError('服务器启动失败:', err);
     process.exit(1);

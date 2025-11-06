@@ -145,7 +145,8 @@ vite.config.ts.timestamp-*
 __MACOSX/
 .AppleDouble
 .LSOverride
-Icon[]
+Icon[
+]
 
 # Thumbnails
 ._*
@@ -165,3 +166,5 @@ Icon[]
 Network Trash Folder
 Temporary Items
 .apdisk
+
+gitea-oidc.config.*

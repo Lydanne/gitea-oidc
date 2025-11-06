@@ -1,0 +1,57 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 3000,
+    "url": "http://localhost:3000"
+  },
+  "logging": {
+    "enabled": true,
+    "level": "info"
+  },
+  "oidc": {
+    "issuer": "http://localhost:3000",
+    "cookieKeys": [
+      "your-secret-cookie-key-here",
+      "another-secret-key"
+    ],
+    "ttl": {
+      "AccessToken": 3600,
+      "AuthorizationCode": 600,
+      "IdToken": 3600,
+      "RefreshToken": 86400
+    },
+    "claims": {
+      "openid": ["sub"],
+      "profile": ["name", "email"]
+    },
+    "features": {
+      "devInteractions": { "enabled": false },
+      "registration": { "enabled": false },
+      "revocation": { "enabled": true }
+    }
+  },
+  "clients": [
+    {
+      "client_id": "gitea",
+      "client_secret": "secret",
+      "redirect_uris": [
+        "http://localhost:3001/user/oauth2/gitea/callback"
+      ],
+      "response_types": ["code"],
+      "grant_types": ["authorization_code"],
+      "token_endpoint_auth_method": "client_secret_basic"
+    }
+  ],
+  "accounts": {
+    "testuser": {
+      "accountId": "testuser",
+      "name": "Test User",
+      "email": "test@example.com"
+    },
+    "admin": {
+      "accountId": "admin",
+      "name": "Administrator",
+      "email": "admin@example.com"
+    }
+  }
+}

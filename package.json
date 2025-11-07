@@ -6,7 +6,8 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "rolldown -c rolldown.config.js",
+    "build:tsc": "tsc",
     "start": "node dist/server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
@@ -27,6 +28,7 @@
     "@types/node": "^20.0.0",
     "@types/oidc-provider": "^9.5.0",
     "jest": "^30.2.0",
+    "rolldown": "1.0.0-beta.47",
     "ts-jest": "^29.4.5",
     "ts-node": "^10.9.0",
     "tsx": "^4.20.6",

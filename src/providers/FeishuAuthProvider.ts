@@ -16,8 +16,8 @@ import type {
   PluginRoute,
   PluginWebhook,
   PluginMetadata,
-} from '../types/auth.js';
-import { PluginPermission } from '../types/auth.js';
+} from '../types/auth';
+import { PluginPermission } from '../types/auth';
 import { AuthErrors } from '../utils/authErrors';
 
 interface FeishuUserInfo {

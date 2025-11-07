@@ -17,8 +17,8 @@ import type {
   PluginMiddlewareContext,
   PluginHookName,
   AuthProviderConfig,
-} from '../types/auth.js';
-import { PluginPermission } from '../types/auth.js';
+} from '../types/auth';
+import { PluginPermission } from '../types/auth';
 import { AuthErrors } from '../utils/authErrors';
 import { PermissionChecker } from './PermissionChecker';
 

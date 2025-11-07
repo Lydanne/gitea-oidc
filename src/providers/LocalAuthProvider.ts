@@ -16,8 +16,8 @@ import type {
   AuthProviderConfig,
   LocalAuthConfig,
   PluginMetadata,
-} from '../types/auth.js';
-import { PluginPermission } from '../types/auth.js';
+} from '../types/auth';
+import { PluginPermission } from '../types/auth';
 import { AuthErrors } from '../utils/authErrors';
 
 export class LocalAuthProvider implements AuthProvider {

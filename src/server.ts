@@ -10,7 +10,7 @@ import { MemoryStateStore } from './stores/MemoryStateStore';
 import { MemoryUserRepository } from './repositories/MemoryUserRepository';
 import { LocalAuthProvider } from './providers/LocalAuthProvider';
 import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
-import type { AuthContext } from './types/auth';
+import type { AuthContext, AuthProvider } from './types/auth';
 import { getUserErrorMessage, formatAuthError } from './utils/authErrors';
 
 
@@ -269,7 +269,7 @@ async function start() {
       host: config.server.host 
     });
     console.log(`OIDC IdP server listening on ${config.server.url}`);
-    console.log(`认证插件已启用: ${authCoordinator.getProviders().map(p => p.name).join(', ')}`);
+    console.log(`认证插件已启用: ${authCoordinator.getProviders().map((p: AuthProvider) => p.name).join(', ')}`);
   } catch (err) {
     logError('服务器启动失败:', err);
     process.exit(1);

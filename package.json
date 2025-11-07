@@ -6,7 +6,8 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "rolldown -c rolldown.config.js",
+    "build": "rolldown -c rolldown.config.ts",
+    "build:prod": "rolldown -c rolldown.config.prod.ts",
     "build:tsc": "tsc",
     "start": "node dist/server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",

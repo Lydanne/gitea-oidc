@@ -2,7 +2,7 @@ import fastify from 'fastify';
 import cors from '@fastify/cors';
 import middie from '@fastify/middie';
 import { Provider, type Configuration } from 'oidc-provider';
-import { config, type GiteaOidcConfig } from './config';
+import { loadConfig } from './config';
 
 // 认证系统导入
 import { AuthCoordinator } from './core/AuthCoordinator';
@@ -13,28 +13,30 @@ import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
 import type { AuthContext } from './types/auth';
 import { getUserErrorMessage, formatAuthError } from './utils/authErrors';
 
-const app = fastify({ logger: true });
-
-// 从配置获取日志设置
-const ENABLE_DETAILED_LOGGING = config.logging.enabled;
-
-function logInfo(message: string, ...args: any[]) {
-  if (ENABLE_DETAILED_LOGGING) {
-    console.log(message, ...args);
-  }
-}
-
-function logWarn(message: string, ...args: any[]) {
-  if (ENABLE_DETAILED_LOGGING) {
-    console.warn(message, ...args);
-  }
-}
-
-function logError(message: string, ...args: any[]) {
-  console.error(message, ...args); // 错误日志始终输出
-}
 
 async function start() {
+  const config = await loadConfig();
+
+  const app = fastify({ logger: true });
+  
+  // 从配置获取日志设置
+  const ENABLE_DETAILED_LOGGING = config.logging.enabled;
+  
+  function logInfo(message: string, ...args: any[]) {
+    if (ENABLE_DETAILED_LOGGING) {
+      console.log(message, ...args);
+    }
+  }
+  
+  function logWarn(message: string, ...args: any[]) {
+    if (ENABLE_DETAILED_LOGGING) {
+      console.warn(message, ...args);
+    }
+  }
+  
+  function logError(message: string, ...args: any[]) {
+    console.error(message, ...args); // 错误日志始终输出
+  }
   // 注册中间件插件
   await app.register(middie);
   await app.register(cors, { origin: true });

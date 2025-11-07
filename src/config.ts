@@ -413,12 +413,3 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
   return result;
 }
 
-/**
- * 导出配置实例
- * 
- * 在模块加载时立即调用 loadConfig() 函数，获取最终的配置对象
- * 这个配置实例会被 server.ts 和其他模块导入使用
- * 
- * 如果配置文件加载或验证失败，将使用默认配置
- */
-export const config = await loadConfig();

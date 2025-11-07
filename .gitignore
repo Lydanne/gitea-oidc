@@ -168,3 +168,4 @@ Temporary Items
 .apdisk
 
 gitea-oidc.config.*
+.pnpm-store

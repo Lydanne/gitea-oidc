@@ -292,9 +292,11 @@ export async function loadConfig(): Promise<GiteaOidcConfig> {
   if (existsSync(jsConfigPath)) {
     configPath = jsConfigPath;
     try {
-      // 动态导入 .js 配置文件
-      const configModule = require(jsConfigPath);
-      userConfig = typeof configModule === 'function' ? configModule() : configModule;
+      // 动态导入 .js 配置文件 (使用 import() 而不是 require)
+      const configModule = await import(`file://${jsConfigPath}`);
+      userConfig = typeof configModule.default === 'function' 
+        ? configModule.default() 
+        : (configModule.default || configModule);
       console.log(`✅ JS 配置文件已加载: ${configPath}`);
     } catch (error) {
       console.error(`❌ JS 配置文件加载错误: ${error}`);

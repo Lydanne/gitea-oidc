@@ -336,6 +336,7 @@ export class FeishuAuthProvider implements AuthProvider {
         PluginPermission.ACCESS_STATE_STORE,
         PluginPermission.HTTP_REQUEST,
         PluginPermission.REGISTER_ROUTES,
+        PluginPermission.REGISTER_STATIC,
         PluginPermission.REGISTER_WEBHOOK,
       ],
       features: [

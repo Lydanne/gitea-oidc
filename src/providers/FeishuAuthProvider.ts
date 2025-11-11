@@ -66,8 +66,18 @@ interface FeishuTokenResponse {
   code: number;
   msg: string;
   app_access_token?: string;
-  user_access_token?: string;
   expires_in?: number;
+}
+
+interface FeishuUserTokenResponse {
+  code: number;
+  msg: string;
+  data?: {
+    access_token: string;
+    expires_in: number;
+    refresh_token: string;
+    token_type: string;
+  };
 }
 
 export class FeishuAuthProvider implements AuthProvider {
@@ -596,22 +606,31 @@ export class FeishuAuthProvider implements AuthProvider {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.appAccessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         grant_type: 'authorization_code',
         code,
+        app_id: this.config.appId,
+        app_secret: this.config.appSecret,
       }),
     });
 
-    const data = await response.json() as FeishuTokenResponse;
+    const data = await response.json() as FeishuUserTokenResponse;
+    
+    console.log('[FeishuAuth] Token exchange response:', {
+      code: data.code,
+      msg: data.msg,
+      hasData: !!data.data,
+      hasAccessToken: !!data.data?.access_token,
+      fullResponse: JSON.stringify(data)
+    });
 
-    if (data.code !== 0 || !data.user_access_token) {
-      throw new Error(`Failed to exchange code for token: ${data.msg}`);
+    if (data.code !== 0 || !data.data?.access_token) {
+      throw new Error(`Failed to exchange code for token: ${data.msg} (code: ${data.code})`);
     }
 
-    return data.user_access_token;
+    return data.data.access_token;
   }
 
   /**

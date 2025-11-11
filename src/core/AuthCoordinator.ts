@@ -607,39 +607,43 @@ export class AuthCoordinator implements IAuthCoordinator {
   /**
    * 存储认证结果（用于 OAuth 回调后的重定向）
    */
-  private authResults = new Map<string, { userId: string; timestamp: number }>();
-
   async storeAuthResult(interactionUid: string, userId: string): Promise<void> {
-    this.authResults.set(interactionUid, {
+    const authResult = {
       userId,
       timestamp: Date.now(),
-    });
-    
-    // 5分钟后自动清理
-    setTimeout(() => {
-      this.authResults.delete(interactionUid);
-    }, 300000);
+      type: 'auth_result', // 标记为认证结果
+    };
+
+    await this.stateStore.set(`auth_result_${interactionUid}`, authResult, 300); // 5分钟过期
     
     this.app.log.info(`Stored auth result for interaction: ${interactionUid}, user: ${userId}`);
   }
 
   async getAuthResult(interactionUid: string): Promise<string | null> {
-    const result = this.authResults.get(interactionUid);
+    const key = `auth_result_${interactionUid}`;
+    const result = await this.stateStore.get(key);
     
     if (!result) {
       return null;
     }
-    
+
+    // 验证这是认证结果而不是普通的 OAuth state
+    if ((result as any).type !== 'auth_result' || !('userId' in result) || !('timestamp' in result)) {
+      return null;
+    }
+
+    const authResult = result as { userId: string; timestamp: number; type: string };
+
     // 检查是否过期（5分钟）
-    if (Date.now() - result.timestamp > 300000) {
-      this.authResults.delete(interactionUid);
+    if (Date.now() - authResult.timestamp > 300000) {
+      await this.stateStore.delete(key);
       return null;
     }
     
     // 消费后删除
-    this.authResults.delete(interactionUid);
+    await this.stateStore.delete(key);
     
-    return result.userId;
+    return authResult.userId;
   }
 
   /**

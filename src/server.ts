@@ -47,7 +47,10 @@ async function start() {
   // 初始化认证系统
   logInfo('[认证系统] 正在初始化...');
   
-  const stateStore = new MemoryStateStore(60000); // 每分钟清理一次
+  const stateStore = new MemoryStateStore({
+    maxSize: 10000,         // 最大存储10000个state
+    cleanupIntervalMs: 30000 // 每30秒清理一次
+  });
   const userRepository = new MemoryUserRepository();
   
   // 创建认证协调器

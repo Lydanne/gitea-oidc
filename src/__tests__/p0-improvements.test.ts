@@ -66,7 +66,7 @@ describe('P0 改进测试', () => {
     let stateStore: MemoryStateStore;
 
     beforeEach(() => {
-      stateStore = new MemoryStateStore(1000); // 1 秒清理间隔
+      stateStore = new MemoryStateStore({ cleanupIntervalMs: 1000 }); // 1 秒清理间隔
     });
 
     afterEach(() => {
@@ -307,7 +307,7 @@ describe('P0 改进测试', () => {
     let userRepository: MemoryUserRepository;
 
     beforeEach(() => {
-      stateStore = new MemoryStateStore();
+      stateStore = new MemoryStateStore({ maxSize: 100 });
       userRepository = new MemoryUserRepository();
     });
 

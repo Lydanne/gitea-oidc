@@ -639,30 +639,30 @@ export interface OAuthStateData {
 
 /**
  * State 存储接口
- * 用于存储 OAuth state 参数
+ * 用于存储 OAuth state 和其他临时数据
  */
 export interface StateStore {
   /**
    * 存储 state
    * @param state state 字符串
-   * @param data state 数据
+   * @param data state 数据（可以是任意类型）
    * @param ttl 过期时间（秒）
    */
-  set(state: string, data: OAuthStateData, ttl: number): Promise<void>;
-  
+  set(state: string, data: any, ttl: number): Promise<void>;
+
   /**
    * 获取 state
    * @param state state 字符串
    * @returns state 数据，如果不存在或已过期返回 null
    */
-  get(state: string): Promise<OAuthStateData | null>;
-  
+  get(state: string): Promise<any>;
+
   /**
    * 删除 state（消费后）
    * @param state state 字符串
    */
   delete(state: string): Promise<void>;
-  
+
   /**
    * 清理过期的 state
    */

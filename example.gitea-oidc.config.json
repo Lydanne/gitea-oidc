@@ -71,7 +71,9 @@
             "username": "en_name",
             "name": "name",
             "email": "email"
-          }
+          },
+          "encryptKey": "your_encrypt_key_here",
+          "verificationToken": "your_verification_token_here"
         }
       }
     }

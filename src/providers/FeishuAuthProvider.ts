@@ -3,6 +3,7 @@
  * 支持飞书 OAuth 2.0 登录
  */
 
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import type {
   AuthProvider,
   AuthContext,
@@ -29,6 +30,37 @@ interface FeishuUserInfo {
   mobile?: string;
   avatar_url?: string;
 }
+
+/**
+ * 飞书 URL 验证请求
+ */
+interface FeishuUrlVerification {
+  challenge: string;
+  token: string;
+  type: 'url_verification';
+}
+
+/**
+ * 飞书事件通知
+ */
+interface FeishuEvent {
+  schema?: string;
+  header?: {
+    event_id: string;
+    event_type: string;
+    create_time: string;
+    token: string;
+    app_id: string;
+    tenant_key: string;
+  };
+  event?: any;
+  type?: string;
+}
+
+/**
+ * 飞书加密数据（可能是验证请求或事件通知）
+ */
+type FeishuEncryptedData = FeishuUrlVerification | FeishuEvent;
 
 interface FeishuTokenResponse {
   code: number;
@@ -193,60 +225,115 @@ export class FeishuAuthProvider implements AuthProvider {
    * 注册自定义路由
    */
   registerRoutes(): PluginRoute[] {
+    // 回调处理函数（GET 和 POST 共用）
+    const callbackHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body as any;
+      
+      // 打印请求详情用于调试
+      console.log('[FeishuAuth] Callback request:', {
+        method: request.method,
+        query: request.query,
+        body: body,
+        headers: {
+          'content-type': request.headers['content-type'],
+          'x-lark-signature': request.headers['x-lark-signature'],
+        }
+      });
+      
+      // 处理飞书加密的 URL 验证请求
+      if (request.method === 'POST' && body?.encrypt) {
+        try {
+          console.log('[FeishuAuth] Received encrypted verification request');
+          const decrypted = this.decryptFeishuData(body.encrypt);
+          console.log('[FeishuAuth] Decrypted data:', decrypted);
+          
+          // 类型守卫：检查是否为 URL 验证请求
+          if ('challenge' in decrypted && decrypted.type === 'url_verification') {
+            console.log('[FeishuAuth] Returning challenge:', decrypted.challenge);
+            return reply.send({ challenge: decrypted.challenge });
+          }
+          
+          // 如果是事件通知，这里可以处理
+          if ('header' in decrypted) {
+            console.log('[FeishuAuth] Received event:', decrypted.header?.event_type);
+            // 事件处理逻辑...
+            return reply.send({ success: true });
+          }
+        } catch (err) {
+          console.error('[FeishuAuth] Failed to decrypt verification request:', err);
+          return reply.code(400).send({ error: 'Decryption failed' });
+        }
+      }
+      
+      // 处理未加密的 URL 验证请求
+      if (request.method === 'POST' && body?.challenge) {
+        console.log('[FeishuAuth] Received plain URL verification request, challenge:', body.challenge);
+        return reply.send({ challenge: body.challenge });
+      }
+
+      // 创建认证上下文
+      const context: AuthContext = {
+        interactionUid: '', // 从 state 中恢复
+        request,
+        reply,
+        authMethod: this.name,
+        params: request.params as Record<string, any>,
+        body: body || {},
+        query: request.query as Record<string, any>,
+      };
+
+      const result = await this.handleCallback(context);
+
+      if (result.success && result.userId) {
+        // 验证 state 并获取 interactionUid
+        const query = request.query as Record<string, string>;
+        const state = query.state;
+        const stateData = await this.coordinator.verifyOAuthState(state);
+        
+        if (stateData) {
+          try {
+            // 直接完成 OIDC 交互，不再重定向
+            await this.coordinator.finishOidcInteraction(
+              request,
+              reply,
+              stateData.interactionUid,
+              result.userId
+            );
+            // interactionFinished 会自动处理重定向，无需手动返回
+            return;
+          } catch (err) {
+            console.error('[FeishuAuth] Failed to finish OIDC interaction:', err);
+            return reply.redirect(
+              `/interaction/${stateData.interactionUid}?error=${encodeURIComponent('登录失败')}`
+            );
+          }
+        } else {
+          return reply.code(400).send({ 
+            error: 'Invalid or expired state' 
+          });
+        }
+      }
+
+      // 认证失败
+      const errorMessage = result.error?.userMessage || result.error?.message || '认证失败';
+      return reply.code(400).send({ error: errorMessage });
+    };
+
     return [
       {
         method: 'GET',
         path: '/callback',
-        handler: async (request, reply) => {
-          // 创建认证上下文
-          const context: AuthContext = {
-            interactionUid: '', // 从 state 中恢复
-            request,
-            reply,
-            authMethod: this.name,
-            params: request.params as Record<string, any>,
-            body: {},
-            query: request.query as Record<string, any>,
-          };
-
-          const result = await this.handleCallback(context);
-
-          if (result.success && result.userId) {
-            // 验证 state 并获取 interactionUid
-            const query = request.query as Record<string, string>;
-            const state = query.state;
-            const stateData = await this.coordinator.verifyOAuthState(state);
-            
-            if (stateData) {
-              try {
-                // 直接完成 OIDC 交互，不再重定向
-                await this.coordinator.finishOidcInteraction(
-                  request,
-                  reply,
-                  stateData.interactionUid,
-                  result.userId
-                );
-                // interactionFinished 会自动处理重定向，无需手动返回
-                return;
-              } catch (err) {
-                console.error('[FeishuAuth] Failed to finish OIDC interaction:', err);
-                return reply.redirect(
-                  `/interaction/${stateData.interactionUid}?error=${encodeURIComponent('登录失败')}`
-                );
-              }
-            } else {
-              return reply.code(400).send({ 
-                error: 'Invalid or expired state' 
-              });
-            }
-          }
-
-          // 认证失败
-          const errorMessage = result.error?.userMessage || result.error?.message || '认证失败';
-          return reply.code(400).send({ error: errorMessage });
-        },
+        handler: callbackHandler,
         options: {
-          description: '飞书 OAuth 回调',
+          description: '飞书 OAuth 回调 (GET)',
+        },
+      },
+      {
+        method: 'POST',
+        path: '/callback',
+        handler: callbackHandler,
+        options: {
+          description: '飞书 OAuth 回调 (POST)',
         },
       },
       {
@@ -282,6 +369,112 @@ export class FeishuAuthProvider implements AuthProvider {
   }
 
   /**
+   * 解密飞书加密数据
+   * 参考: https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/request-url-verification-and-event-decryption
+   * 
+   * 飞书加密算法：
+   * 1. 密钥：encryptKey 的 SHA256 哈希值（32字节）
+   * 2. IV：密钥的前16字节
+   * 3. 算法：AES-256-CBC
+   * 4. Padding：PKCS7
+   * 
+   * @param encrypt Base64 编码的加密数据
+   * @returns 解密后的数据（URL 验证请求或事件通知）
+   */
+  private decryptFeishuData(encrypt: string): FeishuEncryptedData {
+    if (!this.config.encryptKey) {
+      throw new Error('Encrypt key not configured');
+    }
+
+    try {
+      const crypto = require('crypto');
+      
+      // 1. 对 encryptKey 进行 SHA256 哈希，得到32字节的密钥
+      const keyHash = crypto.createHash('sha256').update(this.config.encryptKey).digest();
+      
+      // 2. 使用密钥的前16字节作为 IV
+      const iv = keyHash.slice(0, 16);
+      
+      // 3. Base64 解码加密数据
+      const encryptedData = Buffer.from(encrypt, 'base64');
+
+      // 4. AES-256-CBC 解密
+      const decipher = crypto.createDecipheriv('aes-256-cbc', keyHash, iv);
+      decipher.setAutoPadding(true); // 自动处理 PKCS7 padding
+      
+      let decrypted = decipher.update(encryptedData);
+      decrypted = Buffer.concat([decrypted, decipher.final()]);
+
+      // 5. 转换为字符串
+      let decryptedStr = decrypted.toString('utf-8');
+      console.log('[FeishuAuth] Decrypted raw string:', decryptedStr);
+      
+      // 6. 提取 JSON 部分（移除前面的随机字节）
+      // 飞书的加密数据格式：random(16 bytes) + msg_len(4 bytes) + msg + app_id
+      // 我们需要找到 JSON 的起始位置
+      const jsonStart = decryptedStr.indexOf('{');
+      if (jsonStart > 0) {
+        decryptedStr = decryptedStr.substring(jsonStart);
+        console.log('[FeishuAuth] Cleaned JSON string:', decryptedStr);
+      }
+      
+      // 7. 找到 JSON 的结束位置
+      const jsonEnd = decryptedStr.lastIndexOf('}');
+      if (jsonEnd > 0) {
+        decryptedStr = decryptedStr.substring(0, jsonEnd + 1);
+      }
+      
+      return JSON.parse(decryptedStr);
+    } catch (err) {
+      console.error('[FeishuAuth] Failed to decrypt data:', err);
+      console.error('[FeishuAuth] Encrypt key length:', this.config.encryptKey?.length);
+      throw err;
+    }
+  }
+
+  /**
+   * 验证飞书请求签名
+   * 参考: https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/request-url-verification-and-event-decryption
+   */
+  private async verifyFeishuSignature(request: FastifyRequest): Promise<boolean> {
+    const signature = request.headers['x-lark-signature'] as string;
+    const timestamp = request.headers['x-lark-request-timestamp'] as string;
+    const nonce = request.headers['x-lark-request-nonce'] as string;
+
+    if (!signature || !timestamp || !nonce) {
+      console.warn('[FeishuAuth] Missing signature headers');
+      return false;
+    }
+
+    // 如果没有配置 verificationToken，跳过验证（开发环境）
+    if (!this.config.verificationToken) {
+      console.warn('[FeishuAuth] Verification token not configured, skipping signature verification');
+      return true;
+    }
+
+    try {
+      // 飞书签名算法：SHA256(timestamp + nonce + encrypt_key + body)
+      const crypto = await import('crypto');
+      const body = JSON.stringify(request.body);
+      const signContent = `${timestamp}${nonce}${this.config.verificationToken}${body}`;
+      
+      const hash = crypto.createHash('sha256');
+      hash.update(signContent);
+      const calculatedSignature = hash.digest('hex');
+
+      const isValid = calculatedSignature === signature;
+      if (!isValid) {
+        console.error('[FeishuAuth] Signature verification failed');
+      }
+      
+      return isValid;
+    } catch (err) {
+      console.error('[FeishuAuth] Error verifying signature:', err);
+      return false;
+    }
+  }
+
+  /**
    * 注册 Webhook
    */
   registerWebhooks(): PluginWebhook[] {
@@ -294,25 +487,29 @@ export class FeishuAuthProvider implements AuthProvider {
           
           console.log('[FeishuAuth] Received webhook event:', event.type);
 
+          // URL 验证请求
+          if (event.type === 'url_verification') {
+            return {
+              challenge: event.challenge,
+            };
+          }
+
           // 这里可以处理用户信息变更、部门变更等事件
           // 例如：同步用户信息、更新用户状态等
+          switch (event.type) {
+            case 'user.created':
+            case 'user.updated':
+            case 'user.deleted':
+              console.log('[FeishuAuth] User event:', event.type, event.event);
+              break;
+            default:
+              console.log('[FeishuAuth] Unhandled event type:', event.type);
+          }
 
           return { success: true };
         },
         verifySignature: async (request) => {
-          // 验证飞书签名
-          const signature = request.headers['x-lark-signature'] as string;
-          const timestamp = request.headers['x-lark-request-timestamp'] as string;
-          const nonce = request.headers['x-lark-request-nonce'] as string;
-
-          if (!signature || !timestamp || !nonce) {
-            return false;
-          }
-
-          // 这里应该实现飞书的签名验证逻辑
-          // 参考: https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/request-url-verification-and-event-decryption
-
-          return true; // 简化实现
+          return this.verifyFeishuSignature(request);
         },
       },
     ];

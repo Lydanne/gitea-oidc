@@ -809,6 +809,12 @@ export interface FeishuAuthConfig {
   
   /** 飞书 API 端点（可选，用于私有化部署） */
   apiEndpoint?: string;
+  
+  /** 加密密钥（用于事件订阅和回调加密） */
+  encryptKey?: string;
+  
+  /** 验证令牌（用于验证请求来源） */
+  verificationToken?: string;
 }
 
 /**

@@ -153,7 +153,7 @@ gitea-oidc/
 1. 进入 Gitea **管理面板** → **认证源** → **添加认证源**
 2. 选择 **OpenID Connect**
 3. 填写配置：
-   - **发现 URL**: `http://localhost:3000/.well-known/openid-configuration`
+   - **发现 URL**: `http://localhost:3000/oidc/.well-known/openid-configuration`
    - **客户端 ID**: `gitea`
    - **客户端密钥**: `gitea-client-secret-change-in-production`
 4. 保存配置

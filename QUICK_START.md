@@ -121,7 +121,7 @@ pnpm start
 ### 7.1 访问 OIDC 发现端点
 
 ```bash
-curl http://localhost:3000/.well-known/openid-configuration
+curl http://localhost:3000/oidc/.well-known/openid-configuration
 ```
 
 ### 7.2 触发认证流程

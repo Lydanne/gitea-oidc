@@ -30,7 +30,7 @@ const provider = new oidc.Provider("http://localhost:3000", {
 
 const server = provider.listen(3000, () => {
   console.log(
-    "oidc-provider listening on port 3000, check http://localhost:3000/.well-known/openid-configuration"
+    "oidc-provider listening on port 3000, check http://localhost:3000/oidc/.well-known/openid-configuration"
   );
 });
 ```
@@ -467,7 +467,7 @@ const initialAccessToken = await new provider.InitialAccessToken({
 
 ## 🌐 端点列表
 
-- `/.well-known/openid-configuration` - OpenID 配置
+- `/oidc/.well-known/openid-configuration` - OpenID 配置
 - `/auth` - 授权端点
 - `/token` - 令牌端点
 - `/me` - 用户信息端点

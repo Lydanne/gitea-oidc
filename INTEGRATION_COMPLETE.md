@@ -175,7 +175,7 @@ OIDC IdP server listening on http://localhost:3000
 ### 1. 访问 OIDC 发现端点
 
 ```bash
-curl http://localhost:3000/.well-known/openid-configuration
+curl http://localhost:3000/oidc/.well-known/openid-configuration
 ```
 
 ### 2. 触发登录流程
@@ -259,7 +259,7 @@ http://localhost:3000/interaction/test
 - [ ] 认证系统初始化成功
 - [ ] 插件注册成功
 - [ ] 服务器启动成功
-- [ ] 访问 `/.well-known/openid-configuration` 返回正确的发现文档
+- [ ] 访问 `/oidc/.well-known/openid-configuration` 返回正确的发现文档
 - [ ] 访问登录页面显示认证选项
 - [ ] 本地密码登录成功
 - [ ] 用户信息正确返回给 OIDC 客户端

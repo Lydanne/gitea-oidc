@@ -107,7 +107,7 @@ OIDC IdP server listening on http://localhost:3000
 
 ### 1. OIDC 发现端点
 ```bash
-curl http://localhost:3000/.well-known/openid-configuration
+curl http://localhost:3000/oidc/.well-known/openid-configuration
 ```
 
 **预期结果**：
@@ -174,7 +174,7 @@ curl -X POST http://localhost:3000/token
    - Provider: OpenID Connect
    - Client ID: `gitea`
    - Client Secret: `gitea-client-secret-change-in-production`
-   - OpenID Connect Auto Discovery URL: `http://localhost:3000/.well-known/openid-configuration`
+   - OpenID Connect Auto Discovery URL: `http://localhost:3000/oidc/.well-known/openid-configuration`
 
 2. **测试登录**
    - [ ] 在 Gitea 登录页点击"使用 OIDC 登录"

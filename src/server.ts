@@ -234,6 +234,39 @@ async function start() {
     }
   });
 
+  // OAuth 回调完成路由（用于飞书等第三方登录）
+  app.get('/interaction/:uid/complete', async (request, reply) => {
+    const { uid } = request.params as { uid: string };
+    logInfo(`[OAuth 完成] UID: ${uid}`);
+
+    try {
+      // 从临时存储中获取认证结果
+      const userId = await authCoordinator.getAuthResult(uid);
+      
+      if (!userId) {
+        logWarn(`[OAuth 完成] 未找到认证结果: ${uid}`);
+        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent('认证会话已过期')}`);
+      }
+
+      logInfo(`[OAuth 完成] 用户 ${userId} 认证通过，完成 login 交互`);
+
+      // 完成 OIDC 交互
+      await oidc.interactionFinished(
+        request.raw,
+        reply.raw,
+        {
+          login: { accountId: userId },
+        },
+        { mergeWithLastSubmission: false }
+      );
+
+      logInfo(`[OAuth Login 完成] 用户 ${userId}`);
+    } catch (err) {
+      logError('[OAuth 完成] 错误:', err);
+      return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent('登录失败')}`);
+    }
+  });
+
   // 登录处理（使用认证插件系统）
   app.post('/interaction/:uid/login', async (request, reply) => {
     const { uid } = request.params as { uid: string };

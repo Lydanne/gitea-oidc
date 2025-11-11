@@ -556,7 +556,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     // 存储 state，10 分钟过期
     await this.stateStore.set(state, data, 600);
 
-    this.app.log.debug(`Generated OAuth state for ${provider}: ${state.substring(0, 8)}...`);
+    this.app.log.info(`[OAuth State] Generated for ${provider}: ${state.substring(0, 8)}..., interactionUid: ${interactionUid}`);
 
     return state;
   }
@@ -566,18 +566,28 @@ export class AuthCoordinator implements IAuthCoordinator {
    */
   async verifyOAuthState(state: string): Promise<OAuthStateData | null> {
     try {
+      this.app.log.info(`[OAuth State] Verifying state: ${state.substring(0, 8)}...`);
+      
+      // 列出所有存储的 state（调试用）
+      if ('listAll' in this.stateStore && typeof (this.stateStore as any).listAll === 'function') {
+        const allStates = (this.stateStore as any).listAll();
+        this.app.log.info(`[OAuth State] Current stored states: ${JSON.stringify(allStates)}`);
+      }
+      
       // 获取 state 数据
       const data = await this.stateStore.get(state);
       
       if (!data) {
-        this.app.log.warn(`Invalid or expired state: ${state.substring(0, 8)}...`);
+        this.app.log.warn(`[OAuth State] Invalid or expired state: ${state.substring(0, 8)}...`);
         return null;
       }
+
+      this.app.log.info(`[OAuth State] Found state data: provider=${data.provider}, interactionUid=${data.interactionUid}, age=${Date.now() - data.createdAt}ms`);
 
       // 验证 state 未过期（额外检查）
       const age = Date.now() - data.createdAt;
       if (age > 600000) { // 10 分钟
-        this.app.log.warn(`Expired state: ${state.substring(0, 8)}...`);
+        this.app.log.warn(`[OAuth State] Expired state: ${state.substring(0, 8)}..., age=${age}ms`);
         await this.stateStore.delete(state);
         return null;
       }
@@ -585,13 +595,51 @@ export class AuthCoordinator implements IAuthCoordinator {
       // 消费 state（一次性使用）
       await this.stateStore.delete(state);
 
-      this.app.log.debug(`Verified and consumed state for ${data.provider}`);
+      this.app.log.info(`[OAuth State] Verified and consumed state for ${data.provider}`);
 
       return data;
     } catch (err) {
       this.app.log.error({ err }, 'Failed to verify OAuth state');
       return null;
     }
+  }
+
+  /**
+   * 存储认证结果（用于 OAuth 回调后的重定向）
+   */
+  private authResults = new Map<string, { userId: string; timestamp: number }>();
+
+  async storeAuthResult(interactionUid: string, userId: string): Promise<void> {
+    this.authResults.set(interactionUid, {
+      userId,
+      timestamp: Date.now(),
+    });
+    
+    // 5分钟后自动清理
+    setTimeout(() => {
+      this.authResults.delete(interactionUid);
+    }, 300000);
+    
+    this.app.log.info(`Stored auth result for interaction: ${interactionUid}, user: ${userId}`);
+  }
+
+  async getAuthResult(interactionUid: string): Promise<string | null> {
+    const result = this.authResults.get(interactionUid);
+    
+    if (!result) {
+      return null;
+    }
+    
+    // 检查是否过期（5分钟）
+    if (Date.now() - result.timestamp > 300000) {
+      this.authResults.delete(interactionUid);
+      return null;
+    }
+    
+    // 消费后删除
+    this.authResults.delete(interactionUid);
+    
+    return result.userId;
   }
 
   /**

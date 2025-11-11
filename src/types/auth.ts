@@ -724,6 +724,20 @@ export interface IAuthCoordinator {
   verifyOAuthState(state: string): Promise<OAuthStateData | null>;
 
   /**
+   * 存储认证结果（用于 OAuth 回调后的重定向）
+   * @param interactionUid OIDC 交互 UID
+   * @param userId 已认证的用户 ID
+   */
+  storeAuthResult(interactionUid: string, userId: string): Promise<void>;
+
+  /**
+   * 获取认证结果
+   * @param interactionUid OIDC 交互 UID
+   * @returns 用户 ID，如果不存在或已过期返回 null
+   */
+  getAuthResult(interactionUid: string): Promise<string | null>;
+
+  /**
    * 完成 OIDC 交互
    * 供插件调用，用于完成用户认证后的 OIDC 交互流程
    * 

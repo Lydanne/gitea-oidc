@@ -213,6 +213,10 @@ export class FeishuAuthProvider implements AuthProvider {
         success: true,
         userId: user.sub,
         userInfo: user,
+        // 将 stateData 附加到结果中，避免重复验证
+        metadata: {
+          interactionUid: stateData.interactionUid,
+        },
       };
     } catch (err) {
       console.error('[FeishuAuth] Callback error:', err);
@@ -295,28 +299,16 @@ export class FeishuAuthProvider implements AuthProvider {
       const result = await this.handleCallback(context);
 
       if (result.success && result.userId) {
-        // 验证 state 并获取 interactionUid
-        const query = request.query as Record<string, string>;
-        const state = query.state;
-        const stateData = await this.coordinator.verifyOAuthState(state);
+        // 从 result.metadata 中获取 interactionUid（已在 handleCallback 中验证过 state）
+        const interactionUid = result.metadata?.interactionUid;
         
-        if (stateData) {
-          try {
-            // 直接完成 OIDC 交互，不再重定向
-            await this.coordinator.finishOidcInteraction(
-              request,
-              reply,
-              stateData.interactionUid,
-              result.userId
-            );
-            // interactionFinished 会自动处理重定向，无需手动返回
-            return;
-          } catch (err) {
-            console.error('[FeishuAuth] Failed to finish OIDC interaction:', err);
-            return reply.redirect(
-              `/interaction/${stateData.interactionUid}?error=${encodeURIComponent('登录失败')}`
-            );
-          }
+        if (interactionUid) {
+          // 将用户信息存储到临时存储中，然后重定向回交互页面
+          // 这样可以避免 cookie 丢失的问题
+          await this.coordinator.storeAuthResult(interactionUid, result.userId);
+          
+          // 重定向回交互页面，让它完成 OIDC 交互
+          return reply.redirect(`/interaction/${interactionUid}/complete`);
         } else {
           return reply.code(400).send({ 
             error: 'Invalid or expired state' 

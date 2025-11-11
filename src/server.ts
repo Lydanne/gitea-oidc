@@ -105,17 +105,20 @@ async function start() {
         accountId: user.sub,
         async claims(use: string, scope: string, claims: any, rejected: any) {
           logInfo(`[声明生成] 用户: ${user.username}, scope: ${scope} claims: ${JSON.stringify(claims)} rejected: ${JSON.stringify(rejected)} use: ${use}`);
+          
+          // 直接使用 UserInfo 的 OIDC 标准字段
           const userClaims = {
             sub: user.sub,
             name: user.name,
             email: user.email,
-            email_verified: user.emailVerified || false,
-            picture: user.avatar,
+            email_verified: user.email_verified ?? false,
+            picture: user.picture,
             phone: user.phone,
-            phone_verified: user.phoneVerified || false,
-            groups: ["Developer"],
+            phone_verified: user.phone_verified ?? false,
+            groups: user.groups ?? [],
             updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
           };
+          
           logInfo(`[返回声明]`, userClaims);
           return userClaims;
         },

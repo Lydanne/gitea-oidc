@@ -344,9 +344,9 @@ describe('P0 改进测试', () => {
           username: 'feishu-user',
           name: 'Feishu User',
           email: 'user@feishu.com',
-          avatar: 'https://example.com/avatar.jpg',
+          picture: 'https://example.com/avatar.jpg',
           authProvider: 'feishu',
-          emailVerified: true,
+          email_verified: true,
           metadata: {
             externalId: 'feishu-openid-123',
             unionId: 'feishu-unionid-456',

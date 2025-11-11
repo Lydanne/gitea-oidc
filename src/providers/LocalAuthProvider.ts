@@ -151,7 +151,7 @@ export class LocalAuthProvider implements AuthProvider {
         name: username,
         email: `${username}@local`,
         authProvider: this.name,
-        emailVerified: false,
+        email_verified: false,
         metadata: {
           externalId: username,
         },

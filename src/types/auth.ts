@@ -462,6 +462,7 @@ export interface AuthResult {
 
 /**
  * 统一用户信息结构
+ * 字段命名遵循 OIDC 标准规范
  */
 export interface UserInfo {
   /** 用户唯一标识符（OIDC sub claim） */
@@ -470,34 +471,37 @@ export interface UserInfo {
   /** 用户名 */
   username: string;
 
-  /** 显示名称 */
+  /** 显示名称（OIDC name claim） */
   name: string;
 
-  /** 邮箱 */
+  /** 邮箱（OIDC email claim） */
   email: string;
 
-  /** 头像 URL */
-  avatar?: string;
+  /** 头像 URL（OIDC picture claim） */
+  picture?: string;
 
-  /** 手机号 */
+  /** 手机号（OIDC phone claim） */
   phone?: string;
 
   /** 认证来源 */
   authProvider: string;
 
-  /** 是否已验证邮箱 */
-  emailVerified?: boolean;
+  /** 是否已验证邮箱（OIDC email_verified claim） */
+  email_verified?: boolean;
 
-  /** 是否已验证手机 */
-  phoneVerified?: boolean;
+  /** 是否已验证手机（OIDC phone_verified claim） */
+  phone_verified?: boolean;
+
+  /** 用户组列表（OIDC groups claim，用于团队映射） */
+  groups?: string[];
 
   /** 创建时间 */
   createdAt?: Date;
 
-  /** 更新时间 */
+  /** 更新时间（OIDC updated_at claim，以秒为单位的时间戳） */
   updatedAt?: Date;
 
-  /** 扩展属性 */
+  /** 扩展属性（用于存储额外的自定义字段） */
   metadata?: Record<string, any>;
 }
 
@@ -784,7 +788,7 @@ export interface FeishuAuthConfig {
     username?: string;
     name?: string;
     email?: string;
-    avatar?: string;
+    picture?: string;
   };
   
   /** 飞书 API 端点（可选，用于私有化部署） */

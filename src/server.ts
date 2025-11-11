@@ -149,10 +149,7 @@ async function start() {
   // 统一登录页面（使用认证插件系统）
   app.get('/interaction/:uid', async (request, reply) => {
     const { uid } = request.params as { uid: string };
-    logInfo(`[交互页面] 用户访问交互页面, UID: ${uid}, ctx: ${JSON.stringify({
-      params: request.params,
-      query: request.query,
-    })}`);
+    logInfo(`[交互页面] 用户访问交互页面, UID: ${uid}`);
     
     try {
       const details = await oidc.interactionDetails(request.raw, reply.raw);
@@ -161,9 +158,59 @@ async function start() {
         uid: details.uid,
         prompt: details.prompt,
         params: details.params,
+        grantId: details.grantId,
       }));
       
-      // 创建认证上下文
+      // 如果是 consent prompt，说明用户已经登录，直接自动授予同意
+      if (details.prompt.name === 'consent') {
+        logInfo(`[自动授予同意] 用户已登录，自动处理 consent`);
+        
+        // 获取或创建 grant
+        let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
+        if (!grant) {
+          grant = new oidc.Grant({
+            accountId: details.session?.accountId,
+            clientId: (details.params as any).client_id,
+          });
+        }
+
+        // 添加缺失的 scope/claims
+        const missingScope = (details.prompt as any)?.details?.missingOIDCScope as string[] | undefined;
+        if (missingScope && missingScope.length > 0) {
+          grant.addOIDCScope(missingScope.join(' '));
+        }
+
+        const missingClaims = (details.prompt as any)?.details?.missingOIDCClaims as string[] | undefined;
+        if (missingClaims && missingClaims.length > 0) {
+          grant.addOIDCClaims(missingClaims);
+        }
+
+        const missingResourceScopes = (details.prompt as any)?.details?.missingResourceScopes as Record<string, string[]> | undefined;
+        if (missingResourceScopes) {
+          for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
+            if (scopes && scopes.length > 0) {
+              grant.addResourceScope(indicator, scopes.join(' '));
+            }
+          }
+        }
+
+        const grantId = await grant.save();
+        
+        // 完成交互
+        await oidc.interactionFinished(
+          request.raw,
+          reply.raw,
+          {
+            consent: { grantId },
+          },
+          { mergeWithLastSubmission: true }
+        );
+        
+        logInfo(`[自动授予完成] grantId: ${grantId}`);
+        return;
+      }
+      
+      // 如果是 login prompt，渲染登录页面
       const context: AuthContext = {
         interactionUid: uid,
         request,
@@ -207,61 +254,19 @@ async function start() {
       const result = await authCoordinator.handleAuthentication(context);
       
       if (result.success && result.userId) {
-        logInfo(`[登录成功] 用户 ${result.userId} 认证通过，正在完成交互并授予同意`);
+        logInfo(`[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`);
 
-        // 读取交互详情以确定缺失的 scope/claims，并创建或补充 grant
-        const details = await oidc.interactionDetails(request.raw, reply.raw);
-
-        logInfo(`[Login 交互详情] ` + JSON.stringify({
-          uid: details.uid,
-          prompt: details.prompt,
-          params: details.params,
-          grantId: details.grantId,
-        }));
-
-        let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
-        if (!grant) {
-          grant = new oidc.Grant({
-            accountId: result.userId,
-            clientId: (details.params as any).client_id,
-          });
-        }
-
-        const missingScope = (details.prompt as any)?.details?.missingOIDCScope as string[] | undefined;
-        if (missingScope && missingScope.length > 0) {
-          grant.addOIDCScope(missingScope.join(' '));
-        }
-
-        const missingClaims = (details.prompt as any)?.details?.missingOIDCClaims as string[] | undefined;
-        if (missingClaims && missingClaims.length > 0) {
-          grant.addOIDCClaims(missingClaims);
-        }
-
-        const missingResourceScopes = (details.prompt as any)?.details?.missingResourceScopes as Record<string, string[]> | undefined;
-        if (missingResourceScopes) {
-          for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
-            if (scopes && scopes.length > 0) {
-              grant.addResourceScope(indicator, scopes.join(' '));
-            }
-          }
-        }
-
-        const grantId = await grant.save();
-
-        logInfo(`[Login 交互详情] grantId: ${grantId} Grant: ` + JSON.stringify(grant));
-
-        // 完成 OIDC 交互，合并并授予 consent
+        // 只完成 login，consent 会在后续的 GET 请求中自动处理
         await oidc.interactionFinished(
           request.raw,
           reply.raw,
           {
             login: { accountId: result.userId },
-            consent: { grantId },
           },
-          { mergeWithLastSubmission: true }
+          { mergeWithLastSubmission: false }
         );
 
-        logInfo(`[交互完成] 用户 ${result.userId}`);
+        logInfo(`[Login 完成] 用户 ${result.userId}`);
       } else {
         // 记录详细错误日志
         if (result.error) {

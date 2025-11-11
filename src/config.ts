@@ -415,3 +415,6 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
   return result;
 }
 
+export function defineConfig(config: GiteaOidcConfig): GiteaOidcConfig {
+  return config;
+}

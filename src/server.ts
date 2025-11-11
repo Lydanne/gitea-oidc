@@ -89,7 +89,7 @@ async function start() {
     claims: config.oidc.claims,
     features: config.oidc.features,
     findAccount: async (ctx, sub, token) => {
-      logInfo(`[查找账户] sub: ${sub}, token类型: ${token?.constructor?.name || 'unknown'}`);
+      logInfo(`[查找账户] sub: ${sub}, token类型: ${token?.constructor?.name || 'unknown'} ctx: ${JSON.stringify(ctx)}`);
       
       // 使用 AuthCoordinator 查找用户
       const user = await authCoordinator.findAccount(sub);
@@ -99,12 +99,12 @@ async function start() {
         return undefined;
       }
       
-      logInfo(`[账户查找结果] ${sub}: 找到 (${user.username})`);
+      logInfo(`[账户查找结果] ${sub}: 找到 (${user.username}) JSON: ` + JSON.stringify(user));
       
       return {
         accountId: user.sub,
         async claims(use: string, scope: string, claims: any, rejected: any) {
-          logInfo(`[声明生成] 用户: ${user.username}, scope: ${scope}`);
+          logInfo(`[声明生成] 用户: ${user.username}, scope: ${scope} claims: ${JSON.stringify(claims)} rejected: ${JSON.stringify(rejected)} use: ${use}`);
           const userClaims = {
             sub: user.sub,
             name: user.name,
@@ -113,6 +113,7 @@ async function start() {
             picture: user.avatar,
             phone: user.phone,
             phone_verified: user.phoneVerified || false,
+            groups: ["Developer"],
             updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
           };
           logInfo(`[返回声明]`, userClaims);
@@ -145,16 +146,19 @@ async function start() {
   // 统一登录页面（使用认证插件系统）
   app.get('/interaction/:uid', async (request, reply) => {
     const { uid } = request.params as { uid: string };
-    logInfo(`[交互页面] 用户访问交互页面, UID: ${uid}`);
+    logInfo(`[交互页面] 用户访问交互页面, UID: ${uid}, ctx: ${JSON.stringify({
+      params: request.params,
+      query: request.query,
+    })}`);
     
     try {
       const details = await oidc.interactionDetails(request.raw, reply.raw);
       
-      logInfo(`[交互详情]`, {
+      logInfo(`[GET 交互详情]` + JSON.stringify({
         uid: details.uid,
         prompt: details.prompt,
         params: details.params,
-      });
+      }));
       
       // 创建认证上下文
       const context: AuthContext = {
@@ -200,20 +204,60 @@ async function start() {
       const result = await authCoordinator.handleAuthentication(context);
       
       if (result.success && result.userId) {
-        logInfo(`[登录成功] 用户 ${result.userId} 认证通过，正在完成交互`);
-        
-        // 认证成功，完成 OIDC 交互
+        logInfo(`[登录成功] 用户 ${result.userId} 认证通过，正在完成交互并授予同意`);
+
+        // 读取交互详情以确定缺失的 scope/claims，并创建或补充 grant
+        const details = await oidc.interactionDetails(request.raw, reply.raw);
+
+        logInfo(`[Login 交互详情] ` + JSON.stringify({
+          uid: details.uid,
+          prompt: details.prompt,
+          params: details.params,
+          grantId: details.grantId,
+        }));
+
+        let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
+        if (!grant) {
+          grant = new oidc.Grant({
+            accountId: result.userId,
+            clientId: (details.params as any).client_id,
+          });
+        }
+
+        const missingScope = (details.prompt as any)?.details?.missingOIDCScope as string[] | undefined;
+        if (missingScope && missingScope.length > 0) {
+          grant.addOIDCScope(missingScope.join(' '));
+        }
+
+        const missingClaims = (details.prompt as any)?.details?.missingOIDCClaims as string[] | undefined;
+        if (missingClaims && missingClaims.length > 0) {
+          grant.addOIDCClaims(missingClaims);
+        }
+
+        const missingResourceScopes = (details.prompt as any)?.details?.missingResourceScopes as Record<string, string[]> | undefined;
+        if (missingResourceScopes) {
+          for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
+            if (scopes && scopes.length > 0) {
+              grant.addResourceScope(indicator, scopes.join(' '));
+            }
+          }
+        }
+
+        const grantId = await grant.save();
+
+        logInfo(`[Login 交互详情] grantId: ${grantId} Grant: ` + JSON.stringify(grant));
+
+        // 完成 OIDC 交互，合并并授予 consent
         await oidc.interactionFinished(
           request.raw,
           reply.raw,
           {
-            login: {
-              accountId: result.userId,
-            },
+            login: { accountId: result.userId },
+            consent: { grantId },
           },
-          { mergeWithLastSubmission: false }
+          { mergeWithLastSubmission: true }
         );
-        
+
         logInfo(`[交互完成] 用户 ${result.userId}`);
       } else {
         // 记录详细错误日志

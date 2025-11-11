@@ -1,6 +1,7 @@
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import middie from '@fastify/middie';
+import formBody from '@fastify/formbody';
 import { Provider, type Configuration } from 'oidc-provider';
 import { loadConfig } from './config';
 
@@ -40,6 +41,8 @@ async function start() {
   // 注册中间件插件
   await app.register(middie);
   await app.register(cors, { origin: true });
+  // 解析 application/x-www-form-urlencoded 表单
+  await app.register(formBody);
 
   // 初始化认证系统
   logInfo('[认证系统] 正在初始化...');

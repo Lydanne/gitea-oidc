@@ -724,6 +724,22 @@ export interface IAuthCoordinator {
   verifyOAuthState(state: string): Promise<OAuthStateData | null>;
 
   /**
+   * 完成 OIDC 交互
+   * 供插件调用，用于完成用户认证后的 OIDC 交互流程
+   * 
+   * @param request Fastify 请求对象
+   * @param reply Fastify 响应对象
+   * @param interactionUid OIDC 交互 UID
+   * @param userId 已认证的用户 ID
+   */
+  finishOidcInteraction(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    interactionUid: string,
+    userId: string
+  ): Promise<void>;
+
+  /**
    * 初始化所有插件
    */
   initialize(): Promise<void>;

@@ -211,19 +211,39 @@ export class FeishuAuthProvider implements AuthProvider {
 
           const result = await this.handleCallback(context);
 
-          if (result.success && result.userInfo) {
-            // 重定向回 OIDC 交互页面
+          if (result.success && result.userId) {
+            // 验证 state 并获取 interactionUid
             const query = request.query as Record<string, string>;
             const state = query.state;
             const stateData = await this.coordinator.verifyOAuthState(state);
             
             if (stateData) {
-              const query = request.query as Record<string, string>;
-              return reply.redirect(`/interaction/${stateData.interactionUid}/feishu-success?userId=${result.userId}`);
+              try {
+                // 直接完成 OIDC 交互，不再重定向
+                await this.coordinator.finishOidcInteraction(
+                  request,
+                  reply,
+                  stateData.interactionUid,
+                  result.userId
+                );
+                // interactionFinished 会自动处理重定向，无需手动返回
+                return;
+              } catch (err) {
+                console.error('[FeishuAuth] Failed to finish OIDC interaction:', err);
+                return reply.redirect(
+                  `/interaction/${stateData.interactionUid}?error=${encodeURIComponent('登录失败')}`
+                );
+              }
+            } else {
+              return reply.code(400).send({ 
+                error: 'Invalid or expired state' 
+              });
             }
           }
 
-          return reply.code(400).send({ error: result.error });
+          // 认证失败
+          const errorMessage = result.error?.userMessage || result.error?.message || '认证失败';
+          return reply.code(400).send({ error: errorMessage });
         },
         options: {
           description: '飞书 OAuth 回调',

@@ -5,6 +5,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes } from 'crypto';
+import type { Provider } from 'oidc-provider';
 import type {
   IAuthCoordinator,
   AuthProvider,
@@ -34,6 +35,9 @@ export interface AuthCoordinatorConfig {
   
   /** 插件配置 */
   providersConfig: Record<string, AuthProviderConfig>;
+  
+  /** OIDC Provider 实例（可选，用于插件完成交互） */
+  oidcProvider?: Provider;
 }
 
 export class AuthCoordinator implements IAuthCoordinator {
@@ -44,12 +48,22 @@ export class AuthCoordinator implements IAuthCoordinator {
   private providers = new Map<string, AuthProvider>();
   private permissionChecker = new PermissionChecker();
   private initialized = false;
+  private oidcProvider?: Provider;
 
   constructor(config: AuthCoordinatorConfig) {
     this.app = config.app;
     this.stateStore = config.stateStore;
     this.userRepository = config.userRepository;
     this.providersConfig = config.providersConfig;
+    this.oidcProvider = config.oidcProvider;
+  }
+  
+  /**
+   * 设置 OIDC Provider 实例
+   * 在 OIDC Provider 创建后调用
+   */
+  setOidcProvider(provider: Provider): void {
+    this.oidcProvider = provider;
   }
 
   /**
@@ -577,6 +591,39 @@ export class AuthCoordinator implements IAuthCoordinator {
     } catch (err) {
       this.app.log.error({ err }, 'Failed to verify OAuth state');
       return null;
+    }
+  }
+
+  /**
+   * 完成 OIDC 交互
+   * 供插件调用，用于完成用户认证后的 OIDC 交互流程
+   */
+  async finishOidcInteraction(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    interactionUid: string,
+    userId: string
+  ): Promise<void> {
+    if (!this.oidcProvider) {
+      throw new Error('OIDC Provider not initialized');
+    }
+
+    try {
+      await this.oidcProvider.interactionFinished(
+        request.raw,
+        reply.raw,
+        {
+          login: {
+            accountId: userId,
+          },
+        },
+        { mergeWithLastSubmission: false }
+      );
+      
+      this.app.log.info(`OIDC interaction finished for user: ${userId}, uid: ${interactionUid}`);
+    } catch (err) {
+      this.app.log.error({ err, userId, interactionUid }, 'Failed to finish OIDC interaction');
+      throw err;
     }
   }
 

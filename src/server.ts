@@ -128,6 +128,9 @@ async function start() {
   };
 
   const oidc = new Provider(config.oidc.issuer, configuration);
+  
+  // 将 OIDC Provider 实例传递给 AuthCoordinator
+  authCoordinator.setOidcProvider(oidc);
 
   // 挂载OIDC到Fastify
   app.use('/oidc', oidc.callback());
@@ -284,37 +287,6 @@ async function start() {
     } catch (err) {
       logError('[登录处理] 错误:', err);
       return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent('系统错误，请稍后重试')}`);
-    }
-  });
-  
-  // 飞书登录成功回调处理
-  app.get('/interaction/:uid/feishu-success', async (request, reply) => {
-    const { uid } = request.params as { uid: string };
-    const { userId } = request.query as { userId: string };
-    
-    logInfo(`[飞书登录] 回调成功, UID: ${uid}, 用户: ${userId}`);
-    
-    try {
-      if (!userId) {
-        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent('用户ID缺失')}`);
-      }
-      
-      // 完成 OIDC 交互
-      await oidc.interactionFinished(
-        request.raw,
-        reply.raw,
-        {
-          login: {
-            accountId: userId,
-          },
-        },
-        { mergeWithLastSubmission: false }
-      );
-      
-      logInfo(`[交互完成] 飞书用户 ${userId}`);
-    } catch (err) {
-      logError('[飞书登录] 完成交互失败:', err);
-      return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent('登录失败')}`);
     }
   });
 

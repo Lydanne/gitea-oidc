@@ -633,9 +633,9 @@ export class FeishuAuthProvider implements AuthProvider {
       displayName: this.displayName,
       version: "1.0.0",
       description: "飞书 OAuth 2.0 认证插件，支持企业内部应用和自建应用",
-      author: "Gitea OIDC Team",
-      homepage: "https://github.com/your-org/gitea-oidc",
-      icon: "/auth/feishu/icon.svg",
+      author: "XGJ Team By Lyda",
+      homepage: "https://github.com/Lydanne/gitea-oidc",
+      icon: "https://p1-hera.feishucdn.com/tos-cn-i-jbbdkfciu3/84a9f036fe2b44f99b899fff4beeb963~tplv-jbbdkfciu3-image:0:0.image",
       permissions: [
         PluginPermission.READ_USER,
         PluginPermission.CREATE_USER,

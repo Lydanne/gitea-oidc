@@ -1,22 +1,22 @@
 # 【点击oidc登录】
-gitea_oidc_server-1  | {"level":30,"time":1762861226145,"pid":29,"hostname":"2f8a5669929f","reqId":"req-1","req":{"method":"GET","url":"/oidc/.well-known/openid-configuration","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":34502},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861226145,"pid":29,"hostname":"2f8a5669929f","reqId":"req-1","req":{"method":"GET","url":"/oidc/.well-known/openid-configuration","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":34502},"msg":"incoming request"}
 gitea_oidc_server-1  | {"level":30,"time":1762861226186,"pid":29,"hostname":"2f8a5669929f","reqId":"req-1","res":{"statusCode":200},"responseTime":40.32758400030434,"msg":"request completed"}
 
 gitea_server-1       | 2025/11/11 19:40:26 HTTPRequest [I] router: completed GET /user/oauth2/gitea for 192.168.65.1:37119, 307 Temporary Redirect in 104.2ms @ auth/oauth.go:37(auth.SignInOAuth)
 
-gitea_oidc_server-1  | {"level":30,"time":1762861226204,"pid":29,"hostname":"2f8a5669929f","reqId":"req-2","req":{"method":"GET","url":"/oidc/auth?client_id=gitea&redirect_uri=http%3A%2F%2F192.168.111.154%3A3001%2Fuser%2Foauth2%2Fgitea%2Fcallback&response_type=code&scope=openid+profile+email+openid&state=c32224b1-3613-451a-b264-6acf9bed77fc","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":56154},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861226204,"pid":29,"hostname":"2f8a5669929f","reqId":"req-2","req":{"method":"GET","url":"/oidc/auth?client_id=gitea&redirect_uri=http%3A%2F%2F192.168.111.154%3A3001%2Fuser%2Foauth2%2Fgitea%2Fcallback&response_type=code&scope=openid+profile+email+openid&state=c32224b1-3613-451a-b264-6acf9bed77fc","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":56154},"msg":"incoming request"}
 gitea_oidc_server-1  | oidc-provider NOTICE: default ttl.Interaction function called, you SHOULD change it in order to define the expiration for Interaction artifacts.
 gitea_oidc_server-1  | oidc-provider NOTICE: default ttl.Session function called, you SHOULD change it in order to define the expiration for Session artifacts.
 gitea_oidc_server-1  | {"level":30,"time":1762861226231,"pid":29,"hostname":"2f8a5669929f","reqId":"req-2","res":{"statusCode":303},"responseTime":27.388499999884516,"msg":"request completed"}
 
-gitea_oidc_server-1  | {"level":30,"time":1762861226241,"pid":29,"hostname":"2f8a5669929f","reqId":"req-3","req":{"method":"GET","url":"/interaction/z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":56154},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861226241,"pid":29,"hostname":"2f8a5669929f","reqId":"req-3","req":{"method":"GET","url":"/interaction/z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":56154},"msg":"incoming request"}
 gitea_oidc_server-1  | [交互页面] 用户访问交互页面, UID: z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb
 gitea_oidc_server-1  | [交互详情] {
 gitea_oidc_server-1  |   uid: 'z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb',
 gitea_oidc_server-1  |   prompt: { name: 'login', reasons: [ 'no_session' ], details: {} },
 gitea_oidc_server-1  |   params: {
 gitea_oidc_server-1  |     client_id: 'gitea',
-gitea_oidc_server-1  |     redirect_uri: 'http://bore.pub:20293/user/oauth2/gitea/callback',
+gitea_oidc_server-1  |     redirect_uri: 'http://bore.pub:12356/user/oauth2/gitea/callback',
 gitea_oidc_server-1  |     response_type: 'code',
 gitea_oidc_server-1  |     scope: 'openid profile',
 gitea_oidc_server-1  |     state: 'c32224b1-3613-451a-b264-6acf9bed77fc'
@@ -26,7 +26,7 @@ gitea_oidc_server-1  | {"level":30,"time":1762861226246,"pid":29,"hostname":"2f8
 
 
 # 【输入账号密码登录】
-gitea_oidc_server-1  | {"level":30,"time":1762861268709,"pid":29,"hostname":"2f8a5669929f","reqId":"req-4","req":{"method":"POST","url":"/interaction/z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb/login","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":31954},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861268709,"pid":29,"hostname":"2f8a5669929f","reqId":"req-4","req":{"method":"POST","url":"/interaction/z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb/login","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":31954},"msg":"incoming request"}
 gitea_oidc_server-1  | [登录尝试] UID: z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb, 认证方式: local
 gitea_oidc_server-1  | {"level":30,"time":1762861268784,"pid":29,"hostname":"2f8a5669929f","msg":"User f7da8b70-50cc-4f47-b8ed-7f3e23e5754d authenticated successfully via local"}
 gitea_oidc_server-1  | [登录成功] 用户 f7da8b70-50cc-4f47-b8ed-7f3e23e5754d 认证通过，正在完成交互并授予同意
@@ -34,11 +34,11 @@ gitea_oidc_server-1  | oidc-provider NOTICE: default ttl.Grant function called, 
 gitea_oidc_server-1  | [交互完成] 用户 f7da8b70-50cc-4f47-b8ed-7f3e23e5754d
 gitea_oidc_server-1  | {"level":30,"time":1762861268789,"pid":29,"hostname":"2f8a5669929f","reqId":"req-4","res":{"statusCode":303},"responseTime":77.72962500015274,"msg":"request completed"}
 
-gitea_oidc_server-1  | {"level":30,"time":1762861268797,"pid":29,"hostname":"2f8a5669929f","reqId":"req-5","req":{"method":"GET","url":"/oidc/auth/z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":31954},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861268797,"pid":29,"hostname":"2f8a5669929f","reqId":"req-5","req":{"method":"GET","url":"/oidc/auth/z08OyWcp5DZZ1rCk9wTnWdePC7jk7GdPL-j859S-olb","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":31954},"msg":"incoming request"}
 gitea_oidc_server-1  | [查找账户] sub: f7da8b70-50cc-4f47-b8ed-7f3e23e5754d, token类型: unknown
 gitea_oidc_server-1  | [账户查找结果] f7da8b70-50cc-4f47-b8ed-7f3e23e5754d: 找到 (newuser) JSON: {"username":"newuser","name":"newuser","email":"newuser@local","authProvider":"local","emailVerified":false,"metadata":{"externalId":"newuser"},"sub":"f7da8b70-50cc-4f47-b8ed-7f3e23e5754d","createdAt":"2025-11-11T11:41:08.783Z","updatedAt":"2025-11-11T11:41:08.783Z"}
 gitea_oidc_server-1  | {"level":30,"time":1762861268807,"pid":29,"hostname":"2f8a5669929f","reqId":"req-5","res":{"statusCode":303},"responseTime":9.126292000059038,"msg":"request completed"}
-gitea_oidc_server-1  | {"level":30,"time":1762861268815,"pid":29,"hostname":"2f8a5669929f","reqId":"req-6","req":{"method":"GET","url":"/interaction/sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":31954},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861268815,"pid":29,"hostname":"2f8a5669929f","reqId":"req-6","req":{"method":"GET","url":"/interaction/sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":31954},"msg":"incoming request"}
 gitea_oidc_server-1  | [交互页面] 用户访问交互页面, UID: sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv
 gitea_oidc_server-1  | [交互详情] {
 gitea_oidc_server-1  |   uid: 'sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv',
@@ -49,7 +49,7 @@ gitea_oidc_server-1  |     details: { missingOIDCScope: [Array] }
 gitea_oidc_server-1  |   },
 gitea_oidc_server-1  |   params: {
 gitea_oidc_server-1  |     client_id: 'gitea',
-gitea_oidc_server-1  |     redirect_uri: 'http://bore.pub:20293/user/oauth2/gitea/callback',
+gitea_oidc_server-1  |     redirect_uri: 'http://bore.pub:12356/user/oauth2/gitea/callback',
 gitea_oidc_server-1  |     response_type: 'code',
 gitea_oidc_server-1  |     scope: 'openid profile',
 gitea_oidc_server-1  |     state: 'c32224b1-3613-451a-b264-6acf9bed77fc'
@@ -59,19 +59,19 @@ gitea_oidc_server-1  | {"level":30,"time":1762861268817,"pid":29,"hostname":"2f8
 
 
 # 【二次输入账号密码登录】
-gitea_oidc_server-1  | {"level":30,"time":1762861313169,"pid":29,"hostname":"2f8a5669929f","reqId":"req-7","req":{"method":"POST","url":"/interaction/sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv/login","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":20431},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861313169,"pid":29,"hostname":"2f8a5669929f","reqId":"req-7","req":{"method":"POST","url":"/interaction/sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv/login","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":20431},"msg":"incoming request"}
 gitea_oidc_server-1  | [登录尝试] UID: sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv, 认证方式: local
 gitea_oidc_server-1  | [登录成功] 用户 f7da8b70-50cc-4f47-b8ed-7f3e23e5754d 认证通过，正在完成交互并授予同意
 gitea_oidc_server-1  | {"level":30,"time":1762861313246,"pid":29,"hostname":"2f8a5669929f","msg":"User f7da8b70-50cc-4f47-b8ed-7f3e23e5754d authenticated successfully via local"}
 gitea_oidc_server-1  | [交互完成] 用户 f7da8b70-50cc-4f47-b8ed-7f3e23e5754d
 gitea_oidc_server-1  | {"level":30,"time":1762861313252,"pid":29,"hostname":"2f8a5669929f","reqId":"req-7","res":{"statusCode":303},"responseTime":82.03958400012925,"msg":"request completed"}
 
-gitea_oidc_server-1  | {"level":30,"time":1762861313262,"pid":29,"hostname":"2f8a5669929f","reqId":"req-8","req":{"method":"GET","url":"/oidc/auth/sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":20431},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861313262,"pid":29,"hostname":"2f8a5669929f","reqId":"req-8","req":{"method":"GET","url":"/oidc/auth/sjoGiFxo_y3aqZLsAQpClFah5MuFVQnh3uUI-sbj7Tv","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":20431},"msg":"incoming request"}
 gitea_oidc_server-1  | [查找账户] sub: f7da8b70-50cc-4f47-b8ed-7f3e23e5754d, token类型: unknown
 gitea_oidc_server-1  | [账户查找结果] f7da8b70-50cc-4f47-b8ed-7f3e23e5754d: 找到 (newuser) JSON: {"username":"newuser","name":"newuser","email":"newuser@local","authProvider":"local","emailVerified":false,"metadata":{"externalId":"newuser"},"sub":"f7da8b70-50cc-4f47-b8ed-7f3e23e5754d","createdAt":"2025-11-11T11:41:08.783Z","updatedAt":"2025-11-11T11:41:08.783Z"}
 gitea_oidc_server-1  | {"level":30,"time":1762861313284,"pid":29,"hostname":"2f8a5669929f","reqId":"req-8","res":{"statusCode":303},"responseTime":21.63937499979511,"msg":"request completed"}
 
-gitea_oidc_server-1  | {"level":30,"time":1762861313310,"pid":29,"hostname":"2f8a5669929f","reqId":"req-9","req":{"method":"POST","url":"/oidc/token","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":58213},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861313310,"pid":29,"hostname":"2f8a5669929f","reqId":"req-9","req":{"method":"POST","url":"/oidc/token","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":58213},"msg":"incoming request"}
 gitea_oidc_server-1  | [查找账户] sub: f7da8b70-50cc-4f47-b8ed-7f3e23e5754d, token类型: AuthorizationCode
 gitea_oidc_server-1  | [账户查找结果] f7da8b70-50cc-4f47-b8ed-7f3e23e5754d: 找到 (newuser) JSON: {"username":"newuser","name":"newuser","email":"newuser@local","authProvider":"local","emailVerified":false,"metadata":{"externalId":"newuser"},"sub":"f7da8b70-50cc-4f47-b8ed-7f3e23e5754d","createdAt":"2025-11-11T11:41:08.783Z","updatedAt":"2025-11-11T11:41:08.783Z"}
 gitea_oidc_server-1  | [声明生成] 用户: newuser, scope: openid profile
@@ -87,7 +87,7 @@ gitea_oidc_server-1  |   updated_at: 1762861268
 gitea_oidc_server-1  | }
 gitea_oidc_server-1  | {"level":30,"time":1762861313338,"pid":29,"hostname":"2f8a5669929f","reqId":"req-9","res":{"statusCode":200},"responseTime":28.166083000134677,"msg":"request completed"}
 
-gitea_oidc_server-1  | {"level":30,"time":1762861313341,"pid":29,"hostname":"2f8a5669929f","reqId":"req-a","req":{"method":"GET","url":"/oidc/me","host":"bore.pub:11034","remoteAddress":"192.168.65.1","remotePort":58213},"msg":"incoming request"}
+gitea_oidc_server-1  | {"level":30,"time":1762861313341,"pid":29,"hostname":"2f8a5669929f","reqId":"req-a","req":{"method":"GET","url":"/oidc/me","host":"bore.pub:36419","remoteAddress":"192.168.65.1","remotePort":58213},"msg":"incoming request"}
 gitea_oidc_server-1  | [查找账户] sub: f7da8b70-50cc-4f47-b8ed-7f3e23e5754d, token类型: AccessToken
 gitea_oidc_server-1  | [账户查找结果] f7da8b70-50cc-4f47-b8ed-7f3e23e5754d: 找到 (newuser) JSON: {"username":"newuser","name":"newuser","email":"newuser@local","authProvider":"local","emailVerified":false,"metadata":{"externalId":"newuser"},"sub":"f7da8b70-50cc-4f47-b8ed-7f3e23e5754d","createdAt":"2025-11-11T11:41:08.783Z","updatedAt":"2025-11-11T11:41:08.783Z"}
 gitea_oidc_server-1  | [声明生成] 用户: newuser, scope: openid profile

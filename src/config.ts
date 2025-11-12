@@ -34,7 +34,7 @@ export interface AuthProviderConfig {
 export interface AuthConfig {
   /** 用户仓储类型 */
   userRepository: {
-    type: 'memory' | 'database' | 'config';
+    type: 'memory' | 'sqlite';
     config: Record<string, any>;
   };
   /** 认证提供者配置 */

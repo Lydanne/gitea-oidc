@@ -13,6 +13,7 @@ import { LocalAuthProvider } from './providers/LocalAuthProvider';
 import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
 import type { AuthContext, AuthProvider } from './types/auth';
 import { getUserErrorMessage, formatAuthError } from './utils/authErrors';
+import { SqliteUserRepository } from './repositories/SqliteUserRepository';
 
 
 async function start() {
@@ -51,7 +52,7 @@ async function start() {
     maxSize: 10000,         // 最大存储10000个state
     cleanupIntervalMs: 30000 // 每30秒清理一次
   });
-  const userRepository = new MemoryUserRepository();
+  const userRepository = config.auth.userRepository.type === 'memory' ? new MemoryUserRepository() : new SqliteUserRepository();
   
   // 创建认证协调器
   const authCoordinator = new AuthCoordinator({

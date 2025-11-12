@@ -1,0 +1,319 @@
+/**
+ * SQLite 用户仓储实现
+ * 用于生产环境的持久化存储
+ */
+
+import sqlite3 from 'sqlite3';
+import { randomUUID } from 'crypto';
+import type { UserRepository, UserInfo, ListOptions } from '../types/auth.js';
+
+export class SqliteUserRepository implements UserRepository {
+  private db: sqlite3.Database;
+
+  constructor(databasePath: string = ':memory:') {
+    this.db = new sqlite3.Database(databasePath);
+    this.initializeDatabase();
+  }
+
+  private initializeDatabase(): void {
+    const createTableSQL = `
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        picture TEXT,
+        phone TEXT,
+        auth_provider TEXT NOT NULL,
+        email_verified INTEGER DEFAULT 0,
+        phone_verified INTEGER DEFAULT 0,
+        groups TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        metadata TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users(auth_provider);
+    `;
+
+    this.db.exec(createTableSQL, (err: Error | null) => {
+      if (err) {
+        throw new Error(`Failed to initialize database: ${err.message}`);
+      }
+    });
+  }
+
+  private userFromRow(row: any): UserInfo {
+    return {
+      sub: row.id,
+      username: row.username,
+      name: row.name,
+      email: row.email,
+      picture: row.picture || undefined,
+      phone: row.phone || undefined,
+      authProvider: row.auth_provider,
+      ...(row.email_verified ? { email_verified: true } : {}),
+      ...(row.phone_verified ? { phone_verified: true } : {}),
+      groups: row.groups ? JSON.parse(row.groups) : undefined,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+      metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+    };
+  }
+
+  private userToRow(user: UserInfo): any {
+    return {
+      id: user.sub,
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      picture: user.picture,
+      phone: user.phone,
+      auth_provider: user.authProvider,
+      email_verified: user.email_verified ? 1 : 0,
+      phone_verified: user.phone_verified ? 1 : 0,
+      groups: user.groups ? JSON.stringify(user.groups) : null,
+      created_at: user.createdAt ? user.createdAt.getTime() : Date.now(),
+      updated_at: user.updatedAt ? user.updatedAt.getTime() : Date.now(),
+      metadata: user.metadata ? JSON.stringify(user.metadata) : null,
+    };
+  }
+
+  async findById(userId: string): Promise<UserInfo | null> {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT * FROM users WHERE id = ?', [userId], (err: Error | null, row: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(row ? this.userFromRow(row) : null);
+      });
+    });
+  }
+
+  async findByUsername(username: string): Promise<UserInfo | null> {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT * FROM users WHERE username = ?', [username], (err: Error | null, row: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(row ? this.userFromRow(row) : null);
+      });
+    });
+  }
+
+  async findByEmail(email: string): Promise<UserInfo | null> {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT * FROM users WHERE email = ?', [email], (err: Error | null, row: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(row ? this.userFromRow(row) : null);
+      });
+    });
+  }
+
+  async findByProviderAndExternalId(
+    provider: string,
+    externalId: string
+  ): Promise<UserInfo | null> {
+    return new Promise((resolve, reject) => {
+      // 查询具有匹配 provider 和 externalId 的用户
+      const sql = `
+        SELECT * FROM users
+        WHERE auth_provider = ?
+        AND metadata LIKE ?
+      `;
+      this.db.get(sql, [provider, `%${externalId}%`], (err: Error | null, row: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(row ? this.userFromRow(row) : null);
+      });
+    });
+  }
+
+  async findOrCreate(
+    criteria: { provider: string; externalId: string },
+    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'>
+  ): Promise<UserInfo> {
+    const existingUser = await this.findByProviderAndExternalId(
+      criteria.provider,
+      criteria.externalId
+    );
+
+    if (existingUser) {
+      return existingUser;
+    }
+
+    // 创建新用户
+    const userToCreate: Omit<UserInfo, 'sub'> = {
+      ...userData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    return await this.create(userToCreate);
+  }
+
+  async create(userData: Omit<UserInfo, 'sub'>): Promise<UserInfo> {
+    const now = new Date();
+    const user: UserInfo = {
+      ...userData,
+      sub: randomUUID(),
+      createdAt: userData.createdAt || now,
+      updatedAt: userData.updatedAt || now,
+    };
+
+    const row = this.userToRow(user);
+
+    return new Promise((resolve, reject) => {
+      const sql = `
+        INSERT INTO users (
+          id, username, name, email, picture, phone, auth_provider,
+          email_verified, phone_verified, groups, created_at, updated_at, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const values = [
+        row.id, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
+        row.email_verified, row.phone_verified, row.groups, row.created_at, row.updated_at, row.metadata
+      ];
+
+      this.db.run(sql, values, function(err: Error | null) {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(user);
+      });
+    });
+  }
+
+  async update(userId: string, updates: Partial<UserInfo>): Promise<UserInfo> {
+    const user = await this.findById(userId);
+    if (!user) {
+      throw new Error(`User not found: ${userId}`);
+    }
+
+    const updatedUser: UserInfo = {
+      ...user,
+      ...updates,
+      sub: user.sub,
+      updatedAt: new Date(),
+    };
+
+    const row = this.userToRow(updatedUser);
+
+    return new Promise((resolve, reject) => {
+      const sql = `
+        UPDATE users SET
+          username = ?, name = ?, email = ?, picture = ?, phone = ?, auth_provider = ?,
+          email_verified = ?, phone_verified = ?, groups = ?, updated_at = ?, metadata = ?
+        WHERE id = ?
+      `;
+
+      const values = [
+        row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
+        row.email_verified, row.phone_verified, row.groups, row.updated_at, row.metadata,
+        userId
+      ];
+
+      this.db.run(sql, values, function(err: Error | null) {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(updatedUser);
+      });
+    });
+  }
+
+  async delete(userId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.db.run('DELETE FROM users WHERE id = ?', [userId], function(err: Error | null) {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
+  async list(options?: ListOptions): Promise<UserInfo[]> {
+    return new Promise((resolve, reject) => {
+      let sql = 'SELECT * FROM users';
+      const params: any[] = [];
+
+      // 过滤
+      const conditions: string[] = [];
+      if (options?.filter) {
+        for (const [key, value] of Object.entries(options.filter)) {
+          if (['username', 'name', 'email', 'authProvider'].includes(key)) {
+            conditions.push(`${key === 'authProvider' ? 'auth_provider' : key} = ?`);
+            params.push(value);
+          }
+        }
+      }
+
+      if (conditions.length > 0) {
+        sql += ' WHERE ' + conditions.join(' AND ');
+      }
+
+      // 排序
+      if (options?.sortBy) {
+        const sortBy = options.sortBy === 'authProvider' ? 'auth_provider' : options.sortBy;
+        const sortOrder = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
+        sql += ` ORDER BY ${sortBy} ${sortOrder}`;
+      }
+
+      // 分页
+      if (options?.offset !== undefined || options?.limit !== undefined) {
+        const offset = options.offset || 0;
+        const limit = options.limit;
+        sql += ' LIMIT ? OFFSET ?';
+        params.push(limit || -1, offset);
+      }
+
+      this.db.all(sql, params, (err: Error | null, rows: any[]) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(rows.map(row => this.userFromRow(row)));
+      });
+    });
+  }
+
+  async clear(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT COUNT(*) as count FROM users', (err: Error | null, row: any) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(row.count);
+      });
+    });
+  }
+
+  /**
+   * 关闭数据库连接
+   */
+  close(): Promise<void> {
+    return new Promise((resolve) => {
+      this.db.close((err: Error | null) => {
+        if (err) {
+          console.error('Error closing database:', err);
+        }
+        resolve();
+      });
+    });
+  }
+}

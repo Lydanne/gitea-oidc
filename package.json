@@ -1,5 +1,5 @@
 {
-  "name": "gitea-oidc-idp",
+  "name": "gitea-oidc",
   "version": "1.0.0",
   "type": "module",
   "description": "Simple OpenID Connect Identity Provider using Fastify and TypeScript",

@@ -44,8 +44,36 @@
 在应用管理页面：
 
 1. **权限管理** → 添加以下权限：
-   - `contact:contact.base:readonly` - 获取用户基本信息（推荐）
+   - `contact:contact.base:readonly` - 获取用户基本信息
 
+```json
+{
+  "scopes": {
+    "tenant": [
+      "contact:user.base:readonly",
+      "contact:user.email:readonly"
+    ],
+    "user": [
+      "contact:contact.base:readonly",
+      "contact:department.organize:readonly",
+      "contact:user.base:readonly",
+      "contact:user.department:readonly",
+      "contact:user.department_path:readonly",
+      "contact:user.dotted_line_leader_info.read",
+      "contact:user.email:readonly",
+      "contact:user.employee:readonly",
+      "contact:user.employee_id:readonly",
+      "contact:user.employee_number:read",
+      "contact:user.gender:readonly",
+      "contact:user.job_family:readonly",
+      "contact:user.job_level:readonly",
+      "contact:user.phone:readonly",
+      "contact:user.user_geo",
+      "directory:employee.base.email:read"
+    ]
+  }
+}
+```
 
 2. **安全设置** → 配置重定向 URL：
 
@@ -58,6 +86,7 @@
 3. 获取凭证：
    - **App ID**：在「凭证与基础信息」页面获取
    - **App Secret**：在「凭证与基础信息」页面获取
+
 
 ### 3. 发布应用
 
@@ -106,7 +135,7 @@ export default {
     providers: {
       // 本地密码认证（可选）
       local: {
-        enabled: true,
+        enabled: false,
         displayName: '本地密码',
         priority: 1,
         config: {

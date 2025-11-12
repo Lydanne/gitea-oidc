@@ -219,6 +219,99 @@ async function start() {
       return reply.type('text/html').send(html);
     } catch (err) {
       Logger.error('[交互页面] 渲染失败:', err);
+
+      // 检查是否是会话相关的错误
+      if (err instanceof Error && (err.name === 'SessionNotFound' || err.message?.includes('interaction session id cookie not found'))) {
+        // 返回用户友好的错误页面
+        const errorHtml = `
+          <!DOCTYPE html>
+          <html lang="zh-CN">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>认证会话已过期 - Gitea OIDC</title>
+              <style>
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  margin: 0;
+                  padding: 0;
+                  min-height: 100vh;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                }
+                .error-container {
+                  background: white;
+                  border-radius: 12px;
+                  padding: 2rem;
+                  box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                  text-align: center;
+                  max-width: 400px;
+                  margin: 1rem;
+                }
+                .error-icon {
+                  font-size: 3rem;
+                  color: #f56565;
+                  margin-bottom: 1rem;
+                }
+                .error-title {
+                  color: #2d3748;
+                  font-size: 1.5rem;
+                  font-weight: 600;
+                  margin-bottom: 0.5rem;
+                }
+                .error-message {
+                  color: #718096;
+                  margin-bottom: 1.5rem;
+                  line-height: 1.6;
+                }
+                .retry-btn {
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  color: white;
+                  border: none;
+                  padding: 12px 24px;
+                  border-radius: 8px;
+                  font-size: 1rem;
+                  font-weight: 500;
+                  cursor: pointer;
+                  text-decoration: none;
+                  display: inline-block;
+                  transition: transform 0.2s ease;
+                }
+                .retry-btn:hover {
+                  transform: translateY(-2px);
+                  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+                }
+                .help-text {
+                  color: #a0aec0;
+                  font-size: 0.875rem;
+                  margin-top: 1rem;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="error-container">
+                <div class="error-icon">⏰</div>
+                <h1 class="error-title">认证会话已过期</h1>
+                <p class="error-message">
+                  您的登录会话已过期或无效。这可能是因为：<br>
+                  • 页面停留时间过长<br>
+                  • 浏览器 cookies 被清除<br>
+                  • 直接访问了登录链接
+                </p>
+                <a href="/" class="retry-btn">返回应用重新登录</a>
+                <p class="help-text">
+                  如果问题持续存在，请联系系统管理员
+                </p>
+              </div>
+            </body>
+          </html>
+        `;
+        return reply.type('text/html').send(errorHtml);
+      }
+
+      // 其他错误保持原样
       return reply.code(500).send('Internal Server Error');
     }
   });

@@ -265,6 +265,19 @@ export class FeishuAuthProvider implements AuthProvider {
       // 获取用户信息
       const feishuUser = await this.getFeishuUserInfo(userAccessToken);
 
+      console.log('[handlerCallback] feishuUser:', JSON.stringify(feishuUser), {
+          username: this.mapUsername(feishuUser),
+          name: this.mapName(feishuUser),
+          email: this.mapEmail(feishuUser),
+          groups: this.mapGroups(feishuUser),
+          picture: feishuUser.avatar_url,
+          phone: feishuUser.mobile,
+          authProvider: this.name,
+          email_verified: !!feishuUser.email,
+          phone_verified: !!feishuUser.mobile,
+          metadata: feishuUser,
+        });
+
       // 创建或更新本地用户
       const user = await this.userRepository.findOrCreate(
         {
@@ -769,12 +782,12 @@ export class FeishuAuthProvider implements AuthProvider {
     const fullUserData = (await fullUserResponse.json()) as {
       code: number;
       msg: string;
-      data?: FullFeishuUserInfo;
+      data?: { user: FullFeishuUserInfo };
     };
     if (fullUserData.code !== 0 || !fullUserData.data) {
       throw new Error(`Failed to get full user info: ${fullUserData.msg}`);
     }
-    return { ...data.data, fullInfo: fullUserData.data };
+    return { ...data.data, fullInfo: fullUserData.data.user };
   }
 
   /**

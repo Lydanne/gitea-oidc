@@ -18,6 +18,7 @@ import type {
   PluginMetadata,
 } from '../types/auth';
 import { PluginPermission } from '../types/auth';
+import { Logger } from '../utils/Logger';
 import { AuthErrors } from '../utils/authErrors';
 
 export class LocalAuthProvider implements AuthProvider {
@@ -54,9 +55,9 @@ export class LocalAuthProvider implements AuthProvider {
         }
       }
 
-      console.log(`[LocalAuth] Loaded ${this.passwordMap.size} users from ${this.config.passwordFile}`);
+      Logger.info(`[LocalAuth] Loaded ${this.passwordMap.size} users from ${this.config.passwordFile}`);
     } catch (err) {
-      console.error('[LocalAuth] Failed to load password file:', err);
+      Logger.error('[LocalAuth] Failed to load password file:', err);
       throw new Error(`Failed to load password file: ${this.config.passwordFile}`);
     }
   }
@@ -189,7 +190,7 @@ export class LocalAuthProvider implements AuthProvider {
         return password === hash;
       
       default:
-        console.error('[LocalAuth] Unknown password format:', hash);
+        Logger.error('[LocalAuth] Unknown password format:', hash);
         return false;
     }
   }
@@ -226,7 +227,7 @@ export class LocalAuthProvider implements AuthProvider {
     try {
       return await compare(password, hash);
     } catch (err) {
-      console.error('[LocalAuth] Bcrypt verification error:', err);
+      Logger.error('[LocalAuth] Bcrypt verification error:', err);
       return false;
     }
   }

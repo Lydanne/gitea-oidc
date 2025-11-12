@@ -7,6 +7,7 @@
 import { ZodError } from 'zod';
 import { GiteaOidcConfigSchema } from '../schemas/configSchema';
 import type { GiteaOidcConfig } from '../config';
+import { Logger } from './Logger';
 
 /**
  * 配置验证错误
@@ -199,16 +200,16 @@ export function formatWarnings(warnings: string[]): string {
  */
 export function printValidationResult(result: ConfigValidationResult): void {
   if (!result.valid) {
-    console.error('\n❌ 配置验证失败:\n');
-    console.error(formatValidationErrors(result.errors));
-    console.error('');
+    Logger.error('\n❌ 配置验证失败:\n');
+    Logger.error(formatValidationErrors(result.errors));
+    Logger.error('');
   } else {
-    console.log('✅ 配置验证通过');
+    Logger.info('✅ 配置验证通过');
     
     if (result.warnings.length > 0) {
-      console.warn('\n⚠️  配置警告:');
-      console.warn(formatWarnings(result.warnings));
-      console.warn('');
+      Logger.warn('\n⚠️  配置警告:');
+      Logger.warn(formatWarnings(result.warnings));
+      Logger.warn('');
     }
   }
 }

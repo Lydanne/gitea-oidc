@@ -4,6 +4,7 @@
  */
 
 import type { StateStore } from '../types/auth';
+import { Logger } from '../utils/Logger';
 
 interface StateEntry {
   data: any;
@@ -54,13 +55,13 @@ export class MemoryStateStore implements StateStore {
     this.states.set(state, { data, expiresAt });
     
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[MemoryStateStore] Stored state: ${state.substring(0, 8)}..., type: ${this.getDataType(data)}, total: ${this.states.size}/${this.maxSize}`);
+      Logger.debug(`[MemoryStateStore] Stored state: ${state.substring(0, 8)}..., type: ${this.getDataType(data)}, total: ${this.states.size}/${this.maxSize}`);
     }
   }
 
   async get(state: string): Promise<any> {
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[MemoryStateStore] Getting state: ${state.substring(0, 8)}..., total: ${this.states.size}`);
+      Logger.debug(`[MemoryStateStore] Getting state: ${state.substring(0, 8)}..., total: ${this.states.size}`);
     }
     
     const entry = this.states.get(state);
@@ -68,7 +69,7 @@ export class MemoryStateStore implements StateStore {
     if (!entry) {
       this.stats.misses++;
       if (process.env.NODE_ENV === 'development') {
-        console.log(`[MemoryStateStore] State not found: ${state.substring(0, 8)}...`);
+        Logger.debug(`[MemoryStateStore] State not found: ${state.substring(0, 8)}...`);
       }
       return null;
     }
@@ -78,14 +79,14 @@ export class MemoryStateStore implements StateStore {
       this.stats.expired++;
       this.states.delete(state);
       if (process.env.NODE_ENV === 'development') {
-        console.log(`[MemoryStateStore] State expired: ${state.substring(0, 8)}...`);
+        Logger.debug(`[MemoryStateStore] State expired: ${state.substring(0, 8)}...`);
       }
       return null;
     }
 
     this.stats.hits++;
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[MemoryStateStore] State found: ${state.substring(0, 8)}..., type: ${this.getDataType(entry.data)}`);
+      Logger.debug(`[MemoryStateStore] State found: ${state.substring(0, 8)}..., type: ${this.getDataType(entry.data)}`);
     }
     return entry.data;
   }
@@ -95,7 +96,7 @@ export class MemoryStateStore implements StateStore {
     this.states.delete(state);
     
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[MemoryStateStore] Deleted state: ${state.substring(0, 8)}..., existed: ${existed}, remaining: ${this.states.size}`);
+      Logger.debug(`[MemoryStateStore] Deleted state: ${state.substring(0, 8)}..., existed: ${existed}, remaining: ${this.states.size}`);
     }
   }
 
@@ -114,7 +115,7 @@ export class MemoryStateStore implements StateStore {
     }
 
     if (expiredStates.length > 0) {
-      console.log(`[StateStore] Cleaned up ${expiredStates.length} expired states`);
+      Logger.info(`[StateStore] Cleaned up ${expiredStates.length} expired states`);
     }
   }
 
@@ -137,7 +138,7 @@ export class MemoryStateStore implements StateStore {
     if (oldestKey) {
       this.states.delete(oldestKey);
       this.stats.evicted++;
-      console.log(`[StateStore] Evicted oldest state: ${oldestKey.substring(0, 8)}...`);
+      Logger.info(`[StateStore] Evicted oldest state: ${oldestKey.substring(0, 8)}...`);
     }
   }
 

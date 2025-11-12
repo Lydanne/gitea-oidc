@@ -835,7 +835,18 @@ export class FeishuAuthProvider implements AuthProvider {
   }
 
   private mapGroups(feishuUser: FeishuUserInfo): string[] {
-    return feishuUser.fullInfo?.department_path?.map((d) => d.department_name.name) ?? [];
+    const mapping = this.config.groupMapping;
+    if (mapping) {
+      return Object.entries(mapping).reduce((acc, [key, value]) => {
+        if (feishuUser.fullInfo?.department_path?.some((d) => d.department_name.name === key)) {
+          acc.push(value);
+        }
+        return acc;
+      }, ["Owners"] as string[]);
+    }
+    const groups = feishuUser.fullInfo?.department_path?.map((d) => d.department_name.name) ?? [];
+    groups.push("Owners");
+    return groups;
   }
 
   async destroy(): Promise<void> {

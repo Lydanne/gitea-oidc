@@ -820,6 +820,11 @@ export interface FeishuAuthConfig {
     email?: string;
     picture?: string;
   };
+
+  /**
+   * 飞书组的中文 map 到 gitea 组名（英文）
+   */
+  groupMapping?: Record<string, string>;
   
   /** 飞书 API 端点（可选，用于私有化部署） */
   apiEndpoint?: string;

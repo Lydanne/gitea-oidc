@@ -44,14 +44,15 @@
 在应用管理页面：
 
 1. **权限管理** → 添加以下权限：
-   - `contact:user.base:readonly` - 获取用户基本信息
-   - `contact:user.email:readonly` - 获取用户邮箱（可选）
-   - `contact:user.phone:readonly` - 获取用户手机号（可选）
+   - `contact:contact.base:readonly` - 获取用户基本信息（推荐）
+
 
 2. **安全设置** → 配置重定向 URL：
+
    ```
    http://your-server:3000/auth/feishu/callback
    ```
+
    ⚠️ **重要**：必须使用实际的外网地址，不能使用 `localhost`
 
 3. 获取凭证：
@@ -123,7 +124,7 @@ export default {
           appId: 'cli_a1b2c3d4e5f6g7h8',           // 飞书应用 App ID
           appSecret: 'your_app_secret_here',        // 飞书应用 App Secret
           redirectUri: 'http://your-server:3000/auth/feishu/callback',  // 回调地址
-          scope: 'contact:user.base:readonly',      // 权限范围
+          scope: 'contact:contact.base:readonly',      // 权限范围
           autoCreateUser: true,                     // 自动创建用户
           
           // 用户字段映射（可选）
@@ -155,7 +156,7 @@ export default {
           "appId": "cli_a1b2c3d4e5f6g7h8",
           "appSecret": "your_app_secret_here",
           "redirectUri": "http://your-server:3000/auth/feishu/callback",
-          "scope": "contact:user.base:readonly",
+          "scope": "contact:contact.base:readonly",
           "autoCreateUser": true,
           "userMapping": {
             "username": "en_name",
@@ -188,7 +189,7 @@ export default {
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `priority` | number | `1` | 显示优先级，数字越小越靠前 |
-| `config.scope` | string | `"contact:user.base:readonly"` | 权限范围 |
+| `config.scope` | string | `"contact:contact.base:readonly"` | 权限范围 |
 | `config.autoCreateUser` | boolean | `true` | 是否自动创建用户 |
 | `config.userMapping` | object | 见下文 | 用户字段映射配置 |
 | `config.apiEndpoint` | string | 飞书公有云 | 私有化部署的 API 端点 |
@@ -196,6 +197,7 @@ export default {
 ### redirectUri 配置规则
 
 回调地址格式固定为：
+
 ```
 http(s)://your-server:port/auth/feishu/callback
 ```
@@ -210,7 +212,7 @@ http(s)://your-server:port/auth/feishu/callback
 
 ## 认证流程
 
-```
+```text
 ┌─────────┐                                    ┌──────────────┐
 │  用户   │                                    │   Gitea      │
 └────┬────┘                                    └──────┬───────┘
@@ -336,6 +338,7 @@ userMapping: {
 **原因**：配置的 `redirectUri` 与飞书开放平台配置不一致
 
 **解决方案**：
+
 1. 检查 `gitea-oidc.config.js` 中的 `redirectUri`
 2. 检查飞书开放平台「安全设置」中的重定向 URL
 3. 确保两者完全一致（协议、域名、端口、路径）
@@ -343,15 +346,20 @@ userMapping: {
 
 ### 2. 权限不足
 
-**错误信息**：`insufficient_scope` 或 `permission_denied`
+**错误信息**：`insufficient_scope` 或 `permission_denied` 或 `Failed to get full user info: Unauthorized`
 
-**原因**：应用没有申请足够的权限
+**原因**：应用没有申请足够的权限，或者权限配置不正确
 
 **解决方案**：
+
 1. 进入飞书开放平台「权限管理」
-2. 添加所需权限（至少需要 `contact:user.base:readonly`）
+2. 添加以下权限（至少需要 `contact:contact.base:readonly`）：
+   - `contact:contact.base:readonly` - 获取用户基本信息
+   - `contact:contact:readonly` - 获取用户完整信息（包含部门信息）
 3. 重新发布应用版本
 4. 用户需要重新授权
+
+**注意**：如果只配置了基础权限，系统会自动回退到基本用户信息，不会影响登录功能
 
 ### 3. State 验证失败
 
@@ -406,11 +414,13 @@ userMapping: {
    ```
 
 2. **查看插件状态**：
+
    ```bash
    curl http://localhost:3000/auth/feishu/status
    ```
-   
+
    返回示例：
+
    ```json
    {
      "provider": "feishu",
@@ -421,6 +431,7 @@ userMapping: {
 
 3. **检查路由注册**：
    启动时查看日志，确认路由已注册：
+
    ```
    Registered route: GET /auth/feishu/callback - 飞书 OAuth 回调
    Registered route: GET /auth/feishu/status - 获取飞书插件状态
@@ -435,6 +446,7 @@ userMapping: {
 ❌ **不要**将 `appSecret` 提交到版本控制系统
 
 ✅ **推荐做法**：
+
 ```javascript
 // gitea-oidc.config.js
 export default {
@@ -455,6 +467,7 @@ export default {
 ### 2. 使用 HTTPS
 
 生产环境**必须**使用 HTTPS：
+
 - 保护用户凭证传输安全
 - 防止中间人攻击
 - 飞书开放平台强制要求 HTTPS
@@ -462,6 +475,7 @@ export default {
 ### 3. 限制回调域名
 
 在飞书开放平台只配置必要的回调 URL：
+
 - 不要使用通配符
 - 只添加实际使用的域名
 - 定期审查和清理
@@ -469,12 +483,14 @@ export default {
 ### 4. 定期轮换密钥
 
 建议定期更换：
+
 - `cookieKeys`：用于 Cookie 签名
 - `appSecret`：飞书应用密钥（需在飞书平台重新生成）
 
 ### 5. 监控异常登录
 
 关注以下异常情况：
+
 - State 验证失败次数过多
 - 同一 IP 短时间内多次登录失败
 - 异常的用户信息更新
@@ -482,7 +498,8 @@ export default {
 ### 6. 最小权限原则
 
 只申请必要的飞书权限：
-- 基础信息：`contact:user.base:readonly`
+
+- 基础信息：`contact:contact.base:readonly`
 - 邮箱（如需要）：`contact:user.email:readonly`
 - 避免申请不必要的权限
 
@@ -495,6 +512,7 @@ export default {
 飞书插件支持接收 Webhook 事件（如用户信息变更）：
 
 1. **配置 Webhook URL**（在飞书开放平台）：
+
    ```
    http://your-server:3000/auth/feishu/webhook
    ```
@@ -602,7 +620,7 @@ export default {
           appId: process.env.FEISHU_APP_ID || 'cli_a1b2c3d4e5f6g7h8',
           appSecret: process.env.FEISHU_APP_SECRET || 'your_app_secret_here',
           redirectUri: 'https://oidc.example.com/auth/feishu/callback',
-          scope: 'contact:user.base:readonly contact:user.email:readonly',
+          scope: 'contact:contact.base:readonly contact:user.email:readonly',
           autoCreateUser: true,
           userMapping: {
             username: 'en_name',

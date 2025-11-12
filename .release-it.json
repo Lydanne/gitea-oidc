@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/release-it@19/schema/release-it.json",
+  "git": {
+    "commit": true,
+    "tag": true,
+    "push": true,
+    "requireCleanWorkingDir": true,
+    "tagName": "v${version}",
+    "commitMessage": "chore: release v${version}"
+  },
+  "github": {
+    "release": true,
+    "releaseName": "Release v${version}",
+    "releaseNotes": "git log --pretty=format:'* %s (%h)' ${latestTag}...HEAD"
+  },
+  "npm": {
+    "publish": true
+  },
+  "hooks": {
+    "before:init": "npm run build:prod"
+  }
+}

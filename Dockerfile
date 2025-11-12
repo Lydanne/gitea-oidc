@@ -1,26 +1,24 @@
-FROM node:22-alpine AS builder
+FROM node:22
+
+# 设置 CI 环境变量
+ENV CI=true
 
 WORKDIR /app
-
-COPY package.json pnpm-lock.yaml ./
-
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
 
 COPY . .
 
+# 启用 corepack 并准备 pnpm
+RUN corepack enable && \
+    corepack prepare pnpm@latest-10 --activate
+
+# 安装所有依赖用于构建
+RUN pnpm install --frozen-lockfile
+
+# 构建应用
 RUN pnpm run build:prod
 
-FROM node:22-alpine AS runner
-
-WORKDIR /app
-
-COPY --from=builder /app/dist ./dist
-
-COPY --from=builder /app/package.json ./
-
-COPY --from=builder /app/public ./public
-
-COPY --from=builder /app/node_modules ./node_modules
+# 重新编译原生依赖
+RUN npm rebuild better-sqlite3
 
 EXPOSE 3000
 

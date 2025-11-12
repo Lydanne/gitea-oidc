@@ -1,0 +1,3 @@
+.htpasswd
+gitea-oidc.config.js
+gitea-oidc.config.json

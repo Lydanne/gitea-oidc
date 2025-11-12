@@ -55,7 +55,7 @@ export class LocalAuthProvider implements AuthProvider {
         }
       }
 
-      Logger.info(`[LocalAuth] Loaded ${this.passwordMap.size} users from ${this.config.passwordFile}`);
+      Logger.debug(`[LocalAuth] Loaded ${this.passwordMap.size} users from ${this.config.passwordFile}`);
     } catch (err) {
       Logger.error('[LocalAuth] Failed to load password file:', err);
       throw new Error(`Failed to load password file: ${this.config.passwordFile}`);

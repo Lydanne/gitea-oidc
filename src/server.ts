@@ -78,7 +78,7 @@ async function start() {
     claims: config.oidc.claims,
     features: config.oidc.features,
     findAccount: async (ctx, sub, token) => {
-      Logger.info(`[查找账户] sub: ${sub}, token类型: ${token?.constructor?.name || 'unknown'} ctx: ${JSON.stringify(ctx)}`);
+      Logger.debug(`[查找账户] sub: ${sub}, token类型: ${token?.constructor?.name || 'unknown'} ctx: ${JSON.stringify(ctx)}`);
       
       // 使用 AuthCoordinator 查找用户
       const user = await authCoordinator.findAccount(sub);
@@ -88,12 +88,12 @@ async function start() {
         return undefined;
       }
       
-      Logger.info(`[账户查找结果] ${sub}: 找到 (${user.username}) JSON: ` + JSON.stringify(user));
+      Logger.debug(`[账户查找结果] ${sub}: 找到 (${user.username}) JSON: ` + JSON.stringify(user));
       
       return {
         accountId: user.sub,
         async claims(use: string, scope: string, claims: any, rejected: any) {
-          Logger.info(`[声明生成] 用户: ${user.username}, scope: ${scope} claims: ${JSON.stringify(claims)} rejected: ${JSON.stringify(rejected)} use: ${use}`);
+          Logger.debug(`[声明生成] 用户: ${user.username}, scope: ${scope} claims: ${JSON.stringify(claims)} rejected: ${JSON.stringify(rejected)} use: ${use}`);
           
           // 直接使用 UserInfo 的 OIDC 标准字段
           const userClaims = {
@@ -108,7 +108,7 @@ async function start() {
             updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
           };
           
-          Logger.info(`[返回声明]`, userClaims);
+          Logger.debug(`[返回声明]`, userClaims);
           return userClaims;
         },
       };
@@ -129,10 +129,10 @@ async function start() {
     if (request.url.startsWith('/oidc')) {
       Logger.info(`[OIDC请求] ${request.method} ${request.url}`);
       if (request.query && Object.keys(request.query).length > 0) {
-        Logger.info(`[查询参数]`, request.query);
+        Logger.debug(`[查询参数]`, request.query);
       }
       if (request.body && Object.keys(request.body).length > 0) {
-        Logger.info(`[请求体]`, request.body);
+        Logger.debug(`[请求体]`, request.body);
       }
     }
     done();
@@ -146,7 +146,7 @@ async function start() {
     try {
       const details = await oidc.interactionDetails(request.raw, reply.raw);
       
-      Logger.info(`[GET 交互详情]` + JSON.stringify({
+      Logger.debug(`[GET 交互详情]` + JSON.stringify({
         uid: details.uid,
         prompt: details.prompt,
         params: details.params,

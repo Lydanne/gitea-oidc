@@ -82,8 +82,8 @@ export const AuthProviderConfigSchema = z.object({
  * 用户仓储配置 Schema
  */
 export const UserRepositoryConfigSchema = z.object({
-  type: z.enum(['memory', 'database', 'config'], {
-    message: '用户仓储类型必须是 memory、database 或 config',
+  type: z.enum(['memory', 'sqlite'], {
+    message: '用户仓储类型必须是 memory、sqlite',
   }),
   config: z.record(z.string(), z.any()),
 });

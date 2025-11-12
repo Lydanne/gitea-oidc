@@ -12,12 +12,12 @@ services:
       - "3001:3000"
       - "2222:2222"
 
-  gitea_oidc_server:
-    image: node:20-alpine
-    restart: always
-    volumes:
-      - ../:/app
-    ports:
-      - "3000:3000"
-    working_dir: /app
-    command: sh -c "npx pnpm run start"
+  # gitea_oidc_server:
+  #   image: node:20-alpine
+  #   restart: always
+  #   volumes:
+  #     - ../:/app
+  #   ports:
+  #     - "3000:3000"
+  #   working_dir: /app
+  #   command: sh -c "npx pnpm run start"

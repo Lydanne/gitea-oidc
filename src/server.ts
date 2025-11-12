@@ -8,12 +8,11 @@ import { loadConfig } from './config';
 // 认证系统导入
 import { AuthCoordinator } from './core/AuthCoordinator';
 import { MemoryStateStore } from './stores/MemoryStateStore';
-import { MemoryUserRepository } from './repositories/MemoryUserRepository';
+import { UserRepositoryFactory } from './repositories/UserRepositoryFactory.js';
 import { LocalAuthProvider } from './providers/LocalAuthProvider';
 import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
 import type { AuthContext, AuthProvider } from './types/auth';
 import { getUserErrorMessage, formatAuthError } from './utils/authErrors';
-import { SqliteUserRepository } from './repositories/SqliteUserRepository';
 
 
 async function start() {
@@ -52,7 +51,7 @@ async function start() {
     maxSize: 10000,         // 最大存储10000个state
     cleanupIntervalMs: 30000 // 每30秒清理一次
   });
-  const userRepository = config.auth.userRepository.type === 'memory' ? new MemoryUserRepository() : new SqliteUserRepository();
+  const userRepository = UserRepositoryFactory.create(config.auth.userRepository);
   
   // 创建认证协调器
   const authCoordinator = new AuthCoordinator({

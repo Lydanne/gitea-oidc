@@ -17,29 +17,8 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { existsSync } from 'fs';
-
-/**
- * 认证提供者配置
- */
-export interface AuthProviderConfig {
-  enabled: boolean;
-  displayName: string;
-  priority?: number;
-  config: Record<string, any>;
-}
-
-/**
- * 认证系统配置
- */
-export interface AuthConfig {
-  /** 用户仓储类型 */
-  userRepository: {
-    type: 'memory' | 'sqlite';
-    config: Record<string, any>;
-  };
-  /** 认证提供者配置 */
-  providers: Record<string, AuthProviderConfig>;
-}
+import type { RepositoryType, AuthConfig } from './types/config';
+import type { AuthProviderConfig } from './types/auth';
 
 /**
  * Gitea OIDC IdP 完整配置接口

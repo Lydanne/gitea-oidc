@@ -5,12 +5,14 @@
 import type { GiteaOidcConfig } from '../config.js';
 import type { AuthProviderConfig } from './auth.js';
 
+export type RepositoryType = 'memory' | 'sqlite';
+
 /**
  * 用户仓储配置
  */
 export interface UserRepositoryConfig {
   /** 仓储类型 */
-  type: 'memory' | 'database' | 'config';
+  type: RepositoryType;
   
   /** 类型特定配置 */
   config: Record<string, any>;

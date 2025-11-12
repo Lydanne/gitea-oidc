@@ -3,15 +3,15 @@
  * 用于生产环境的持久化存储
  */
 
-import sqlite3 from 'sqlite3';
+import Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import type { UserRepository, UserInfo, ListOptions } from '../types/auth.js';
 
 export class SqliteUserRepository implements UserRepository {
-  private db: sqlite3.Database;
+  private db: Database.Database;
 
   constructor(databasePath: string = ':memory:') {
-    this.db = new sqlite3.Database(databasePath);
+    this.db = new Database(databasePath);
     this.initializeDatabase();
   }
 
@@ -38,11 +38,7 @@ export class SqliteUserRepository implements UserRepository {
       CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users(auth_provider);
     `;
 
-    this.db.exec(createTableSQL, (err: Error | null) => {
-      if (err) {
-        throw new Error(`Failed to initialize database: ${err.message}`);
-      }
-    });
+    this.db.exec(createTableSQL);
   }
 
   private userFromRow(row: any): UserInfo {
@@ -82,60 +78,35 @@ export class SqliteUserRepository implements UserRepository {
   }
 
   async findById(userId: string): Promise<UserInfo | null> {
-    return new Promise((resolve, reject) => {
-      this.db.get('SELECT * FROM users WHERE id = ?', [userId], (err: Error | null, row: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(row ? this.userFromRow(row) : null);
-      });
-    });
+    const stmt = this.db.prepare('SELECT * FROM users WHERE id = ?');
+    const row = stmt.get(userId) as any;
+    return row ? this.userFromRow(row) : null;
   }
 
   async findByUsername(username: string): Promise<UserInfo | null> {
-    return new Promise((resolve, reject) => {
-      this.db.get('SELECT * FROM users WHERE username = ?', [username], (err: Error | null, row: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(row ? this.userFromRow(row) : null);
-      });
-    });
+    const stmt = this.db.prepare('SELECT * FROM users WHERE username = ?');
+    const row = stmt.get(username) as any;
+    return row ? this.userFromRow(row) : null;
   }
 
   async findByEmail(email: string): Promise<UserInfo | null> {
-    return new Promise((resolve, reject) => {
-      this.db.get('SELECT * FROM users WHERE email = ?', [email], (err: Error | null, row: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(row ? this.userFromRow(row) : null);
-      });
-    });
+    const stmt = this.db.prepare('SELECT * FROM users WHERE email = ?');
+    const row = stmt.get(email) as any;
+    return row ? this.userFromRow(row) : null;
   }
 
   async findByProviderAndExternalId(
     provider: string,
     externalId: string
   ): Promise<UserInfo | null> {
-    return new Promise((resolve, reject) => {
-      // 查询具有匹配 provider 和 externalId 的用户
-      const sql = `
-        SELECT * FROM users
-        WHERE auth_provider = ?
-        AND metadata LIKE ?
-      `;
-      this.db.get(sql, [provider, `%${externalId}%`], (err: Error | null, row: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(row ? this.userFromRow(row) : null);
-      });
-    });
+    const sql = `
+      SELECT * FROM users
+      WHERE auth_provider = ?
+      AND metadata LIKE ?
+    `;
+    const stmt = this.db.prepare(sql);
+    const row = stmt.get(provider, `%${externalId}%`) as any;
+    return row ? this.userFromRow(row) : null;
   }
 
   async findOrCreate(
@@ -172,27 +143,20 @@ export class SqliteUserRepository implements UserRepository {
 
     const row = this.userToRow(user);
 
-    return new Promise((resolve, reject) => {
-      const sql = `
-        INSERT INTO users (
-          id, username, name, email, picture, phone, auth_provider,
-          email_verified, phone_verified, groups, created_at, updated_at, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
+    const sql = `
+      INSERT INTO users (
+        id, username, name, email, picture, phone, auth_provider,
+        email_verified, phone_verified, groups, created_at, updated_at, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
-      const values = [
-        row.id, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
-        row.email_verified, row.phone_verified, row.groups, row.created_at, row.updated_at, row.metadata
-      ];
+    const stmt = this.db.prepare(sql);
+    stmt.run(
+      row.id, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
+      row.email_verified, row.phone_verified, row.groups, row.created_at, row.updated_at, row.metadata
+    );
 
-      this.db.run(sql, values, function(err: Error | null) {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(user);
-      });
-    });
+    return user;
   }
 
   async update(userId: string, updates: Partial<UserInfo>): Promise<UserInfo> {
@@ -210,97 +174,78 @@ export class SqliteUserRepository implements UserRepository {
 
     const row = this.userToRow(updatedUser);
 
-    return new Promise((resolve, reject) => {
-      const sql = `
-        UPDATE users SET
-          username = ?, name = ?, email = ?, picture = ?, phone = ?, auth_provider = ?,
-          email_verified = ?, phone_verified = ?, groups = ?, updated_at = ?, metadata = ?
-        WHERE id = ?
-      `;
+    const sql = `
+      UPDATE users SET
+        username = ?, name = ?, email = ?, picture = ?, phone = ?, auth_provider = ?,
+        email_verified = ?, phone_verified = ?, groups = ?, updated_at = ?, metadata = ?
+      WHERE id = ?
+    `;
 
-      const values = [
-        row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
-        row.email_verified, row.phone_verified, row.groups, row.updated_at, row.metadata,
-        userId
-      ];
+    const stmt = this.db.prepare(sql);
+    stmt.run(
+      row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
+      row.email_verified, row.phone_verified, row.groups, row.updated_at, row.metadata,
+      userId
+    );
 
-      this.db.run(sql, values, function(err: Error | null) {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(updatedUser);
-      });
-    });
+    return updatedUser;
   }
 
   async delete(userId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db.run('DELETE FROM users WHERE id = ?', [userId], function(err: Error | null) {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve();
-      });
-    });
+    const stmt = this.db.prepare('DELETE FROM users WHERE id = ?');
+    stmt.run(userId);
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
-    return new Promise((resolve, reject) => {
-      let sql = 'SELECT * FROM users';
-      const params: any[] = [];
+    let sql = 'SELECT * FROM users';
+    const params: any[] = [];
 
-      // 过滤
-      const conditions: string[] = [];
-      if (options?.filter) {
-        for (const [key, value] of Object.entries(options.filter)) {
-          if (['username', 'name', 'email', 'authProvider'].includes(key)) {
-            conditions.push(`${key === 'authProvider' ? 'auth_provider' : key} = ?`);
-            params.push(value);
-          }
+    // 过滤
+    const conditions: string[] = [];
+    if (options?.filter) {
+      for (const [key, value] of Object.entries(options.filter)) {
+        if (['username', 'name', 'email', 'authProvider'].includes(key)) {
+          conditions.push(`${key === 'authProvider' ? 'auth_provider' : key} = ?`);
+          params.push(value);
         }
       }
+    }
 
-      if (conditions.length > 0) {
-        sql += ' WHERE ' + conditions.join(' AND ');
-      }
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
 
-      // 排序
-      if (options?.sortBy) {
-        const sortBy = options.sortBy === 'authProvider' ? 'auth_provider' : options.sortBy;
-        const sortOrder = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
-        sql += ` ORDER BY ${sortBy} ${sortOrder}`;
-      }
+    // 排序
+    if (options?.sortBy) {
+      const sortBy = options.sortBy === 'authProvider' ? 'auth_provider' : options.sortBy;
+      const sortOrder = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
+      sql += ` ORDER BY ${sortBy} ${sortOrder}`;
+    }
 
-      // 分页
-      if (options?.offset !== undefined || options?.limit !== undefined) {
-        const offset = options.offset || 0;
-        const limit = options.limit;
-        sql += ' LIMIT ? OFFSET ?';
-        params.push(limit || -1, offset);
-      }
+    // 分页
+    if (options?.offset !== undefined || options?.limit !== undefined) {
+      const offset = options.offset || 0;
+      const limit = options.limit;
+      sql += ' LIMIT ? OFFSET ?';
+      params.push(limit || -1, offset);
+    }
 
-      this.db.all(sql, params, (err: Error | null, rows: any[]) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(rows.map(row => this.userFromRow(row)));
-      });
-    });
+    const stmt = this.db.prepare(sql);
+    const rows = stmt.all(...params) as any[];
+    return rows.map(row => this.userFromRow(row));
   }
 
   async clear(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db.get('SELECT COUNT(*) as count FROM users', (err: Error | null, row: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(row.count);
-      });
-    });
+    this.db.exec('DELETE FROM users');
+  }
+
+  /**
+   * 获取用户数量（用于调试）
+   */
+  async size(): Promise<number> {
+    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM users');
+    const row = stmt.get() as any;
+    return row.count;
   }
 
   /**
@@ -308,12 +253,8 @@ export class SqliteUserRepository implements UserRepository {
    */
   close(): Promise<void> {
     return new Promise((resolve) => {
-      this.db.close((err: Error | null) => {
-        if (err) {
-          console.error('Error closing database:', err);
-        }
-        resolve();
-      });
+      this.db.close();
+      resolve();
     });
   }
 }

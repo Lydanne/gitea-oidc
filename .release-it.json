@@ -11,7 +11,7 @@
   "github": {
     "release": true,
     "releaseName": "Release v${version}",
-    "releaseNotes": "git log --pretty=format:'* %s (%h)' ${latestTag}...HEAD"
+    "releaseNotes": "if [ -n \"${latestTag}\" ]; then git log --pretty=format:'* %s (%h)' ${latestTag}...HEAD; else echo 'Initial release'; fi"
   },
   "npm": {
     "publish": true

@@ -192,7 +192,7 @@ docker run -d -p 3000:3000 lydamirror/gitea-oidc
 # 使用自定义配置
 docker run -d -p 3000:3000 \
   -e NODE_ENV=production \
-  -v /path/to/config:/app/config \
+  -v /path/to/gitea-oidc.config.js:/app/gitea-oidc.config.js \
   lydamirror/gitea-oidc
 ```
 

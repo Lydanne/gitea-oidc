@@ -1,8 +1,6 @@
-name: CI
+name: CI-CHECK
 
 on:
-  push:
-    branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
 

@@ -190,9 +190,11 @@ docker pull lydamirror/gitea-oidc:1.0.3
 docker run -d -p 3000:3000 lydamirror/gitea-oidc
 
 # 使用自定义配置
-docker run -d -p 3000:3000 \
+docker run -p 3000:3000 \
   -e NODE_ENV=production \
-  -v /path/to/gitea-oidc.config.js:/app/gitea-oidc.config.js \
+  -v ./gitea-oidc.config.js:/app/gitea-oidc.config.js \
+  --log-opt max-size=10m \
+  --log-opt max-file=3 \
   lydamirror/gitea-oidc
 ```
 

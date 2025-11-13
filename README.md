@@ -169,6 +169,48 @@ gitea-oidc/
 3. 使用测试账户登录（admin/admin123）
 4. 成功后自动返回 Gitea
 
+## 🐳 Docker 使用
+
+项目提供官方 Docker 镜像，可用于快速部署。
+
+### 拉取镜像
+
+```bash
+# 拉取最新版本
+docker pull lydamirror/gitea-oidc:latest
+
+# 拉取指定版本
+docker pull lydamirror/gitea-oidc:1.0.3
+```
+
+### 运行容器
+
+```bash
+# 基本运行
+docker run -d -p 3000:3000 lydamirror/gitea-oidc
+
+# 使用自定义配置
+docker run -d -p 3000:3000 \
+  -e NODE_ENV=production \
+  -v /path/to/config:/app/config \
+  lydamirror/gitea-oidc
+```
+
+### 环境变量
+
+- `NODE_ENV`: 运行环境（默认 development）
+- `PORT`: 监听端口（默认 3000）
+
+### 数据持久化
+
+```bash
+# 使用外部数据库
+docker run -d -p 3000:3000 \
+  -e DATABASE_URL=sqlite:///data/users.db \
+  -v /host/data:/data \
+  lydamirror/gitea-oidc
+```
+
 ## 🔐 生产环境
 
 ### 安全建议

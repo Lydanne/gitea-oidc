@@ -199,7 +199,7 @@ ISC License
 发布前需要设置以下环境变量：
 
 - `NPM_TOKEN`: npm 发布令牌
-- `GITHUB_TOKEN`: GitHub 令牌（用于创建 release）
+- `GHUB_TOKEN`: GitHub 令牌（用于创建 release）
 - `DOCKER_USERNAME`: Docker Hub 用户名
 - `DOCKER_PASSWORD`: Docker Hub 密码
 
@@ -239,7 +239,7 @@ npm run release -- prerelease --preReleaseId=beta
 在 GitHub 仓库设置中配置以下 Secrets：
 
 - `NPM_TOKEN`: npm 发布令牌
-- `GITHUB_TOKEN`: 自动配置（用于创建 release）
+- `GHUB_TOKEN`: 自动配置（用于创建 release）
 - `DOCKER_USERNAME`: Docker Hub 用户名
 - `DOCKER_PASSWORD`: Docker Hub 密码
 

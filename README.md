@@ -207,15 +207,15 @@ ISC License
 
 ```bash
 # 发布补丁版本
-npm run release
+pnpm run release
 
 # 或指定版本类型
-npm run release -- patch
-npm run release -- minor
-npm run release -- major
+pnpm run release -- patch
+pnpm run release -- minor
+pnpm run release -- major
 
 # 预发布版本
-npm run release -- prerelease --preReleaseId=beta
+pnpm run release -- prerelease --preReleaseId=beta
 ```
 
 发布流程将自动执行：

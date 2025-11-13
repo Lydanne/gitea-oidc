@@ -1,6 +1,6 @@
 {
   "name": "gitea-oidc",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "description": "Simple OpenID Connect Identity Provider using Fastify and TypeScript",
   "main": "dist/server.js",

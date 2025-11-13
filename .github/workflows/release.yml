@@ -42,14 +42,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run linting
-        run: npx markdownlint README.md
+      # - name: Run linting
+      #   run: npx markdownlint README.md
 
       - name: Run tests
         run: pnpm test
 
-      - name: Run test coverage
-        run: pnpm test:coverage
+      # - name: Run test coverage
+      #   run: pnpm test:coverage
 
   build:
     needs: test

@@ -43,7 +43,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules
-        run: pnpm rebuild better-sqlite3
+        run: npm rebuild better-sqlite3
 
       # - name: Run linting
       #   run: npx markdownlint README.md
@@ -76,7 +76,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules
-        run: pnpm rebuild better-sqlite3
+        run: npm rebuild better-sqlite3
 
       - name: Build application
         run: pnpm run build:prod
@@ -115,7 +115,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules
-        run: pnpm rebuild better-sqlite3
+        run: npm rebuild better-sqlite3
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4

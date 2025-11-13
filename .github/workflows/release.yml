@@ -92,6 +92,8 @@ jobs:
     environment: release
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     permissions:
       contents: write
       packages: write

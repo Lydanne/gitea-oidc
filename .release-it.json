@@ -1,5 +1,11 @@
 {
   "$schema": "https://unpkg.com/release-it@19/schema/release-it.json",
+  "plugins": {
+    "@release-it/conventional-changelog": {
+      "preset": "angular",
+      "infile": "CHANGELOG.md"
+    }
+  },
   "git": {
     "commit": true,
     "tag": true,
@@ -11,7 +17,6 @@
   "github": {
     "release": true,
     "releaseName": "Release v${version}",
-    "releaseNotes": "if [ -n \"${latestTag}\" ]; then git log --pretty=format:'* %s (%h)' ${latestTag}...HEAD; else echo 'Initial release'; fi"
   },
   "npm": {
     "publish": true

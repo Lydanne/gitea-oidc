@@ -538,7 +538,7 @@ export interface UserRepository {
   /**
    * 根据 ID 查找用户
    */
-  findById(userId: string): Promise<UserInfo | null>;
+  findById(sub: string): Promise<UserInfo | null>;
 
   /**
    * 根据用户名查找用户
@@ -577,17 +577,17 @@ export interface UserRepository {
   /**
    * 创建用户
    */
-  create(user: Omit<UserInfo, 'sub'>): Promise<UserInfo>;
+  create(user: UserInfo): Promise<UserInfo>;
 
   /**
    * 更新用户
    */
-  update(userId: string, updates: Partial<UserInfo>): Promise<UserInfo>;
+  update(sub: string, updates: Partial<UserInfo>): Promise<UserInfo>;
 
   /**
    * 删除用户
    */
-  delete(userId: string): Promise<void>;
+  delete(sub: string): Promise<void>;
 
   /**
    * 查询用户列表

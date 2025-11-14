@@ -319,43 +319,6 @@ export async function loadConfig(): Promise<GiteaOidcConfig> {
 }
 
 /**
- * 配置验证函数
- * 
- * 验证配置的关键选项，确保：
- * - 服务器端口有效（1-65535）
- * - 必要的 URL 不为空
- * - OIDC 发行者 URL 存在
- * - Cookie 密钥已配置
- * - 至少有一个客户端配置
- * 
- * 验证失败时会抛出错误，触发配置回退到默认值
- * 
- * @param {GiteaOidcConfig} config - 待验证的配置对象
- * @throws {Error} 当配置验证失败时抛出错误
- */
-function validateConfig(config: GiteaOidcConfig): void {
-  if (!config.server?.port || config.server.port < 1 || config.server.port > 65535) {
-    throw new Error('无效的服务器端口号');
-  }
-  
-  if (!config.server?.url) {
-    throw new Error('服务器 URL 不能为空');
-  }
-  
-  if (!config.oidc?.issuer) {
-    throw new Error('OIDC 发行者 URL 不能为空');
-  }
-  
-  if (!config.oidc?.cookieKeys || config.oidc.cookieKeys.length === 0) {
-    throw new Error('Cookie 密钥不能为空');
-  }
-  
-  if (!config.clients || config.clients.length === 0) {
-    throw new Error('至少需要配置一个客户端');
-  }
-}
-
-/**
  * 深度合并对象函数
  * 
  * 将源对象的属性递归合并到目标对象中：

@@ -5,7 +5,7 @@
 
 import Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
-import type { UserRepository, UserInfo, ListOptions } from '../types/auth.js';
+import type { UserRepository, UserInfo, ListOptions } from '../types/auth';
 
 export class SqliteUserRepository implements UserRepository {
   private db: Database.Database;

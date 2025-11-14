@@ -3,7 +3,7 @@
  * 用于开发和测试环境
  */
 
-import type { UserRepository, UserInfo, ListOptions } from '../types/auth.js';
+import type { UserRepository, UserInfo, ListOptions } from '../types/auth';
 import { randomUUID } from 'crypto';
 
 export class MemoryUserRepository implements UserRepository {

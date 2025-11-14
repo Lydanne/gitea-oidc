@@ -3,11 +3,11 @@
  * 根据配置创建合适的用户仓储实例
  */
 
-import type { UserRepository } from '../types/auth.js';
-import type { UserRepositoryConfig } from '../types/config.js';
-import { MemoryUserRepository } from './MemoryUserRepository.js';
-import { SqliteUserRepository } from './SqliteUserRepository.js';
-import { PgsqlUserRepository } from './PgsqlUserRepository.js';
+import type { UserRepository } from '../types/auth';
+import type { UserRepositoryConfig } from '../types/config';
+import { MemoryUserRepository } from './MemoryUserRepository';
+import { SqliteUserRepository } from './SqliteUserRepository';
+import { PgsqlUserRepository } from './PgsqlUserRepository';
 
 export class UserRepositoryFactory {
   /**

@@ -2,8 +2,8 @@
  * 认证系统配置类型扩展
  */
 
-import type { GiteaOidcConfig } from '../config.js';
-import type { AuthProviderConfig } from './auth.js';
+import type { GiteaOidcConfig } from '../config';
+import type { AuthProviderConfig } from './auth';
 
 export type RepositoryType = 'memory' | 'sqlite' | 'pgsql';
 

@@ -9,9 +9,9 @@
     "build": "rolldown -c rolldown.config.ts",
     "build:prod": "rolldown -c rolldown.config.prod.ts",
     "start": "node dist/server.js",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
-    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
     "release": "release-it"
   },
   "keywords": [
@@ -32,18 +32,16 @@
     "@release-it/conventional-changelog": "^10.0.1",
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/jest": "^30.0.0",
     "@types/koa": "^3.0.1",
     "@types/node": "^22.0.0",
     "@types/oidc-provider": "^9.5.0",
     "@types/pg": "^8.15.6",
-    "jest": "^30.2.0",
     "release-it": "^19.0.6",
     "rolldown": "1.0.0-beta.47",
-    "ts-jest": "^29.4.5",
     "ts-node": "^10.9.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.9"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",

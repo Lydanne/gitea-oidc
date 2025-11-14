@@ -1,11 +1,6 @@
-/**
- * PostgreSQL 用户仓储实现
- * 用于生产环境的持久化存储
- */
-
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
-import type { UserRepository, UserInfo, ListOptions } from '../types/auth.js';
+import type { UserRepository, UserInfo, ListOptions } from '../types/auth';
 
 export class PgsqlUserRepository implements UserRepository {
   private pool: Pool;

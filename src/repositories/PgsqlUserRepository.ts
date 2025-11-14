@@ -21,7 +21,7 @@ export class PgsqlUserRepository implements UserRepository {
   private async initializeDatabase(): Promise<void> {
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
+        sub TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
@@ -51,7 +51,7 @@ export class PgsqlUserRepository implements UserRepository {
 
   private userFromRow(row: any): UserInfo {
     return {
-      sub: row.id,
+      sub: row.sub,
       username: row.username,
       name: row.name,
       email: row.email,
@@ -69,7 +69,7 @@ export class PgsqlUserRepository implements UserRepository {
 
   private userToRow(user: UserInfo): any {
     return {
-      id: user.sub,
+      sub: user.sub,
       username: user.username,
       name: user.name,
       email: user.email,
@@ -85,10 +85,10 @@ export class PgsqlUserRepository implements UserRepository {
     };
   }
 
-  async findById(userId: string): Promise<UserInfo | null> {
+  async findById(sub: string): Promise<UserInfo | null> {
     const client = await this.pool.connect();
     try {
-      const result = await client.query('SELECT * FROM users WHERE id = $1', [userId]);
+      const result = await client.query('SELECT * FROM users WHERE sub = $1', [sub]);
       return result.rows.length > 0 ? this.userFromRow(result.rows[0]) : null;
     } finally {
       client.release();
@@ -169,7 +169,7 @@ export class PgsqlUserRepository implements UserRepository {
 
     const sql = `
       INSERT INTO users (
-        id, username, name, email, picture, phone, auth_provider,
+        sub, username, name, email, picture, phone, auth_provider,
         email_verified, phone_verified, groups, created_at, updated_at, metadata
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     `;
@@ -177,7 +177,7 @@ export class PgsqlUserRepository implements UserRepository {
     const client = await this.pool.connect();
     try {
       await client.query(sql, [
-        row.id, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
+        row.sub, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
         row.email_verified, row.phone_verified, row.groups, row.created_at, row.updated_at, row.metadata
       ]);
       return user;
@@ -186,10 +186,10 @@ export class PgsqlUserRepository implements UserRepository {
     }
   }
 
-  async update(userId: string, updates: Partial<UserInfo>): Promise<UserInfo> {
-    const user = await this.findById(userId);
+  async update(sub: string, updates: Partial<UserInfo>): Promise<UserInfo> {
+    const user = await this.findById(sub);
     if (!user) {
-      throw new Error(`User not found: ${userId}`);
+      throw new Error(`User not found: ${sub}`);
     }
 
     const updatedUser: UserInfo = {
@@ -205,7 +205,7 @@ export class PgsqlUserRepository implements UserRepository {
       UPDATE users SET
         username = $1, name = $2, email = $3, picture = $4, phone = $5, auth_provider = $6,
         email_verified = $7, phone_verified = $8, groups = $9, updated_at = $10, metadata = $11
-      WHERE id = $12
+      WHERE sub = $12
     `;
 
     const client = await this.pool.connect();
@@ -213,7 +213,7 @@ export class PgsqlUserRepository implements UserRepository {
       await client.query(sql, [
         row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
         row.email_verified, row.phone_verified, row.groups, row.updated_at, row.metadata,
-        userId
+        sub
       ]);
       return updatedUser;
     } finally {
@@ -221,10 +221,10 @@ export class PgsqlUserRepository implements UserRepository {
     }
   }
 
-  async delete(userId: string): Promise<void> {
+  async delete(sub: string): Promise<void> {
     const client = await this.pool.connect();
     try {
-      await client.query('DELETE FROM users WHERE id = $1', [userId]);
+      await client.query('DELETE FROM users WHERE sub = $1', [sub]);
     } finally {
       client.release();
     }

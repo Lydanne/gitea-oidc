@@ -18,7 +18,7 @@ export class SqliteUserRepository implements UserRepository {
   private initializeDatabase(): void {
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
+        sub TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
@@ -43,7 +43,7 @@ export class SqliteUserRepository implements UserRepository {
 
   private userFromRow(row: any): UserInfo {
     return {
-      sub: row.id,
+      sub: row.sub,
       username: row.username,
       name: row.name,
       email: row.email,
@@ -61,7 +61,7 @@ export class SqliteUserRepository implements UserRepository {
 
   private userToRow(user: UserInfo): any {
     return {
-      id: user.sub,
+      sub: user.sub,
       username: user.username,
       name: user.name,
       email: user.email,
@@ -77,9 +77,9 @@ export class SqliteUserRepository implements UserRepository {
     };
   }
 
-  async findById(userId: string): Promise<UserInfo | null> {
-    const stmt = this.db.prepare('SELECT * FROM users WHERE id = ?');
-    const row = stmt.get(userId) as any;
+  async findById(sub: string): Promise<UserInfo | null> {
+    const stmt = this.db.prepare('SELECT * FROM users WHERE sub = ?');
+    const row = stmt.get(sub) as any;
     return row ? this.userFromRow(row) : null;
   }
 
@@ -145,24 +145,24 @@ export class SqliteUserRepository implements UserRepository {
 
     const sql = `
       INSERT INTO users (
-        id, username, name, email, picture, phone, auth_provider,
+        sub, username, name, email, picture, phone, auth_provider,
         email_verified, phone_verified, groups, created_at, updated_at, metadata
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const stmt = this.db.prepare(sql);
     stmt.run(
-      row.id, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
+      row.sub, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
       row.email_verified, row.phone_verified, row.groups, row.created_at, row.updated_at, row.metadata
     );
 
     return user;
   }
 
-  async update(userId: string, updates: Partial<UserInfo>): Promise<UserInfo> {
-    const user = await this.findById(userId);
+  async update(sub: string, updates: Partial<UserInfo>): Promise<UserInfo> {
+    const user = await this.findById(sub);
     if (!user) {
-      throw new Error(`User not found: ${userId}`);
+      throw new Error(`User not found: ${sub}`);
     }
 
     const updatedUser: UserInfo = {
@@ -178,22 +178,22 @@ export class SqliteUserRepository implements UserRepository {
       UPDATE users SET
         username = ?, name = ?, email = ?, picture = ?, phone = ?, auth_provider = ?,
         email_verified = ?, phone_verified = ?, groups = ?, updated_at = ?, metadata = ?
-      WHERE id = ?
+      WHERE sub = ?
     `;
 
     const stmt = this.db.prepare(sql);
     stmt.run(
       row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
       row.email_verified, row.phone_verified, row.groups, row.updated_at, row.metadata,
-      userId
+      sub
     );
 
     return updatedUser;
   }
 
-  async delete(userId: string): Promise<void> {
-    const stmt = this.db.prepare('DELETE FROM users WHERE id = ?');
-    stmt.run(userId);
+  async delete(sub: string): Promise<void> {
+    const stmt = this.db.prepare('DELETE FROM users WHERE sub = ?');
+    stmt.run(sub);
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {

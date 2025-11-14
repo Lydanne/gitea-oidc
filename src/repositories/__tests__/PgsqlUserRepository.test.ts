@@ -58,7 +58,7 @@ const baseUserData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'> = {
 };
 
 const createRow = (override: Partial<Record<string, any>> = {}) => ({
-  id: 'existing-user',
+  sub: 'existing-user',
   username: baseUserData.username,
   name: baseUserData.name,
   email: baseUserData.email,
@@ -75,7 +75,7 @@ const createRow = (override: Partial<Record<string, any>> = {}) => ({
 });
 
 const expectedUserFromRow = (row: ReturnType<typeof createRow>): UserInfo => ({
-  sub: row.id,
+  sub: row.sub,
   username: row.username,
   name: row.name,
   email: row.email,
@@ -128,8 +128,8 @@ describe('PgsqlUserRepository', () => {
       {
         name: 'findById',
         method: (repo: PgsqlUserRepository, value: string) => repo.findById(value),
-        field: 'id',
-        sqlSnippet: 'WHERE id = $1',
+        field: 'sub',
+        sqlSnippet: 'WHERE sub = $1',
       },
       {
         name: 'findByUsername',
@@ -169,7 +169,7 @@ describe('PgsqlUserRepository', () => {
     });
   });
 
-  it('should find user by provider and external id', async () => {
+  it('should find user by provider and external sub', async () => {
     const row = createRow();
     const client = setupNextClient(() => ({ rows: [row] }));
 
@@ -181,7 +181,7 @@ describe('PgsqlUserRepository', () => {
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('should return null when provider external id misses', async () => {
+  it('should return null when provider external sub misses', async () => {
     const client = setupNextClient(() => ({ rows: [] }));
 
     const result = await repository.findByProviderAndExternalId('local', 'missing');
@@ -223,7 +223,7 @@ describe('PgsqlUserRepository', () => {
     const finderClient = setupNextClient(() => ({ rows: [existing] }));
     const updateClient = setupNextClient();
 
-    const updated = await repository.update(existing.id, {
+    const updated = await repository.update(existing.sub, {
       name: 'Updated Name',
       metadata: { role: 'admin' },
     });
@@ -233,7 +233,7 @@ describe('PgsqlUserRepository', () => {
     expect(updateClient.query.mock.calls[0][0]).toContain('UPDATE users SET');
     expect(updateClient.query.mock.calls[0][1][1]).toBe('Updated Name');
     expect(updateClient.query.mock.calls[0][1][10]).toEqual({ role: 'admin' });
-    expect(updateClient.query.mock.calls[0][1][11]).toBe(existing.id);
+    expect(updateClient.query.mock.calls[0][1][11]).toBe(existing.sub);
     expect(finderClient.release).toHaveBeenCalled();
     expect(updateClient.release).toHaveBeenCalled();
   });
@@ -241,8 +241,8 @@ describe('PgsqlUserRepository', () => {
   it('should throw when updating a missing user', async () => {
     const finderClient = setupNextClient(() => ({ rows: [] }));
 
-    await expect(repository.update('missing-id', { name: 'X' })).rejects.toThrow(
-      'User not found: missing-id'
+    await expect(repository.update('missing-sub', { name: 'X' })).rejects.toThrow(
+      'User not found: missing-sub'
     );
 
     expect(finderClient.release).toHaveBeenCalled();
@@ -250,8 +250,8 @@ describe('PgsqlUserRepository', () => {
 
   it('should list users with filters, sort and pagination', async () => {
     const rows = [
-      createRow({ id: 'a', username: 'alice' }),
-      createRow({ id: 'b', username: 'bob' }),
+      createRow({ sub: 'a', username: 'alice' }),
+      createRow({ sub: 'b', username: 'bob' }),
     ];
     const client = setupNextClient(() => ({ rows }));
     const options: ListOptions = {
@@ -283,11 +283,11 @@ describe('PgsqlUserRepository', () => {
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('should delete a user by id', async () => {
+  it('should delete a user by sub', async () => {
     const client = setupNextClient();
-    await repository.delete('delete-id');
+    await repository.delete('delete-sub');
 
-    expect(client.query).toHaveBeenCalledWith('DELETE FROM users WHERE id = $1', ['delete-id']);
+    expect(client.query).toHaveBeenCalledWith('DELETE FROM users WHERE sub = $1', ['delete-sub']);
     expect(client.release).toHaveBeenCalled();
   });
 });

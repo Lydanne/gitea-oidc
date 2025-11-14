@@ -10,7 +10,7 @@ import { loadConfig } from './config';
 // 认证系统导入
 import { AuthCoordinator } from './core/AuthCoordinator';
 import { MemoryStateStore } from './stores/MemoryStateStore';
-import { UserRepositoryFactory } from './repositories/UserRepositoryFactory.js';
+import { UserRepositoryFactory } from './repositories/UserRepositoryFactory';
 import { LocalAuthProvider } from './providers/LocalAuthProvider';
 import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
 import type { AuthContext, AuthProvider } from './types/auth';

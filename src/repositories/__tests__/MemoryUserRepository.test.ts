@@ -2,8 +2,8 @@
  * MemoryUserRepository 单元测试
  */
 
-import { MemoryUserRepository } from '../MemoryUserRepository.js';
-import type { UserInfo, ListOptions } from '../../types/auth.js';
+import { MemoryUserRepository } from '../MemoryUserRepository';
+import type { UserInfo, ListOptions } from '../../types/auth';
 
 describe('MemoryUserRepository', () => {
   let repository: MemoryUserRepository;

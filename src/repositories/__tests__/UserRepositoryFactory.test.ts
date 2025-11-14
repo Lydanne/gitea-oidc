@@ -3,20 +3,20 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-import { UserRepositoryFactory } from '../UserRepositoryFactory.js';
-import { MemoryUserRepository } from '../MemoryUserRepository.js';
-import { SqliteUserRepository } from '../SqliteUserRepository.js';
-import { PgsqlUserRepository } from '../PgsqlUserRepository.js';
-import type { UserRepositoryConfig } from '../../types/config.js';
+import { UserRepositoryFactory } from '../UserRepositoryFactory';
+import { MemoryUserRepository } from '../MemoryUserRepository';
+import { SqliteUserRepository } from '../SqliteUserRepository';
+import { PgsqlUserRepository } from '../PgsqlUserRepository';
+import type { UserRepositoryConfig } from '../../types/config';
 
 // Mock 依赖
-vi.mock('../MemoryUserRepository.js', () => ({
+vi.mock('../MemoryUserRepository', () => ({
   MemoryUserRepository: vi.fn(),
 }));
-vi.mock('../SqliteUserRepository.js', () => ({
+vi.mock('../SqliteUserRepository', () => ({
   SqliteUserRepository: vi.fn(),
 }));
-vi.mock('../PgsqlUserRepository.js', () => ({
+vi.mock('../PgsqlUserRepository', () => ({
   PgsqlUserRepository: vi.fn(),
 }));
 

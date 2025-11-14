@@ -2,8 +2,8 @@
  * SqliteUserRepository 单元测试
  */
 
-import { SqliteUserRepository } from '../SqliteUserRepository.js';
-import type { UserInfo, ListOptions } from '../../types/auth.js';
+import { SqliteUserRepository } from '../SqliteUserRepository';
+import type { UserInfo, ListOptions } from '../../types/auth';
 
 describe('SqliteUserRepository', () => {
   let repository: SqliteUserRepository;

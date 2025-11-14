@@ -7,6 +7,7 @@ import type { UserRepository } from '../types/auth.js';
 import type { UserRepositoryConfig } from '../types/config.js';
 import { MemoryUserRepository } from './MemoryUserRepository.js';
 import { SqliteUserRepository } from './SqliteUserRepository.js';
+import { PgsqlUserRepository } from './PgsqlUserRepository.js';
 
 export class UserRepositoryFactory {
   /**
@@ -21,8 +22,13 @@ export class UserRepositoryFactory {
 
       case 'sqlite':
         // 数据库配置，默认为 SQLite
-        const dbPath = config.config?.path || ':memory:';
-        return new SqliteUserRepository(dbPath);
+        const sqliteUri = config.config?.uri || ':memory:';
+        return new SqliteUserRepository(sqliteUri);
+
+      case 'pgsql':
+        // PostgreSQL 数据库配置
+        const pgsqlUri = config.config?.uri || 'postgresql://localhost:5432/gitea_oidc';
+        return new PgsqlUserRepository(pgsqlUri);
 
       default:
         throw new Error(`Unknown user repository type: ${config.type}`);
@@ -33,7 +39,7 @@ export class UserRepositoryFactory {
    * 获取支持的仓储类型列表
    */
   static getSupportedTypes(): string[] {
-    return ['memory', 'sqlite'];
+    return ['memory', 'sqlite', 'pgsql'];
   }
 
   /**

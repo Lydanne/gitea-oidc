@@ -5,7 +5,7 @@
 import type { GiteaOidcConfig } from '../config.js';
 import type { AuthProviderConfig } from './auth.js';
 
-export type RepositoryType = 'memory' | 'sqlite';
+export type RepositoryType = 'memory' | 'sqlite' | 'pgsql';
 
 /**
  * 用户仓储配置

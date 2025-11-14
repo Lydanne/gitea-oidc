@@ -10,8 +10,8 @@ import type { UserRepository, UserInfo, ListOptions } from '../types/auth.js';
 export class SqliteUserRepository implements UserRepository {
   private db: Database.Database;
 
-  constructor(databasePath: string = ':memory:') {
-    this.db = new Database(databasePath);
+  constructor(uri: string = ':memory:') {
+    this.db = new Database(uri);
     this.initializeDatabase();
   }
 

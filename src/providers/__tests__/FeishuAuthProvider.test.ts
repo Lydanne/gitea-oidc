@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createCipheriv, createHash } from 'crypto';
 import type { AuthContext, AuthProviderConfig, FeishuAuthConfig, UserInfo } from '../../types/auth';
 import { FeishuAuthProvider } from '../FeishuAuthProvider';
 import { AuthErrors } from '../../utils/authErrors';
@@ -60,8 +61,19 @@ describe('FeishuAuthProvider', () => {
   });
 
   afterEach(() => {
-    fetchSpy.mockRestore();
+    vi.restoreAllMocks();
   });
+
+  const encryptFeishuPayload = (encryptKey: string, data: Record<string, any>): string => {
+    const keyHash = createHash('sha256').update(encryptKey).digest();
+    const iv = keyHash.slice(0, 16);
+    const randomPrefix = Buffer.from('1234567890123456');
+    const json = Buffer.from(JSON.stringify(data));
+    const plain = Buffer.concat([randomPrefix, json, Buffer.from('app_id')]);
+    const cipher = createCipheriv('aes-256-cbc', keyHash, iv);
+    const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
+    return encrypted.toString('base64');
+  };
 
   describe('canHandle', () => {
     it('returns true when authMethod matches', () => {
@@ -316,6 +328,115 @@ describe('FeishuAuthProvider', () => {
 
       expect(reply.code).toHaveBeenCalledWith(400);
       expect(reply.send).toHaveBeenCalledWith({ error: '无效的认证状态' });
+    });
+  });
+
+  describe('decryptFeishuData', () => {
+    it('should decrypt payload when encrypt key is configured', () => {
+      const key = 'encrypt-key-123';
+      (provider as any).config.encryptKey = key;
+      const payload = { challenge: 'abc', type: 'url_verification' };
+      const encrypted = encryptFeishuPayload(key, payload);
+
+      const result = (provider as any).decryptFeishuData(encrypted);
+
+      expect(result).toEqual(payload);
+    });
+
+    it('should throw when encrypt key missing', () => {
+      delete (provider as any).config.encryptKey;
+      expect(() => (provider as any).decryptFeishuData('payload')).toThrow('Encrypt key not configured');
+    });
+  });
+
+  describe('verifyFeishuSignature', () => {
+    it('returns false when headers missing', async () => {
+      const result = await (provider as any).verifyFeishuSignature({ headers: {}, body: {} } as any);
+      expect(result).toBe(false);
+    });
+
+    it('skips verification when token not configured', async () => {
+      delete (provider as any).config.verificationToken;
+      const request = {
+        headers: {
+          'x-lark-signature': 'sig',
+          'x-lark-request-timestamp': '111',
+          'x-lark-request-nonce': 'nonce',
+        },
+        body: {},
+      } as any;
+      const result = await (provider as any).verifyFeishuSignature(request);
+      expect(result).toBe(true);
+    });
+
+    it('validates correct signature', async () => {
+      (provider as any).config.verificationToken = 'token-123';
+      const timestamp = `${Math.floor(Date.now() / 1000)}`;
+      const nonce = 'nonce-1';
+      const body = { foo: 'bar' };
+      const signature = createHash('sha256')
+        .update(`${timestamp}${nonce}token-123${JSON.stringify(body)}`)
+        .digest('hex');
+
+      const result = await (provider as any).verifyFeishuSignature({
+        headers: {
+          'x-lark-signature': signature,
+          'x-lark-request-timestamp': timestamp,
+          'x-lark-request-nonce': nonce,
+        },
+        body,
+      } as any);
+
+      expect(result).toBe(true);
+    });
+
+    it('returns false for invalid signature', async () => {
+      (provider as any).config.verificationToken = 'token-abc';
+      const request = {
+        headers: {
+          'x-lark-signature': 'invalid',
+          'x-lark-request-timestamp': '1',
+          'x-lark-request-nonce': '2',
+        },
+        body: { foo: 'bar' },
+      } as any;
+
+      const result = await (provider as any).verifyFeishuSignature(request);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('registerWebhooks', () => {
+    it('returns challenge for url verification', async () => {
+      const webhooks = provider.registerWebhooks();
+      const webhook = webhooks[0];
+      const response = await webhook.handler(
+        { body: { type: 'url_verification', challenge: 'challenge-token' } } as any,
+        {} as any,
+      );
+
+      expect(response).toEqual({ challenge: 'challenge-token' });
+    });
+
+    it('returns success for other events', async () => {
+      const webhooks = provider.registerWebhooks();
+      const webhook = webhooks[0];
+      const response = await webhook.handler({ body: { type: 'user.updated', event: { id: 1 } } } as any, {} as any);
+
+      expect(response).toEqual({ success: true });
+    });
+
+    it('delegates verifySignature to verifyFeishuSignature', async () => {
+      const spy = vi.spyOn(provider as any, 'verifyFeishuSignature').mockResolvedValue(true);
+      const webhooks = provider.registerWebhooks();
+      const webhook = webhooks[0];
+      const request = { headers: {}, body: {} } as any;
+
+      const result = await webhook.verifySignature?.(request);
+
+      expect(result).toBe(true);
+      expect(spy).toHaveBeenCalledWith(request);
     });
   });
 });

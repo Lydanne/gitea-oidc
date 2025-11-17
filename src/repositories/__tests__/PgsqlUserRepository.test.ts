@@ -283,6 +283,62 @@ describe('PgsqlUserRepository', () => {
     expect(client.release).toHaveBeenCalled();
   });
 
+  it('should list users using name/email filters并按 provider 排序', async () => {
+    const rows = [createRow({ sub: 'c', username: 'charlie' })];
+    const client = setupNextClient(() => ({ rows }));
+    const options: ListOptions = {
+      filter: { name: 'Pgsql User', email: 'pg@example.com', authProvider: 'local' },
+      sortBy: 'authProvider',
+      sortOrder: 'asc',
+    };
+
+    const users = await repository.list(options);
+
+    const normalizedSql = client.query.mock.calls[0][0].replace(/\s+/g, ' ');
+    expect(normalizedSql).toContain('WHERE name = $1 AND email = $2 AND "authProvider" = $3');
+    expect(normalizedSql).toContain('ORDER BY "authProvider" ASC');
+    expect(client.query.mock.calls[0][1]).toEqual(['Pgsql User', 'pg@example.com', 'local']);
+    expect(users).toEqual(rows.map(expectedUserFromRow));
+  });
+
+  it('should convert rows to user objects without optional flags', () => {
+    const row = createRow({ emailVerified: null, phoneVerified: undefined, picture: null, phone: null, metadata: null, groups: null });
+    const user = (repository as any).userFromRow(row);
+
+    expect(user).toMatchObject({
+      sub: row.sub,
+      username: row.username,
+      email: row.email,
+      authProvider: row.authProvider,
+    });
+    expect(user).not.toHaveProperty('emailVerified');
+    expect(user).not.toHaveProperty('phoneVerified');
+    expect(user.picture).toBeUndefined();
+    expect(user.metadata).toBeUndefined();
+    expect(user.groups).toBeUndefined();
+  });
+
+  it('should convert user info to row structure with null fallbacks', () => {
+    const userInfo: UserInfo = {
+      sub: 'user-row',
+      username: 'row-user',
+      name: 'Row User',
+      email: 'row@example.com',
+      authProvider: 'local',
+      createdAt: new Date('2025-01-01T00:00:00Z'),
+      updatedAt: new Date('2025-01-01T00:00:00Z'),
+    } as UserInfo;
+
+    const row = (repository as any).userToRow(userInfo);
+
+    expect(row.picture).toBeUndefined();
+    expect(row.phone).toBeUndefined();
+    expect(row.emailVerified).toBeNull();
+    expect(row.phoneVerified).toBeNull();
+    expect(row.groups).toBeNull();
+    expect(row.metadata).toBeNull();
+  });
+
   it('should return parsed value from size()', async () => {
     const client = setupNextClient(() => ({ rows: [{ count: '42' }] }));
 

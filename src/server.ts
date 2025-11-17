@@ -108,10 +108,10 @@ async function start() {
             sub: user.sub,
             name: user.name,
             email: user.email,
-            email_verified: user.email_verified ?? false,
+            email_verified: user.emailVerified ?? false,
             picture: user.picture,
             phone: user.phone,
-            phone_verified: user.phone_verified ?? false,
+            phone_verified: user.phoneVerified ?? false,
             groups: user.groups ?? [],
             updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
           };

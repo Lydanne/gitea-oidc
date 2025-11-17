@@ -490,10 +490,10 @@ export interface UserInfo {
   externalId: string;
 
   /** 是否已验证邮箱（OIDC email_verified claim） */
-  email_verified?: boolean;
+  emailVerified?: boolean;
 
   /** 是否已验证手机（OIDC phone_verified claim） */
-  phone_verified?: boolean;
+  phoneVerified?: boolean;
 
   /** 用户组列表（OIDC groups claim，用于团队映射） */
   groups?: string[];

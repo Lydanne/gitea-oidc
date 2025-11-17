@@ -276,11 +276,11 @@ export class FeishuAuthProvider implements AuthProvider {
           username: this.mapUsername(feishuUser),
           name: this.mapName(feishuUser),
           email: email,
-          email_verified: !!email,
+          emailVerified: !!email,
           groups: this.mapGroups(feishuUser),
           picture: feishuUser.avatar_url,
           phone: feishuUser.mobile,
-          phone_verified: !!feishuUser.mobile,
+          phoneVerified: !!feishuUser.mobile,
           metadata: feishuUser,
         }
       );

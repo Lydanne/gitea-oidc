@@ -23,8 +23,8 @@ describe('MemoryUserRepository', () => {
     picture: 'https://example.com/avatar.jpg',
     phone: '+1234567890',
     authProvider: 'local',
-    email_verified: true,
-    phone_verified: false,
+    emailVerified: true,
+    phoneVerified: false,
     groups: ['users', 'admins'],
     externalId: 'ext123',
     metadata: { role: 'user' },
@@ -153,7 +153,7 @@ describe('MemoryUserRepository', () => {
       const created = await repository.create(mockUserData);
       const updates = {
         name: 'Updated Name',
-        email_verified: false,
+        emailVerified: false,
         groups: ['users'],
       };
 
@@ -163,7 +163,7 @@ describe('MemoryUserRepository', () => {
       const updated = await repository.update(created.sub, updates);
 
       expect(updated.name).toBe('Updated Name');
-      expect(updated.email_verified).toBe(false);
+      expect(updated.emailVerified).toBe(false);
       expect(updated.groups).toEqual(['users']);
       expect(updated.sub).toBe(created.sub);
       expect(updated.updatedAt).toBeInstanceOf(Date);

@@ -55,10 +55,10 @@ export class SqliteUserRepository implements UserRepository {
       authProvider: row.authProvider,
       externalId: row.externalId || undefined,
       ...(row.emailVerified !== null && row.emailVerified !== undefined
-        ? { email_verified: !!row.emailVerified }
+        ? { emailVerified: !!row.emailVerified }
         : {}),
       ...(row.phoneVerified !== null && row.phoneVerified !== undefined
-        ? { phone_verified: !!row.phoneVerified }
+        ? { phoneVerified: !!row.phoneVerified }
         : {}),
       groups: row.groups ? JSON.parse(row.groups) : undefined,
       createdAt: new Date(row.createdAt),
@@ -77,8 +77,8 @@ export class SqliteUserRepository implements UserRepository {
       phone: user.phone,
       authProvider: user.authProvider,
       externalId: user.externalId ?? null,
-      emailVerified: user.email_verified !== undefined ? (user.email_verified ? 1 : 0) : null,
-      phoneVerified: user.phone_verified !== undefined ? (user.phone_verified ? 1 : 0) : null,
+      emailVerified: user.emailVerified !== undefined ? (user.emailVerified ? 1 : 0) : null,
+      phoneVerified: user.phoneVerified !== undefined ? (user.phoneVerified ? 1 : 0) : null,
       groups: user.groups ? JSON.stringify(user.groups) : null,
       createdAt: user.createdAt ? user.createdAt.getTime() : Date.now(),
       updatedAt: user.updatedAt ? user.updatedAt.getTime() : Date.now(),

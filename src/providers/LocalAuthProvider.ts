@@ -149,7 +149,7 @@ export class LocalAuthProvider implements AuthProvider {
         username,
         name: username,
         email: `${username}@local`,
-        email_verified: false,
+        emailVerified: false,
       }
     );
 

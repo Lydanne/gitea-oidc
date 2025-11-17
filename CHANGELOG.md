@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.11](https://github.com/Lydanne/gitea-oidc/compare/v1.0.10...v1.0.11) (2025-11-17)
+
+
+### Features
+
+* 添加 PostgreSQL 用户仓储支持 ([12bf733](https://github.com/Lydanne/gitea-oidc/commit/12bf733d08f4d3ce7807079b43483031a5e963c1))
+
 ## [1.0.10](https://github.com/Lydanne/gitea-oidc/compare/v1.0.9...v1.0.10) (2025-11-13)
 
 ## [1.0.9](https://github.com/Lydanne/gitea-oidc/compare/v1.0.8...v1.0.9) (2025-11-13)

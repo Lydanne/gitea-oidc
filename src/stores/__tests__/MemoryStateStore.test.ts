@@ -7,6 +7,7 @@ describe('MemoryStateStore', () => {
   let stores: MemoryStateStore[];
   let infoSpy: ReturnType<typeof vi.spyOn>;
   let debugSpy: ReturnType<typeof vi.spyOn>;
+  let originalEnv: string | undefined;
 
   const createStore = (options?: { maxSize?: number; cleanupIntervalMs?: number }) => {
     const store = new MemoryStateStore(options);
@@ -20,6 +21,7 @@ describe('MemoryStateStore', () => {
     stores = [];
     infoSpy = vi.spyOn(Logger, 'info').mockImplementation(() => {});
     debugSpy = vi.spyOn(Logger, 'debug').mockImplementation(() => {});
+    originalEnv = process.env.NODE_ENV;
   });
 
   afterEach(() => {
@@ -27,6 +29,7 @@ describe('MemoryStateStore', () => {
     vi.useRealTimers();
     infoSpy.mockRestore();
     debugSpy.mockRestore();
+    process.env.NODE_ENV = originalEnv;
   });
 
   it('应该在 TTL 内返回数据并统计命中', async () => {
@@ -127,5 +130,43 @@ describe('MemoryStateStore', () => {
     expect(list[0].type).toBe('custom');
     expect(list[0].state.endsWith('...')).toBe(true);
     expect(list[0].data).toEqual(payload);
+  });
+
+  it('development 模式应输出调试日志并自动清理', async () => {
+    process.env.NODE_ENV = 'development';
+    const store = createStore({ cleanupIntervalMs: 1000, maxSize: 5 });
+
+    await store.set('dev-hit', { type: 'custom', createdAt: Date.now() }, 10);
+    await store.get('dev-hit');
+
+    await store.set('dev-expire', { provider: 'feishu', createdAt: Date.now() }, 1);
+    vi.advanceTimersByTime(2000);
+    await store.get('dev-expire');
+
+    await store.delete('dev-hit');
+
+    await store.set('auto-clean', { value: 'auto', createdAt: Date.now() }, 1);
+    vi.advanceTimersByTime(2000);
+
+    const infoMessages = infoSpy.mock.calls.map((call: [string]) => call[0]);
+    const debugMessages = debugSpy.mock.calls.map((call: [string]) => call[0]);
+
+    expect(infoMessages.some((msg: string) => msg.includes('Cleaned up'))).toBe(true);
+    expect(debugMessages.some((msg: string) => msg.includes('Stored state'))).toBe(true);
+    expect(debugMessages.some((msg: string) => msg.includes('State found'))).toBe(true);
+    expect(debugMessages.some((msg: string) => msg.includes('State not found') || msg.includes('State expired'))).toBe(true);
+    expect(debugMessages.some((msg: string) => msg.includes('Deleted state'))).toBe(true);
+  });
+
+  it('getDataType 应区分不同数据结构', async () => {
+    const store = createStore();
+    const getType = (store as any).getDataType.bind(store);
+
+    expect(getType({ type: 'custom' })).toBe('custom');
+    expect(getType({ provider: 'feishu' })).toBe('oauth_state');
+    expect(getType({ userId: 'user-1' })).toBe('auth_result');
+    expect(getType({})).toBe('object');
+    expect(getType(null)).toBe('null');
+    expect(getType('hello')).toBe('string');
   });
 });

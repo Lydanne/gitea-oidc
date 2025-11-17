@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createCipheriv, createHash } from 'crypto';
+
+import { PluginPermission } from '../../types/auth';
 import type { AuthContext, AuthProviderConfig, FeishuAuthConfig, UserInfo } from '../../types/auth';
 import { FeishuAuthProvider } from '../FeishuAuthProvider';
 import { AuthErrors } from '../../utils/authErrors';
+import { Logger } from '../../utils/Logger';
 
 const baseProviderConfig: AuthProviderConfig = {
   enabled: true,
@@ -273,6 +276,112 @@ describe('FeishuAuthProvider', () => {
 
       await expect((provider as any).getFeishuUserInfo('user-token')).rejects.toThrow(/denied/);
     });
+
+    it('throws when full user info fetch fails', async () => {
+      fetchSpy
+        .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ code: 0, data: { open_id: 'open-1' } }) } as any)
+        .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ code: 3, msg: 'no access' }) } as any);
+
+      await expect((provider as any).getFeishuUserInfo('token')).rejects.toThrow(/no access/);
+    });
+  });
+
+  describe('静态资源与元数据', () => {
+    it('registerStaticAssets 返回 svg 资源', () => {
+      const assets = provider.registerStaticAssets();
+
+      expect(assets[0]).toMatchObject({ path: '/icon.svg', contentType: 'image/svg+xml' });
+    });
+
+    it('getMetadata 返回健康状态并包含权限', () => {
+      (provider as any).appAccessToken = 'token';
+      (provider as any).tokenExpiresAt = Date.now() + 10_000;
+
+      const metadata = provider.getMetadata();
+
+      expect(metadata.permissions).toEqual(
+        expect.arrayContaining([
+          PluginPermission.READ_USER,
+          PluginPermission.CREATE_USER,
+          PluginPermission.REGISTER_WEBHOOK,
+        ]),
+      );
+      expect(metadata.status?.healthy).toBe(true);
+      expect(metadata.status?.stats?.appId).toContain('app-test'.substring(0, 8));
+    });
+
+    it('destroy 会清空 token 并令 isTokenValid 失效', async () => {
+      (provider as any).appAccessToken = 'token';
+      (provider as any).tokenExpiresAt = Date.now() + 10_000;
+
+      await provider.destroy();
+
+      expect((provider as any).appAccessToken).toBeUndefined();
+      expect((provider as any).tokenExpiresAt).toBeUndefined();
+      expect((provider as any).isTokenValid()).toBe(false);
+    });
+  });
+
+  describe('字段映射', () => {
+    beforeEach(() => {
+      (provider as any).config.userMapping = {
+        username: 'custom_username',
+        name: 'custom_name',
+        email: 'custom_email',
+      };
+      (provider as any).config.groupMapping = { 研发部: 'dev-group' };
+    });
+
+    it('map* 函数应遵循映射配置', () => {
+      const feishuUser: any = {
+        open_id: 'open-1',
+        en_name: 'english',
+        name: '中文名',
+        custom_username: 'mapped-user',
+        custom_name: 'mapped-name',
+        custom_email: 'mapped@example.com',
+        fullInfo: {
+          department_path: [
+            { department_name: { name: '研发部' } },
+          ],
+        },
+      };
+
+      expect((provider as any).mapUsername(feishuUser)).toBe('mapped-user');
+      expect((provider as any).mapName(feishuUser)).toBe('mapped-name');
+      expect((provider as any).mapEmail(feishuUser)).toBe('mapped@example.com');
+      expect((provider as any).mapGroups(feishuUser)).toEqual(['Owners', 'dev-group']);
+    });
+
+    it('mapGroups 在无映射时返回部门名称并追加 Owners', () => {
+      delete (provider as any).config.groupMapping;
+      const feishuUser: any = {
+        open_id: 'open-1',
+        en_name: 'english',
+        name: '中文名',
+        fullInfo: {
+          department_path: [
+            { department_name: { name: 'DeptA' } },
+            { department_name: { name: 'DeptB' } },
+          ],
+        },
+      };
+
+      expect((provider as any).mapGroups(feishuUser)).toEqual(['DeptA', 'DeptB', 'Owners']);
+    });
+
+    it('缺少映射字段时使用默认值', () => {
+      delete (provider as any).config.userMapping;
+      const feishuUser: any = {
+        open_id: 'open-1',
+        en_name: 'english-name',
+        name: '中文名',
+      };
+
+      expect((provider as any).mapUsername(feishuUser)).toBe('english-name');
+      expect((provider as any).mapName(feishuUser)).toBe('中文名');
+      expect((provider as any).mapEmail(feishuUser)).toBe('open-1@feishu.local');
+    });
   });
 
   describe('registerRoutes', () => {
@@ -306,9 +415,9 @@ describe('FeishuAuthProvider', () => {
     });
 
     it('returns 400 when callback fails', async () => {
-      vi.spyOn(provider as any, 'handleCallback').mockResolvedValue({
+      const handleSpy = vi.spyOn(provider as any, 'handleCallback').mockResolvedValue({
         success: false,
-        error: AuthErrors.invalidState('bad-state'),
+        error: AuthErrors.invalidState('state-1'),
       });
       const routes = provider.registerRoutes();
       const callbackRoute = routes.find(route => route.method === 'GET' && route.path === '/callback');
@@ -316,6 +425,100 @@ describe('FeishuAuthProvider', () => {
         method: 'GET',
         query: { code: 'abc', state: 'state-1' },
         body: null,
+        params: {},
+        headers: { 'content-type': 'application/json' },
+      } as any;
+      const reply = {
+        redirect: vi.fn(),
+        code: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      } as any;
+
+      await callbackRoute?.handler(request, reply);
+
+      expect(handleSpy).toHaveBeenCalled();
+      expect(reply.code).toHaveBeenCalledWith(400);
+      expect(reply.send).toHaveBeenCalledWith({ error: '无效的认证状态' });
+    });
+
+    it('处理加密 challenge 请求并返回 challenge', async () => {
+      const decryptSpy = vi
+        .spyOn(provider as any, 'decryptFeishuData')
+        .mockReturnValue({ type: 'url_verification', challenge: 'enc-token' });
+      const routes = provider.registerRoutes();
+      const callbackRoute = routes.find(route => route.method === 'POST' && route.path === '/callback');
+      const request = {
+        method: 'POST',
+        body: { encrypt: 'encrypted-payload' },
+        headers: {},
+      } as any;
+      const reply = {
+        send: vi.fn(),
+        code: vi.fn().mockReturnThis(),
+        redirect: vi.fn(),
+      } as any;
+
+      await callbackRoute?.handler(request, reply);
+
+      expect(decryptSpy).toHaveBeenCalledWith('encrypted-payload');
+      expect(reply.send).toHaveBeenCalledWith({ challenge: 'enc-token' });
+    });
+
+    it('加密请求解密失败时返回 400', async () => {
+      vi.spyOn(provider as any, 'decryptFeishuData').mockImplementation(() => {
+        throw new Error('boom');
+      });
+      const routes = provider.registerRoutes();
+      const callbackRoute = routes.find(route => route.method === 'POST' && route.path === '/callback');
+      const request = {
+        method: 'POST',
+        body: { encrypt: 'payload' },
+        headers: {},
+      } as any;
+      const reply = {
+        send: vi.fn(),
+        code: vi.fn().mockReturnThis(),
+        redirect: vi.fn(),
+      } as any;
+
+      await callbackRoute?.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(400);
+      expect(reply.send).toHaveBeenCalledWith({ error: 'Decryption failed' });
+    });
+
+    it('处理明文 challenge 请求', async () => {
+      const routes = provider.registerRoutes();
+      const callbackRoute = routes.find(route => route.method === 'POST' && route.path === '/callback');
+      const request = {
+        method: 'POST',
+        body: { challenge: 'plain-token' },
+        headers: {},
+      } as any;
+      const reply = {
+        send: vi.fn(),
+        code: vi.fn().mockReturnThis(),
+        redirect: vi.fn(),
+      } as any;
+
+      await callbackRoute?.handler(request, reply);
+
+      expect(reply.send).toHaveBeenCalledWith({ challenge: 'plain-token' });
+    });
+
+    it('handleCallback 成功但缺少 interactionUid 时返回 400', async () => {
+      vi.spyOn(provider as any, 'handleCallback').mockResolvedValue({
+        success: true,
+        userId: 'user-1',
+        metadata: {},
+      });
+      const routes = provider.registerRoutes();
+      const callbackRoute = routes.find(route => route.method === 'GET' && route.path === '/callback');
+      const request = {
+        method: 'GET',
+        query: { code: 'abc', state: 'state-1' },
+        body: null,
+        params: {},
         headers: { 'content-type': 'application/json' },
       } as any;
       const reply = {
@@ -327,7 +530,22 @@ describe('FeishuAuthProvider', () => {
       await callbackRoute?.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(400);
-      expect(reply.send).toHaveBeenCalledWith({ error: '无效的认证状态' });
+      expect(reply.send).toHaveBeenCalledWith({ error: 'Invalid or expired state' });
+    });
+
+    it('status 路由返回插件状态', async () => {
+      (provider as any).appAccessToken = 'token';
+      (provider as any).tokenExpiresAt = Date.now() + 10_000;
+      const routes = provider.registerRoutes();
+      const statusRoute = routes.find(route => route.path === '/status');
+
+      const result = await statusRoute?.handler({} as any, {} as any);
+
+      expect(result).toEqual({
+        provider: 'feishu',
+        configured: true,
+        tokenValid: true,
+      });
     });
   });
 
@@ -346,6 +564,14 @@ describe('FeishuAuthProvider', () => {
     it('should throw when encrypt key missing', () => {
       delete (provider as any).config.encryptKey;
       expect(() => (provider as any).decryptFeishuData('payload')).toThrow('Encrypt key not configured');
+    });
+
+    it('解密失败时会记录错误并抛出', () => {
+      (provider as any).config.encryptKey = 'key';
+      const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+
+      expect(() => (provider as any).decryptFeishuData('invalid-base64')).toThrow();
+      expect(errorSpy).toHaveBeenCalledWith('[FeishuAuth] Failed to decrypt data:', expect.any(Error));
     });
   });
 
@@ -404,6 +630,27 @@ describe('FeishuAuthProvider', () => {
       const result = await (provider as any).verifyFeishuSignature(request);
 
       expect(result).toBe(false);
+    });
+
+    it('JSON.stringify 失败时返回 false 并记录错误', async () => {
+      (provider as any).config.verificationToken = 'token-123';
+      const body: any = {};
+      body.self = body;
+      const timestamp = '1';
+      const nonce = '2';
+      const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+
+      const result = await (provider as any).verifyFeishuSignature({
+        headers: {
+          'x-lark-signature': 'sig',
+          'x-lark-request-timestamp': timestamp,
+          'x-lark-request-nonce': nonce,
+        },
+        body,
+      } as any);
+
+      expect(result).toBe(false);
+      expect(loggerSpy).toHaveBeenCalledWith('[FeishuAuth] Error verifying signature:', expect.any(TypeError));
     });
   });
 

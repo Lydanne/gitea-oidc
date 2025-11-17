@@ -123,9 +123,8 @@ export class MemoryStateStore implements StateStore {
    * LRU清理：移除最旧的数据
    */
   private async evictOldest(): Promise<void> {
-    const now = Date.now();
     let oldestKey: string | null = null;
-    let oldestTime = now;
+    let oldestTime = Number.POSITIVE_INFINITY;
 
     // 找到最旧的数据（过期时间最早的）
     for (const [key, entry] of this.states.entries()) {

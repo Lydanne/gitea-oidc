@@ -27,20 +27,20 @@ export class PgsqlUserRepository implements UserRepository {
         email TEXT UNIQUE NOT NULL,
         picture TEXT,
         phone TEXT,
-        auth_provider TEXT NOT NULL,
-        external_id TEXT,
-        email_verified INTEGER,
-        phone_verified INTEGER,
+        "authProvider" TEXT NOT NULL,
+        "externalId" TEXT,
+        "emailVerified" INTEGER,
+        "phoneVerified" INTEGER,
         groups JSONB,
-        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
         metadata JSONB
       );
 
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-      CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users(auth_provider);
-      CREATE INDEX IF NOT EXISTS idx_users_provider_external ON users(auth_provider, external_id);
+      CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users("authProvider");
+      CREATE INDEX IF NOT EXISTS idx_users_provider_external ON users("authProvider", "externalId");
     `;
 
     const client = await this.pool.connect();
@@ -59,13 +59,17 @@ export class PgsqlUserRepository implements UserRepository {
       email: row.email,
       picture: row.picture || undefined,
       phone: row.phone || undefined,
-      authProvider: row.auth_provider,
-      externalId: row.external_id || undefined,
-      ...(row.email_verified !== null ? { email_verified: !!row.email_verified } : {}),
-      ...(row.phone_verified !== null ? { phone_verified: !!row.phone_verified } : {}),
+      authProvider: row.authProvider,
+      externalId: row.externalId || undefined,
+      ...(row.emailVerified !== null && row.emailVerified !== undefined
+        ? { email_verified: !!row.emailVerified }
+        : {}),
+      ...(row.phoneVerified !== null && row.phoneVerified !== undefined
+        ? { phone_verified: !!row.phoneVerified }
+        : {}),
       groups: row.groups || undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
       metadata: row.metadata || undefined,
     };
   }
@@ -78,13 +82,13 @@ export class PgsqlUserRepository implements UserRepository {
       email: user.email,
       picture: user.picture,
       phone: user.phone,
-      auth_provider: user.authProvider,
-      external_id: user.externalId ?? null,
-      email_verified: user.email_verified !== undefined ? (user.email_verified ? 1 : 0) : null,
-      phone_verified: user.phone_verified !== undefined ? (user.phone_verified ? 1 : 0) : null,
+      authProvider: user.authProvider,
+      externalId: user.externalId ?? null,
+      emailVerified: user.email_verified !== undefined ? (user.email_verified ? 1 : 0) : null,
+      phoneVerified: user.phone_verified !== undefined ? (user.phone_verified ? 1 : 0) : null,
       groups: user.groups || null,
-      created_at: user.createdAt,
-      updated_at: user.updatedAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
       metadata: user.metadata || null,
     };
   }
@@ -127,8 +131,8 @@ export class PgsqlUserRepository implements UserRepository {
     try {
       const sql = `
         SELECT * FROM users
-        WHERE auth_provider = $1
-        AND external_id = $2
+        WHERE "authProvider" = $1
+        AND "externalId" = $2
       `;
       const result = await client.query(sql, [provider, externalId]);
       return result.rows.length > 0 ? this.userFromRow(result.rows[0]) : null;
@@ -174,17 +178,17 @@ export class PgsqlUserRepository implements UserRepository {
 
     const sql = `
       INSERT INTO users (
-        sub, username, name, email, picture, phone, auth_provider,
-        external_id, email_verified, phone_verified, groups, created_at, updated_at, metadata
+        sub, username, name, email, picture, phone, "authProvider",
+        "externalId", "emailVerified", "phoneVerified", groups, "createdAt", "updatedAt", metadata
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     `;
 
     const client = await this.pool.connect();
     try {
       await client.query(sql, [
-        row.sub, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
-        row.external_id, row.email_verified, row.phone_verified, row.groups,
-        row.created_at, row.updated_at, row.metadata
+        row.sub, row.username, row.name, row.email, row.picture, row.phone, row.authProvider,
+        row.externalId, row.emailVerified, row.phoneVerified, row.groups,
+        row.createdAt, row.updatedAt, row.metadata
       ]);
       return user;
     } finally {
@@ -209,18 +213,18 @@ export class PgsqlUserRepository implements UserRepository {
 
     const sql = `
       UPDATE users SET
-        username = $1, name = $2, email = $3, picture = $4, phone = $5, auth_provider = $6,
-        external_id = $7,
-        email_verified = $8, phone_verified = $9, groups = $10, updated_at = $11, metadata = $12
+        username = $1, name = $2, email = $3, picture = $4, phone = $5, "authProvider" = $6,
+        "externalId" = $7,
+        "emailVerified" = $8, "phoneVerified" = $9, groups = $10, "updatedAt" = $11, metadata = $12
       WHERE sub = $13
     `;
 
     const client = await this.pool.connect();
     try {
       await client.query(sql, [
-        row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
-        row.external_id,
-        row.email_verified, row.phone_verified, row.groups, row.updated_at, row.metadata,
+        row.username, row.name, row.email, row.picture, row.phone, row.authProvider,
+        row.externalId,
+        row.emailVerified, row.phoneVerified, row.groups, row.updatedAt, row.metadata,
         sub
       ]);
       return updatedUser;
@@ -248,7 +252,7 @@ export class PgsqlUserRepository implements UserRepository {
     if (options?.filter) {
       for (const [key, value] of Object.entries(options.filter)) {
         if (['username', 'name', 'email', 'authProvider'].includes(key)) {
-          const columnName = key === 'authProvider' ? 'auth_provider' : key;
+          const columnName = key === 'authProvider' ? '"authProvider"' : key;
           conditions.push(`${columnName} = $${paramIndex++}`);
           params.push(value);
         }
@@ -261,7 +265,7 @@ export class PgsqlUserRepository implements UserRepository {
 
     // 排序
     if (options?.sortBy) {
-      const sortBy = options.sortBy === 'authProvider' ? 'auth_provider' : options.sortBy;
+      const sortBy = options.sortBy === 'authProvider' ? '"authProvider"' : options.sortBy;
       const sortOrder = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
       sql += ` ORDER BY ${sortBy} ${sortOrder}`;
     }

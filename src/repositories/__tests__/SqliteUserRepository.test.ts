@@ -115,18 +115,23 @@ describe('SqliteUserRepository', () => {
     });
   });
 
+  const stripUserData = (
+    user: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'>
+  ): Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'> => {
+    const { authProvider: _provider, externalId: _externalId, ...rest } = user;
+    return rest;
+  };
+
   describe('findOrCreate', () => {
     it('应该找到现有用户', async () => {
       const created = await repository.create(mockUserData);
-      const found = await repository.findOrCreate('local', 'ext123', mockUserData);
+      const found = await repository.findOrCreate('local', 'ext123', stripUserData(mockUserData));
 
       expect(found).toEqual(created);
     });
 
     it('应该创建新用户当不存在时', async () => {
-      const found = await repository.findOrCreate('local', 'newExt123', {
-        ...mockUserData,
-      });
+      const found = await repository.findOrCreate('local', 'newExt123', stripUserData(mockUserData));
 
       expect(found).toMatchObject({
         ...mockUserData,

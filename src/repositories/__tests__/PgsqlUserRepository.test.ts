@@ -58,6 +58,13 @@ const baseUserData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'> = {
   metadata: { role: 'user' },
 };
 
+const stripUserData = (
+  user: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'>
+): Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'> => {
+  const { authProvider: _provider, externalId: _externalId, ...rest } = user;
+  return rest;
+};
+
 const createRow = (override: Partial<Record<string, any>> = {}) => ({
   sub: 'existing-user',
   username: baseUserData.username,
@@ -65,13 +72,13 @@ const createRow = (override: Partial<Record<string, any>> = {}) => ({
   email: baseUserData.email,
   picture: baseUserData.picture,
   phone: baseUserData.phone,
-  auth_provider: baseUserData.authProvider,
-  external_id: baseUserData.externalId,
-  email_verified: 1,
-  phone_verified: 0,
+  authProvider: baseUserData.authProvider,
+  externalId: baseUserData.externalId,
+  emailVerified: 1,
+  phoneVerified: 0,
   groups: baseUserData.groups,
-  created_at: new Date('2025-01-01T00:00:00Z'),
-  updated_at: new Date('2025-01-02T00:00:00Z'),
+  createdAt: new Date('2025-01-01T00:00:00Z'),
+  updatedAt: new Date('2025-01-02T00:00:00Z'),
   metadata: baseUserData.metadata,
   ...override,
 });
@@ -83,14 +90,14 @@ const expectedUserFromRow = (row: ReturnType<typeof createRow>): UserInfo => ({
   email: row.email,
   picture: row.picture,
   phone: row.phone,
-  authProvider: row.auth_provider,
-  externalId: row.external_id,
-  email_verified: Boolean(row.email_verified),
-  phone_verified: Boolean(row.phone_verified),
+  authProvider: row.authProvider,
+  externalId: row.externalId,
+  email_verified: Boolean(row.emailVerified),
+  phone_verified: Boolean(row.phoneVerified),
   groups: row.groups,
   metadata: row.metadata,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
 });
 
 describe('PgsqlUserRepository', () => {
@@ -180,7 +187,7 @@ describe('PgsqlUserRepository', () => {
     const result = await repository.findByProviderAndExternalId('local', 'ext123');
 
     expect(result).toEqual(expectedUserFromRow(row));
-    expect(client.query.mock.calls[0][0]).toContain('external_id = $2');
+    expect(client.query.mock.calls[0][0]).toContain('"externalId" = $2');
     expect(client.query.mock.calls[0][1]).toEqual(['local', 'ext123']);
     expect(client.release).toHaveBeenCalled();
   });
@@ -201,7 +208,7 @@ describe('PgsqlUserRepository', () => {
     const created = await repository.findOrCreate(
       'local',
       'new-external',
-      baseUserData
+      stripUserData(baseUserData)
     );
 
     expect(created.externalId).toBe('new-external');
@@ -215,7 +222,7 @@ describe('PgsqlUserRepository', () => {
     const row = createRow();
     const client = setupNextClient(() => ({ rows: [row] }));
 
-    const result = await repository.findOrCreate('local', 'ext123', baseUserData);
+    const result = await repository.findOrCreate('local', 'ext123', stripUserData(baseUserData));
 
     expect(result).toEqual(expectedUserFromRow(row));
     expect(client.release).toHaveBeenCalled();
@@ -268,7 +275,7 @@ describe('PgsqlUserRepository', () => {
     const users = await repository.list(options);
 
     expect(client.query.mock.calls[0][0].replace(/\s+/g, ' ')).toContain(
-      'WHERE username = $1 AND auth_provider = $2'
+      'WHERE username = $1 AND "authProvider" = $2'
     );
     expect(client.query.mock.calls[0][0]).toContain('ORDER BY username DESC');
     expect(client.query.mock.calls[0][1]).toEqual(['alice', 'local', 2, 1]);

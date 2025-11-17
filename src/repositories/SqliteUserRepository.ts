@@ -24,20 +24,20 @@ export class SqliteUserRepository implements UserRepository {
         email TEXT UNIQUE NOT NULL,
         picture TEXT,
         phone TEXT,
-        auth_provider TEXT NOT NULL,
-        external_id TEXT,
-        email_verified INTEGER,
-        phone_verified INTEGER,
+        "authProvider" TEXT NOT NULL,
+        "externalId" TEXT,
+        "emailVerified" INTEGER,
+        "phoneVerified" INTEGER,
         groups TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
+        "createdAt" INTEGER NOT NULL,
+        "updatedAt" INTEGER NOT NULL,
         metadata TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-      CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users(auth_provider);
-      CREATE INDEX IF NOT EXISTS idx_users_provider_external ON users(auth_provider, external_id);
+      CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users("authProvider");
+      CREATE INDEX IF NOT EXISTS idx_users_provider_external ON users("authProvider", "externalId");
     `;
 
     this.db.exec(createTableSQL);
@@ -52,13 +52,17 @@ export class SqliteUserRepository implements UserRepository {
       email: row.email,
       picture: row.picture || undefined,
       phone: row.phone || undefined,
-      authProvider: row.auth_provider,
-      externalId: row.external_id || undefined,
-      ...(row.email_verified !== null ? { email_verified: !!row.email_verified } : {}),
-      ...(row.phone_verified !== null ? { phone_verified: !!row.phone_verified } : {}),
+      authProvider: row.authProvider,
+      externalId: row.externalId || undefined,
+      ...(row.emailVerified !== null && row.emailVerified !== undefined
+        ? { email_verified: !!row.emailVerified }
+        : {}),
+      ...(row.phoneVerified !== null && row.phoneVerified !== undefined
+        ? { phone_verified: !!row.phoneVerified }
+        : {}),
       groups: row.groups ? JSON.parse(row.groups) : undefined,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
     };
   }
@@ -71,13 +75,13 @@ export class SqliteUserRepository implements UserRepository {
       email: user.email,
       picture: user.picture,
       phone: user.phone,
-      auth_provider: user.authProvider,
-      external_id: user.externalId ?? null,
-      email_verified: user.email_verified !== undefined ? (user.email_verified ? 1 : 0) : null,
-      phone_verified: user.phone_verified !== undefined ? (user.phone_verified ? 1 : 0) : null,
+      authProvider: user.authProvider,
+      externalId: user.externalId ?? null,
+      emailVerified: user.email_verified !== undefined ? (user.email_verified ? 1 : 0) : null,
+      phoneVerified: user.phone_verified !== undefined ? (user.phone_verified ? 1 : 0) : null,
       groups: user.groups ? JSON.stringify(user.groups) : null,
-      created_at: user.createdAt ? user.createdAt.getTime() : Date.now(),
-      updated_at: user.updatedAt ? user.updatedAt.getTime() : Date.now(),
+      createdAt: user.createdAt ? user.createdAt.getTime() : Date.now(),
+      updatedAt: user.updatedAt ? user.updatedAt.getTime() : Date.now(),
       metadata: user.metadata ? JSON.stringify(user.metadata) : null,
     };
   }
@@ -106,8 +110,8 @@ export class SqliteUserRepository implements UserRepository {
   ): Promise<UserInfo | null> {
     const sql = `
       SELECT * FROM users
-      WHERE auth_provider = ?
-      AND external_id = ?
+      WHERE "authProvider" = ?
+      AND "externalId" = ?
     `;
     const stmt = this.db.prepare(sql);
     const row = stmt.get(provider, externalId) as any;
@@ -151,15 +155,15 @@ export class SqliteUserRepository implements UserRepository {
 
     const sql = `
       INSERT INTO users (
-        sub, username, name, email, picture, phone, auth_provider,
-        external_id, email_verified, phone_verified, groups, created_at, updated_at, metadata
+        sub, username, name, email, picture, phone, "authProvider",
+        "externalId", "emailVerified", "phoneVerified", groups, "createdAt", "updatedAt", metadata
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const stmt = this.db.prepare(sql);
     stmt.run(
-      row.sub, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
-      row.external_id, row.email_verified, row.phone_verified, row.groups, row.created_at, row.updated_at, row.metadata
+      row.sub, row.username, row.name, row.email, row.picture, row.phone, row.authProvider,
+      row.externalId, row.emailVerified, row.phoneVerified, row.groups, row.createdAt, row.updatedAt, row.metadata
     );
 
     return user;
@@ -182,17 +186,17 @@ export class SqliteUserRepository implements UserRepository {
 
     const sql = `
       UPDATE users SET
-        username = ?, name = ?, email = ?, picture = ?, phone = ?, auth_provider = ?,
-        external_id = ?,
-        email_verified = ?, phone_verified = ?, groups = ?, updated_at = ?, metadata = ?
+        username = ?, name = ?, email = ?, picture = ?, phone = ?, "authProvider" = ?,
+        "externalId" = ?,
+        "emailVerified" = ?, "phoneVerified" = ?, groups = ?, "updatedAt" = ?, metadata = ?
       WHERE sub = ?
     `;
 
     const stmt = this.db.prepare(sql);
     stmt.run(
-      row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
-      row.external_id,
-      row.email_verified, row.phone_verified, row.groups, row.updated_at, row.metadata,
+      row.username, row.name, row.email, row.picture, row.phone, row.authProvider,
+      row.externalId,
+      row.emailVerified, row.phoneVerified, row.groups, row.updatedAt, row.metadata,
       sub
     );
 
@@ -202,10 +206,10 @@ export class SqliteUserRepository implements UserRepository {
   private ensureExternalIdColumn(): void {
     const pragmaStmt = this.db.prepare(`PRAGMA table_info(users)`);
     const columns = pragmaStmt.all() as { name: string }[];
-    const hasExternalId = columns.some(col => col.name === 'external_id');
+    const hasExternalId = columns.some(col => col.name === 'externalId');
 
     if (!hasExternalId) {
-      this.db.exec('ALTER TABLE users ADD COLUMN external_id TEXT');
+      this.db.exec('ALTER TABLE users ADD COLUMN "externalId" TEXT');
     }
   }
 
@@ -223,7 +227,8 @@ export class SqliteUserRepository implements UserRepository {
     if (options?.filter) {
       for (const [key, value] of Object.entries(options.filter)) {
         if (['username', 'name', 'email', 'authProvider'].includes(key)) {
-          conditions.push(`${key === 'authProvider' ? 'auth_provider' : key} = ?`);
+          const columnName = key === 'authProvider' ? '"authProvider"' : key;
+          conditions.push(`${columnName} = ?`);
           params.push(value);
         }
       }
@@ -235,7 +240,7 @@ export class SqliteUserRepository implements UserRepository {
 
     // 排序
     if (options?.sortBy) {
-      const sortBy = options.sortBy === 'authProvider' ? 'auth_provider' : options.sortBy;
+      const sortBy = options.sortBy === 'authProvider' ? '"authProvider"' : options.sortBy;
       const sortOrder = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
       sql += ` ORDER BY ${sortBy} ${sortOrder}`;
     }

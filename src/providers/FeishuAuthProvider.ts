@@ -796,7 +796,7 @@ export class FeishuAuthProvider implements AuthProvider {
     if (mapping && (feishuUser as any)[mapping]) {
       return (feishuUser as any)[mapping];
     }
-    return feishuUser.en_name || feishuUser.open_id;
+    return feishuUser.user_id || feishuUser.open_id;
   }
 
   /**

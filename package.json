@@ -9,7 +9,7 @@
     "build": "rolldown -c rolldown.config.ts",
     "build:prod": "rolldown -c rolldown.config.prod.ts",
     "start": "node dist/server.js",
-    "test": "vitest",
+    "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
     "release": "release-it"

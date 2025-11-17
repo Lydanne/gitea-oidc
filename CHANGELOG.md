@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.12](https://github.com/Lydanne/gitea-oidc/compare/v1.0.11...v1.0.12) (2025-11-17)
+
+
+### Features
+
+* 添加确定性用户 ID 生成文档和实现 ([d3e0062](https://github.com/Lydanne/gitea-oidc/commit/d3e0062bdf514e3793bed38f89c44a2e524b9ec2))
+
 ## [1.0.11](https://github.com/Lydanne/gitea-oidc/compare/v1.0.10...v1.0.11) (2025-11-17)
 
 

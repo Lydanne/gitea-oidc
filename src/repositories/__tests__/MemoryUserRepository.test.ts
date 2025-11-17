@@ -202,9 +202,9 @@ describe('MemoryUserRepository', () => {
   describe('list', () => {
     beforeEach(async () => {
       // 创建测试用户
-      await repository.create({ ...mockUserData, username: 'user1', email: 'user1@example.com' });
-      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com', authProvider: 'oauth' });
-      await repository.create({ ...mockUserData, username: 'user3', email: 'user3@example.com' });
+      await repository.create({ ...mockUserData, username: 'user1', email: 'user1@example.com', externalId: 'ext1' });
+      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com', authProvider: 'oauth', externalId: 'ext2' });
+      await repository.create({ ...mockUserData, username: 'user3', email: 'user3@example.com', externalId: 'ext3' });
     });
 
     it('应该返回所有用户', async () => {
@@ -256,7 +256,7 @@ describe('MemoryUserRepository', () => {
   describe('clear', () => {
     it('应该清空所有用户和索引', async () => {
       await repository.create(mockUserData);
-      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com' });
+      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com', externalId: 'ext456' });
 
       expect(repository.size()).toBe(2);
 
@@ -274,7 +274,7 @@ describe('MemoryUserRepository', () => {
       await repository.create(mockUserData);
       expect(repository.size()).toBe(1);
 
-      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com' });
+      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com', externalId: 'ext789' });
       expect(repository.size()).toBe(2);
     });
   });

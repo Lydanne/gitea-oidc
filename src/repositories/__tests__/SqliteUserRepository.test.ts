@@ -185,9 +185,9 @@ describe('SqliteUserRepository', () => {
   describe('list', () => {
     beforeEach(async () => {
       // 创建测试用户
-      await repository.create({ ...mockUserData, username: 'user1', email: 'user1@example.com' });
-      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com', authProvider: 'oauth' });
-      await repository.create({ ...mockUserData, username: 'user3', email: 'user3@example.com' });
+      await repository.create({ ...mockUserData, username: 'user1', email: 'user1@example.com', externalId: 'ext1' });
+      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com', authProvider: 'oauth', externalId: 'ext2' });
+      await repository.create({ ...mockUserData, username: 'user3', email: 'user3@example.com', externalId: 'ext3' });
     });
 
     it('应该返回所有用户', async () => {
@@ -222,7 +222,7 @@ describe('SqliteUserRepository', () => {
   describe('clear', () => {
     it('应该清空所有用户', async () => {
       await repository.create(mockUserData);
-      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com' });
+      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com', externalId: 'ext456' });
 
       let count = await repository.size();
       expect(count).toBeGreaterThan(0);
@@ -243,7 +243,7 @@ describe('SqliteUserRepository', () => {
       count = await repository.size();
       expect(count).toBe(1);
 
-      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com' });
+      await repository.create({ ...mockUserData, username: 'user2', email: 'user2@example.com', externalId: 'ext789' });
       count = await repository.size();
       expect(count).toBe(2);
     });

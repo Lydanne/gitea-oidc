@@ -5,6 +5,7 @@
 
 import type { UserRepository, UserInfo, ListOptions } from '../types/auth';
 import { randomUUID } from 'crypto';
+import { generateUserId } from '../utils/userIdGenerator';
 
 export class MemoryUserRepository implements UserRepository {
   private users = new Map<string, UserInfo>();
@@ -70,7 +71,7 @@ export class MemoryUserRepository implements UserRepository {
     const now = new Date();
     const user: UserInfo = {
       ...userData,
-      sub: randomUUID(),
+      sub: generateUserId(provider, externalId),
       createdAt: now,
       updatedAt: now,
       authProvider: provider,
@@ -85,9 +86,15 @@ export class MemoryUserRepository implements UserRepository {
 
   async create(userData: Omit<UserInfo, 'sub'>): Promise<UserInfo> {
     const now = new Date();
+    
+    // 如果提供了 authProvider 和 externalId，使用哈希生成确定性的 sub
+    const sub = userData.authProvider && userData.externalId
+      ? generateUserId(userData.authProvider, userData.externalId)
+      : randomUUID();
+    
     const user: UserInfo = {
       ...userData,
-      sub: randomUUID(),
+      sub,
       createdAt: userData.createdAt || now,
       updatedAt: userData.updatedAt || now,
       externalId: userData.externalId,

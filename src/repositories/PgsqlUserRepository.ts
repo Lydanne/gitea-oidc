@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
+import { generateUserId } from '../utils/userIdGenerator';
 import type { UserRepository, UserInfo, ListOptions } from '../types/auth';
 
 export class PgsqlUserRepository implements UserRepository {
@@ -167,9 +168,14 @@ export class PgsqlUserRepository implements UserRepository {
   async create(userData: Omit<UserInfo, 'sub'>): Promise<UserInfo> {
     const now = new Date();
 
+    // 如果提供了 authProvider 和 externalId，使用哈希生成确定性的 sub
+    const sub = userData.authProvider && userData.externalId
+      ? generateUserId(userData.authProvider, userData.externalId)
+      : randomUUID();
+
     const user: UserInfo = {
       ...userData,
-      sub: randomUUID(),
+      sub,
       createdAt: userData.createdAt || now,
       updatedAt: userData.updatedAt || now,
     };

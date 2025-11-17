@@ -300,4 +300,13 @@ describe('PgsqlUserRepository', () => {
     expect(client.query).toHaveBeenCalledWith('DELETE FROM users WHERE sub = $1', ['delete-sub']);
     expect(client.release).toHaveBeenCalled();
   });
+
+  it('should clear all users via clear()', async () => {
+    const client = setupNextClient();
+
+    await repository.clear();
+
+    expect(client.query).toHaveBeenCalledWith('DELETE FROM users');
+    expect(client.release).toHaveBeenCalled();
+  });
 });

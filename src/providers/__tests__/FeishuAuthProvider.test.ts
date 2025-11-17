@@ -29,6 +29,7 @@ describe('FeishuAuthProvider', () => {
     findById: ReturnType<typeof vi.fn>;
   };
   let coordinator: CoordinatorMock;
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   const createContext = (overrides: Partial<AuthContext> = {}): AuthContext => ({
     authMethod: overrides.authMethod ?? 'feishu',
@@ -55,7 +56,11 @@ describe('FeishuAuthProvider', () => {
     (provider as any).config = baseProviderConfig.config;
     (provider as any).appAccessToken = 'app-token';
     (provider as any).tokenExpiresAt = Date.now() + 1000 * 60;
-    vi.spyOn(global, 'fetch' as any).mockRejectedValue(new Error('fetch not mocked'));
+    fetchSpy = vi.spyOn(global, 'fetch' as any).mockRejectedValue(new Error('fetch not mocked'));
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
   });
 
   describe('canHandle', () => {
@@ -183,6 +188,134 @@ describe('FeishuAuthProvider', () => {
         email: 'test@example.com',
         groups: expect.arrayContaining(['dev-group']),
       }));
+    });
+  });
+
+  describe('refreshAppAccessToken', () => {
+    it('should store token and expiry when fetch succeeds', async () => {
+      const response = {
+        json: vi.fn().mockResolvedValue({ code: 0, app_access_token: 'new-token', expires_in: 100 }),
+      };
+      fetchSpy.mockResolvedValue(response as any);
+
+      await (provider as any).refreshAppAccessToken();
+
+      expect((provider as any).appAccessToken).toBe('new-token');
+      expect((provider as any).tokenExpiresAt).toBeGreaterThan(Date.now());
+    });
+
+    it('should throw when fetch returns error code', async () => {
+      const response = {
+        json: vi.fn().mockResolvedValue({ code: 1, msg: 'invalid' }),
+      };
+      fetchSpy.mockResolvedValue(response as any);
+
+      await expect((provider as any).refreshAppAccessToken()).rejects.toThrow('invalid');
+    });
+  });
+
+  describe('exchangeCodeForToken', () => {
+    it('should refresh app token when expired before exchange', async () => {
+      (provider as any).tokenExpiresAt = Date.now() - 1000;
+      const refreshSpy = vi.spyOn(provider as any, 'refreshAppAccessToken').mockResolvedValue(undefined);
+      const response = {
+        json: vi.fn().mockResolvedValue({ code: 0, data: { access_token: 'user-token' } }),
+      };
+      fetchSpy.mockResolvedValue(response as any);
+
+      const token = await (provider as any).exchangeCodeForToken('code-123');
+
+      expect(refreshSpy).toHaveBeenCalled();
+      expect(token).toBe('user-token');
+    });
+
+    it('throws when Feishu returns error', async () => {
+      const response = {
+        json: vi.fn().mockResolvedValue({ code: 8, msg: 'bad code' }),
+      };
+      fetchSpy.mockResolvedValue(response as any);
+
+      await expect((provider as any).exchangeCodeForToken('code-abc')).rejects.toThrow(/bad code/);
+    });
+  });
+
+  describe('getFeishuUserInfo', () => {
+    it('returns merged user data with full info', async () => {
+      fetchSpy
+        .mockResolvedValueOnce({
+          json: vi.fn().mockResolvedValue({ code: 0, data: { open_id: 'open-1', name: 'Alice' } }),
+        } as any)
+        .mockResolvedValueOnce({
+          json: vi.fn().mockResolvedValue({ code: 0, data: { user: { department_path: [] } } }),
+        } as any);
+
+      const result = await (provider as any).getFeishuUserInfo('user-token');
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(result.open_id).toBe('open-1');
+      expect(result.fullInfo).toEqual({ department_path: [] });
+    });
+
+    it('throws when user info fetch fails', async () => {
+      fetchSpy.mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ code: 2, msg: 'denied' }) } as any);
+
+      await expect((provider as any).getFeishuUserInfo('user-token')).rejects.toThrow(/denied/);
+    });
+  });
+
+  describe('registerRoutes', () => {
+    it('redirects user when callback returns success', async () => {
+      const handleSpy = vi.spyOn(provider as any, 'handleCallback').mockResolvedValue({
+        success: true,
+        userId: 'user-1',
+        metadata: { interactionUid: 'i-123' },
+      });
+      const routes = provider.registerRoutes();
+      const callbackRoute = routes.find(route => route.method === 'GET' && route.path === '/callback');
+      const request = {
+        method: 'GET',
+        query: { code: 'abc', state: 'state-1' },
+        body: null,
+        params: {},
+        headers: { 'content-type': 'application/json' },
+      } as any;
+      const reply = {
+        redirect: vi.fn(),
+        code: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      } as any;
+      coordinator.storeAuthResult.mockResolvedValue(undefined);
+
+      await callbackRoute?.handler(request, reply);
+
+      expect(handleSpy).toHaveBeenCalled();
+      expect(coordinator.storeAuthResult).toHaveBeenCalledWith('i-123', 'user-1');
+      expect(reply.redirect).toHaveBeenCalledWith('/interaction/i-123/complete');
+    });
+
+    it('returns 400 when callback fails', async () => {
+      vi.spyOn(provider as any, 'handleCallback').mockResolvedValue({
+        success: false,
+        error: AuthErrors.invalidState('bad-state'),
+      });
+      const routes = provider.registerRoutes();
+      const callbackRoute = routes.find(route => route.method === 'GET' && route.path === '/callback');
+      const request = {
+        method: 'GET',
+        query: { code: 'abc', state: 'state-1' },
+        body: null,
+        headers: { 'content-type': 'application/json' },
+      } as any;
+      const reply = {
+        redirect: vi.fn(),
+        code: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      } as any;
+
+      await callbackRoute?.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(400);
+      expect(reply.send).toHaveBeenCalledWith({ error: '无效的认证状态' });
     });
   });
 });

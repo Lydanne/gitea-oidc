@@ -1,0 +1,99 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+const mockValidateConfig = vi.fn();
+const mockPrintValidationResult = vi.fn();
+
+vi.mock('../utils/configValidator', () => ({
+  validateConfig: mockValidateConfig,
+  printValidationResult: mockPrintValidationResult,
+}));
+
+describe('loadConfig', () => {
+  let cwdSpy: ReturnType<typeof vi.spyOn>;
+  let tempDir: string;
+
+  const importConfigModule = async () => {
+    const module = await import('../config');
+    return module;
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    mockValidateConfig.mockReset();
+    mockPrintValidationResult.mockReset();
+    tempDir = mkdtempSync(join(tmpdir(), 'gitea-oidc-config-'));
+    cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tempDir);
+  });
+
+  afterEach(() => {
+    cwdSpy.mockRestore();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('loads and merges JSON config, then validates', async () => {
+    const jsonConfig = {
+      server: { port: 4000 },
+      logging: { level: 'debug' },
+      auth: {
+        providers: {
+          local: {
+            enabled: false,
+          },
+        },
+      },
+    };
+    writeFileSync(join(tempDir, 'gitea-oidc.config.json'), JSON.stringify(jsonConfig));
+
+    const validated = {
+      valid: true,
+      warnings: [],
+      errors: [],
+      config: {
+        server: { host: '0.0.0.0', port: 4000, url: 'http://localhost:3000' },
+      },
+    } as const;
+    mockValidateConfig.mockReturnValue(validated);
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(mockValidateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: expect.objectContaining({ port: 4000 }),
+        logging: expect.objectContaining({ level: 'debug' }),
+      }),
+    );
+    expect(mockPrintValidationResult).toHaveBeenCalledWith(validated);
+    expect(result).toBe(validated.config);
+  });
+
+  it('falls back to default config when no file found', async () => {
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(mockValidateConfig).not.toHaveBeenCalled();
+    expect(result.server.url).toBe('http://localhost:3000');
+    expect(result.auth.providers.local.enabled).toBe(true);
+  });
+
+  it('exits process when validation fails', async () => {
+    writeFileSync(
+      join(tempDir, 'gitea-oidc.config.json'),
+      JSON.stringify({ server: { port: 4001 } }),
+    );
+    const invalidResult = { valid: false, errors: [{ path: 'server', message: 'invalid', code: 'invalid_type' }], warnings: [] };
+    mockValidateConfig.mockReturnValue(invalidResult as any);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as any);
+
+    const { loadConfig } = await importConfigModule();
+
+    await expect(loadConfig()).resolves.toBeUndefined();
+    expect(mockPrintValidationResult).toHaveBeenCalledWith(invalidResult);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+  });
+});

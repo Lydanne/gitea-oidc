@@ -143,19 +143,13 @@ export class LocalAuthProvider implements AuthProvider {
 
     // 查找或创建用户
     const user = await this.userRepository.findOrCreate(
-      {
-        provider: this.name,
-        externalId: username,
-      },
+      this.name,
+      username,
       {
         username,
         name: username,
         email: `${username}@local`,
-        authProvider: this.name,
         email_verified: false,
-        metadata: {
-          externalId: username,
-        },
       }
     );
 

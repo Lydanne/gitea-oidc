@@ -54,7 +54,8 @@ const baseUserData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'> = {
   email_verified: true,
   phone_verified: false,
   groups: ['users'],
-  metadata: { externalId: 'ext123' },
+  externalId: 'ext123',
+  metadata: { role: 'user' },
 };
 
 const createRow = (override: Partial<Record<string, any>> = {}) => ({
@@ -65,6 +66,7 @@ const createRow = (override: Partial<Record<string, any>> = {}) => ({
   picture: baseUserData.picture,
   phone: baseUserData.phone,
   auth_provider: baseUserData.authProvider,
+  external_id: baseUserData.externalId,
   email_verified: 1,
   phone_verified: 0,
   groups: baseUserData.groups,
@@ -82,6 +84,7 @@ const expectedUserFromRow = (row: ReturnType<typeof createRow>): UserInfo => ({
   picture: row.picture,
   phone: row.phone,
   authProvider: row.auth_provider,
+  externalId: row.external_id,
   email_verified: Boolean(row.email_verified),
   phone_verified: Boolean(row.phone_verified),
   groups: row.groups,
@@ -119,7 +122,8 @@ describe('PgsqlUserRepository', () => {
     const [sql, params] = insertClient.query.mock.calls[0];
     expect(sql).toContain('INSERT INTO users');
     expect(params[1]).toBe(baseUserData.username);
-    expect(params[12]).toEqual(baseUserData.metadata);
+    expect(params[7]).toEqual(baseUserData.externalId);
+    expect(params[13]).toEqual(baseUserData.metadata);
     expect(insertClient.release).toHaveBeenCalled();
   });
 
@@ -176,7 +180,7 @@ describe('PgsqlUserRepository', () => {
     const result = await repository.findByProviderAndExternalId('local', 'ext123');
 
     expect(result).toEqual(expectedUserFromRow(row));
-    expect(client.query.mock.calls[0][0]).toContain("metadata->>'externalId'");
+    expect(client.query.mock.calls[0][0]).toContain('external_id = $2');
     expect(client.query.mock.calls[0][1]).toEqual(['local', 'ext123']);
     expect(client.release).toHaveBeenCalled();
   });
@@ -195,24 +199,23 @@ describe('PgsqlUserRepository', () => {
     const insertClient = setupNextClient();
 
     const created = await repository.findOrCreate(
-      { provider: 'local', externalId: 'new-external' },
+      'local',
+      'new-external',
       baseUserData
     );
 
-    expect(created.metadata).toEqual({ ...baseUserData.metadata, externalId: 'new-external' });
+    expect(created.externalId).toBe('new-external');
+    expect(created.metadata).toEqual(baseUserData.metadata);
     expect(finderClient.release).toHaveBeenCalled();
     expect(insertClient.release).toHaveBeenCalled();
-    expect(insertClient.query.mock.calls[0][1][12]).toEqual({ ...baseUserData.metadata, externalId: 'new-external' });
+    expect(insertClient.query.mock.calls[0][1][13]).toEqual(baseUserData.metadata);
   });
 
   it('should reuse existing user via findOrCreate when present', async () => {
     const row = createRow();
     const client = setupNextClient(() => ({ rows: [row] }));
 
-    const result = await repository.findOrCreate(
-      { provider: 'local', externalId: 'ext123' },
-      baseUserData
-    );
+    const result = await repository.findOrCreate('local', 'ext123', baseUserData);
 
     expect(result).toEqual(expectedUserFromRow(row));
     expect(client.release).toHaveBeenCalled();
@@ -232,8 +235,8 @@ describe('PgsqlUserRepository', () => {
     expect(updated.metadata).toEqual({ role: 'admin' });
     expect(updateClient.query.mock.calls[0][0]).toContain('UPDATE users SET');
     expect(updateClient.query.mock.calls[0][1][1]).toBe('Updated Name');
-    expect(updateClient.query.mock.calls[0][1][10]).toEqual({ role: 'admin' });
-    expect(updateClient.query.mock.calls[0][1][11]).toBe(existing.sub);
+    expect(updateClient.query.mock.calls[0][1][11]).toEqual({ role: 'admin' });
+    expect(updateClient.query.mock.calls[0][1][12]).toBe(existing.sub);
     expect(finderClient.release).toHaveBeenCalled();
     expect(updateClient.release).toHaveBeenCalled();
   });

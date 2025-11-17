@@ -486,6 +486,9 @@ export interface UserInfo {
   /** 认证来源 */
   authProvider: string;
 
+  /** 外部 ID */
+  externalId: string;
+
   /** 是否已验证邮箱（OIDC email_verified claim） */
   email_verified?: boolean;
 
@@ -562,16 +565,15 @@ export interface UserRepository {
    * 查找或创建用户（原子操作）
    * 避免并发创建时的竞态条件
    * 
-   * @param criteria 查找条件
+   * @param provider 认证提供者
+   * @param externalId 外部 ID
    * @param userData 用户数据（如果不存在则创建）
    * @returns 找到或创建的用户
    */
   findOrCreate(
-    criteria: {
-      provider: string;
-      externalId: string;
-    },
-    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'>
+    provider: string,
+    externalId: string,
+    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'>
   ): Promise<UserInfo>;
 
   /**

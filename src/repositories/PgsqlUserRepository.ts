@@ -28,6 +28,7 @@ export class PgsqlUserRepository implements UserRepository {
         picture TEXT,
         phone TEXT,
         auth_provider TEXT NOT NULL,
+        external_id TEXT,
         email_verified INTEGER,
         phone_verified INTEGER,
         groups JSONB,
@@ -39,6 +40,7 @@ export class PgsqlUserRepository implements UserRepository {
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users(auth_provider);
+      CREATE INDEX IF NOT EXISTS idx_users_provider_external ON users(auth_provider, external_id);
     `;
 
     const client = await this.pool.connect();
@@ -58,6 +60,7 @@ export class PgsqlUserRepository implements UserRepository {
       picture: row.picture || undefined,
       phone: row.phone || undefined,
       authProvider: row.auth_provider,
+      externalId: row.external_id || undefined,
       ...(row.email_verified !== null ? { email_verified: !!row.email_verified } : {}),
       ...(row.phone_verified !== null ? { phone_verified: !!row.phone_verified } : {}),
       groups: row.groups || undefined,
@@ -76,6 +79,7 @@ export class PgsqlUserRepository implements UserRepository {
       picture: user.picture,
       phone: user.phone,
       auth_provider: user.authProvider,
+      external_id: user.externalId ?? null,
       email_verified: user.email_verified !== undefined ? (user.email_verified ? 1 : 0) : null,
       phone_verified: user.phone_verified !== undefined ? (user.phone_verified ? 1 : 0) : null,
       groups: user.groups || null,
@@ -124,7 +128,7 @@ export class PgsqlUserRepository implements UserRepository {
       const sql = `
         SELECT * FROM users
         WHERE auth_provider = $1
-        AND metadata->>'externalId' = $2
+        AND external_id = $2
       `;
       const result = await client.query(sql, [provider, externalId]);
       return result.rows.length > 0 ? this.userFromRow(result.rows[0]) : null;
@@ -134,13 +138,11 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   async findOrCreate(
-    criteria: { provider: string; externalId: string },
-    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'>
+    provider: string,
+    externalId: string,
+    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'>
   ): Promise<UserInfo> {
-    const existingUser = await this.findByProviderAndExternalId(
-      criteria.provider,
-      criteria.externalId
-    );
+    const existingUser = await this.findByProviderAndExternalId(provider, externalId);
 
     if (existingUser) {
       return existingUser;
@@ -149,20 +151,23 @@ export class PgsqlUserRepository implements UserRepository {
     // 创建新用户
     const userToCreate: Omit<UserInfo, 'sub'> = {
       ...userData,
+      authProvider: provider,
+      externalId: externalId,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    return await this.create(userToCreate, criteria.externalId);
+    return await this.create(userToCreate);
   }
 
-  async create(userData: Omit<UserInfo, 'sub'>, externalId?: string): Promise<UserInfo> {
+  async create(userData: Omit<UserInfo, 'sub'>): Promise<UserInfo> {
+    const now = new Date();
+
     const user: UserInfo = {
       ...userData,
       sub: randomUUID(),
-      createdAt: userData.createdAt || new Date(),
-      updatedAt: userData.updatedAt || new Date(),
-      metadata: externalId ? { ...userData.metadata, externalId } : userData.metadata,
+      createdAt: userData.createdAt || now,
+      updatedAt: userData.updatedAt || now,
     };
 
     const row = this.userToRow(user);
@@ -170,15 +175,16 @@ export class PgsqlUserRepository implements UserRepository {
     const sql = `
       INSERT INTO users (
         sub, username, name, email, picture, phone, auth_provider,
-        email_verified, phone_verified, groups, created_at, updated_at, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        external_id, email_verified, phone_verified, groups, created_at, updated_at, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     `;
 
     const client = await this.pool.connect();
     try {
       await client.query(sql, [
         row.sub, row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
-        row.email_verified, row.phone_verified, row.groups, row.created_at, row.updated_at, row.metadata
+        row.external_id, row.email_verified, row.phone_verified, row.groups,
+        row.created_at, row.updated_at, row.metadata
       ]);
       return user;
     } finally {
@@ -204,14 +210,16 @@ export class PgsqlUserRepository implements UserRepository {
     const sql = `
       UPDATE users SET
         username = $1, name = $2, email = $3, picture = $4, phone = $5, auth_provider = $6,
-        email_verified = $7, phone_verified = $8, groups = $9, updated_at = $10, metadata = $11
-      WHERE sub = $12
+        external_id = $7,
+        email_verified = $8, phone_verified = $9, groups = $10, updated_at = $11, metadata = $12
+      WHERE sub = $13
     `;
 
     const client = await this.pool.connect();
     try {
       await client.query(sql, [
         row.username, row.name, row.email, row.picture, row.phone, row.auth_provider,
+        row.external_id,
         row.email_verified, row.phone_verified, row.groups, row.updated_at, row.metadata,
         sub
       ]);

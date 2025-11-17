@@ -26,7 +26,15 @@ describe('MemoryUserRepository', () => {
     email_verified: true,
     phone_verified: false,
     groups: ['users', 'admins'],
-    metadata: { externalId: 'ext123' },
+    externalId: 'ext123',
+    metadata: { role: 'user' },
+  };
+
+  const stripUserData = (
+    user: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'>
+  ): Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'> => {
+    const { authProvider: _provider, externalId: _externalId, ...rest } = user;
+    return rest;
   };
 
   describe('create', () => {
@@ -122,21 +130,18 @@ describe('MemoryUserRepository', () => {
   describe('findOrCreate', () => {
     it('应该找到现有用户', async () => {
       const created = await repository.create(mockUserData);
-      const found = await repository.findOrCreate(
-        { provider: 'local', externalId: 'ext123' },
-        mockUserData
-      );
+      const found = await repository.findOrCreate('local', 'ext123', stripUserData(mockUserData));
 
       expect(found).toEqual(created);
     });
 
     it('应该创建新用户当不存在时', async () => {
-      const found = await repository.findOrCreate(
-        { provider: 'local', externalId: 'newExt123' },
-        mockUserData
-      );
+      const found = await repository.findOrCreate('local', 'newExt123', stripUserData(mockUserData));
 
-      expect(found).toMatchObject(mockUserData);
+      expect(found).toMatchObject({
+        ...mockUserData,
+        externalId: 'newExt123',
+      });
       expect(found.sub).toBeDefined();
       expect(found.createdAt).toBeInstanceOf(Date);
       expect(found.updatedAt).toBeInstanceOf(Date);

@@ -28,7 +28,8 @@ describe('SqliteUserRepository', () => {
     email_verified: true,
     phone_verified: false,
     groups: ['users', 'admins'],
-    metadata: { externalId: 'ext123' },
+    externalId: 'ext123',
+    metadata: { role: 'user' },
   };
 
   describe('create', () => {
@@ -101,11 +102,7 @@ describe('SqliteUserRepository', () => {
 
   describe('findByProviderAndExternalId', () => {
     it('应该根据提供者和外部 ID 找到用户', async () => {
-      const userWithExternalId = {
-        ...mockUserData,
-        metadata: { externalId: 'ext123' },
-      };
-      const created = await repository.create(userWithExternalId);
+      const created = await repository.create(mockUserData);
       const found = await repository.findByProviderAndExternalId('local', 'ext123');
 
       expect(found).toEqual(created);
@@ -120,30 +117,22 @@ describe('SqliteUserRepository', () => {
 
   describe('findOrCreate', () => {
     it('应该找到现有用户', async () => {
-      const userWithExternalId = {
-        ...mockUserData,
-        metadata: { externalId: 'ext123' },
-      };
-      const created = await repository.create(userWithExternalId);
-      const found = await repository.findOrCreate(
-        { provider: 'local', externalId: 'ext123' },
-        userWithExternalId
-      );
+      const created = await repository.create(mockUserData);
+      const found = await repository.findOrCreate('local', 'ext123', mockUserData);
 
       expect(found).toEqual(created);
     });
 
     it('应该创建新用户当不存在时', async () => {
-      const userWithExternalId = {
+      const found = await repository.findOrCreate('local', 'newExt123', {
         ...mockUserData,
-        metadata: { externalId: 'newExt123' },
-      };
-      const found = await repository.findOrCreate(
-        { provider: 'local', externalId: 'newExt123' },
-        userWithExternalId
-      );
+        externalId: 'newExt123',
+      });
 
-      expect(found).toMatchObject(userWithExternalId);
+      expect(found).toMatchObject({
+        ...mockUserData,
+        externalId: 'newExt123',
+      });
       expect(found.sub).toBeDefined();
       expect(found.createdAt).toBeInstanceOf(Date);
       expect(found.updatedAt).toBeInstanceOf(Date);

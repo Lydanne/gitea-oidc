@@ -270,10 +270,8 @@ export class FeishuAuthProvider implements AuthProvider {
 
       // 创建或更新本地用户
       const user = await this.userRepository.findOrCreate(
-        {
-          provider: this.name,
-          externalId: feishuUser.open_id,
-        },
+        this.name,
+        feishuUser.open_id,
         {
           username: this.mapUsername(feishuUser),
           name: this.mapName(feishuUser),
@@ -283,7 +281,6 @@ export class FeishuAuthProvider implements AuthProvider {
           picture: feishuUser.avatar_url,
           phone: feishuUser.mobile,
           phone_verified: !!feishuUser.mobile,
-          authProvider: this.name,
           metadata: feishuUser,
         }
       );

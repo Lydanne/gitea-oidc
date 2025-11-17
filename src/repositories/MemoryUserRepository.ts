@@ -51,10 +51,11 @@ export class MemoryUserRepository implements UserRepository {
    * 避免并发创建时的竞态条件
    */
   async findOrCreate(
-    criteria: { provider: string; externalId: string },
-    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'>
+    provider: string,
+    externalId: string,
+    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'>
   ): Promise<UserInfo> {
-    const key = `${criteria.provider}:${criteria.externalId}`;
+    const key = `${provider}:${externalId}`;
     
     // 先尝试查找
     const existingUserId = this.providerIndex.get(key);
@@ -72,10 +73,12 @@ export class MemoryUserRepository implements UserRepository {
       sub: randomUUID(),
       createdAt: now,
       updatedAt: now,
+      authProvider: provider,
+      externalId,
     };
 
     this.users.set(user.sub, user);
-    this.providerIndex.set(key, user.sub);
+    this.providerIndex.set(`${user.authProvider}:${user.externalId}`, user.sub);
 
     return user;
   }
@@ -87,13 +90,14 @@ export class MemoryUserRepository implements UserRepository {
       sub: randomUUID(),
       createdAt: userData.createdAt || now,
       updatedAt: userData.updatedAt || now,
+      externalId: userData.externalId,
     };
 
     this.users.set(user.sub, user);
 
     // 更新索引
-    if (userData.metadata?.externalId) {
-      const key = `${user.authProvider}:${userData.metadata.externalId}`;
+    if (user.externalId) {
+      const key = `${user.authProvider}:${user.externalId}`;
       this.providerIndex.set(key, user.sub);
     }
 
@@ -107,14 +111,22 @@ export class MemoryUserRepository implements UserRepository {
       throw new Error(`User not found: ${userId}`);
     }
 
-    const updatedUser: UserInfo = {
+    const merged: UserInfo = {
       ...user,
       ...updates,
       sub: user.sub, // 不允许修改 sub
-      updatedAt: new Date(),
+      updatedAt: new Date(Date.now() + 1),
+    };
+
+    const updatedUser: UserInfo = {
+      ...merged,
     };
 
     this.users.set(userId, updatedUser);
+
+    if (updatedUser.externalId) {
+      this.providerIndex.set(`${updatedUser.authProvider}:${updatedUser.externalId}`, userId);
+    }
 
     return updatedUser;
   }
@@ -124,11 +136,11 @@ export class MemoryUserRepository implements UserRepository {
     
     if (user) {
       // 清理索引
-      if (user.metadata?.externalId) {
-        const key = `${user.authProvider}:${user.metadata.externalId}`;
+      if (user.externalId) {
+        const key = `${user.authProvider}:${user.externalId}`;
         this.providerIndex.delete(key);
       }
-      
+
       this.users.delete(userId);
     }
   }

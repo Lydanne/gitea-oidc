@@ -126,7 +126,6 @@ describe('SqliteUserRepository', () => {
     it('应该创建新用户当不存在时', async () => {
       const found = await repository.findOrCreate('local', 'newExt123', {
         ...mockUserData,
-        externalId: 'newExt123',
       });
 
       expect(found).toMatchObject({

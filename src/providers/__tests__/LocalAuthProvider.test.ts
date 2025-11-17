@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { createHash } from 'crypto';
 
 import type { AuthContext, AuthProviderConfig, AuthResult, UserInfo } from '../../types/auth';
 import { LocalAuthProvider } from '../LocalAuthProvider';
 import { AuthErrors } from '../../utils/authErrors';
+import { Logger } from '../../utils/Logger';
 
 const mocks = vi.hoisted(() => ({
   readFileMock: vi.fn(),
@@ -56,7 +58,23 @@ describe('LocalAuthProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     provider = new LocalAuthProvider(userRepository);
-    mocks.readFileMock.mockResolvedValue('alice:$2b$10$hash123\n#comment\n bob:plain');
+    const shaHash = createHash('sha1').update('secret').digest('base64');
+    const md5Hash = (provider as any).apr1Crypt('secret', 'salt');
+    mocks.readFileMock.mockResolvedValue(
+      [
+        'alice:$2b$10$hash123',
+        'bob:plain',
+        `md5user:$apr1$salt$${md5Hash}`,
+        `shauser:{SHA}${shaHash}`,
+        'plainuser:secret',
+        'unknown:??',
+        '#comment',
+      ].join('\n')
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('initialize 应该读取密码文件', async () => {
@@ -108,12 +126,12 @@ describe('LocalAuthProvider', () => {
       expect(result).toEqual({ success: false, error: expected });
     });
 
-    it('用户不存在时返回 invalidCredentials', async () => {
+    it('未知格式密码验证失败时返回 passwordIncorrect', async () => {
       const result = await provider.authenticate(createContext({
         body: { authMethod: 'local', username: 'unknown', password: 'secret' },
       }));
 
-      expect(result.error).toEqual(AuthErrors.invalidCredentials({ username: 'unknown' }));
+      expect(result.error).toEqual(AuthErrors.passwordIncorrect('unknown'));
       expect(result.success).toBe(false);
     });
 
@@ -150,6 +168,51 @@ describe('LocalAuthProvider', () => {
         emailVerified: false,
       });
     });
+
+    it('支持 md5 密码格式', async () => {
+      const md5User = {
+        sub: 'user-md5',
+        username: 'md5user',
+      } as UserInfo;
+      userRepository.findOrCreate.mockResolvedValueOnce(md5User);
+
+      const result = await provider.authenticate(
+        createContext({ body: { authMethod: 'local', username: 'md5user', password: 'secret' } })
+      );
+
+      expect(result.success).toBe(true);
+      expect(userRepository.findOrCreate).toHaveBeenCalledWith('local', 'md5user', expect.any(Object));
+    });
+
+    it('支持 sha 密码格式', async () => {
+      const shaUser = {
+        sub: 'user-sha',
+        username: 'shauser',
+      } as UserInfo;
+      userRepository.findOrCreate.mockResolvedValueOnce(shaUser);
+
+      const result = await provider.authenticate(
+        createContext({ body: { authMethod: 'local', username: 'shauser', password: 'secret' } })
+      );
+
+      expect(result.success).toBe(true);
+      expect(userRepository.findOrCreate).toHaveBeenCalledWith('local', 'shauser', expect.any(Object));
+    });
+
+    it('支持 plain 密码格式', async () => {
+      const plainUser = {
+        sub: 'user-plain',
+        username: 'plainuser',
+      } as UserInfo;
+      userRepository.findOrCreate.mockResolvedValueOnce(plainUser);
+
+      const result = await provider.authenticate(
+        createContext({ body: { authMethod: 'local', username: 'plainuser', password: 'secret' } })
+      );
+
+      expect(result.success).toBe(true);
+      expect(userRepository.findOrCreate).toHaveBeenCalledWith('local', 'plainuser', expect.any(Object));
+    });
   });
 
   describe('detectPasswordFormat', () => {
@@ -166,6 +229,66 @@ describe('LocalAuthProvider', () => {
       expect(detect('custom')).toBe('md5');
       delete (provider as any).config.passwordFormat;
       expect(detect('plain')).toBe('plain');
+    });
+  });
+
+  describe('verify helpers', () => {
+    beforeEach(async () => {
+      await provider.initialize(baseConfig);
+    });
+
+    it('在强制配置格式时调用对应的验证方法', async () => {
+      (provider as any).config.passwordFormat = 'md5';
+      const verifyMd5Spy = vi.spyOn(provider as any, 'verifyMD5').mockReturnValue(true);
+
+      const result = await (provider as any).verifyPassword('secret', 'custom-hash');
+
+      expect(result).toBe(true);
+      expect(verifyMd5Spy).toHaveBeenCalledWith('secret', 'custom-hash');
+    });
+
+    it('未知格式应记录错误并返回 false', async () => {
+      const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+      vi.spyOn(provider as any, 'detectPasswordFormat').mockReturnValue('unknown');
+
+      const result = await (provider as any).verifyPassword('secret', 'mystery');
+
+      expect(result).toBe(false);
+      expect(loggerSpy).toHaveBeenCalledWith('[LocalAuth] Unknown password format:', 'mystery');
+    });
+
+    it('verifyBcrypt 异常时返回 false 并记录错误', async () => {
+      const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+      mocks.bcryptCompareMock.mockRejectedValueOnce(new Error('boom'));
+
+      const result = await (provider as any).verifyBcrypt('secret', '$2b$hash');
+
+      expect(result).toBe(false);
+      expect(loggerSpy).toHaveBeenCalledWith('[LocalAuth] Bcrypt verification error:', expect.any(Error));
+    });
+  });
+
+  describe('辅助方法', () => {
+    beforeEach(async () => {
+      await provider.initialize(baseConfig);
+    });
+
+    it('getUserInfo 应调用仓库查找用户', async () => {
+      const user = { sub: 'user-1' } as UserInfo;
+      userRepository.findById.mockResolvedValueOnce(user);
+
+      const result = await provider.getUserInfo('user-1');
+
+      expect(userRepository.findById).toHaveBeenCalledWith('user-1');
+      expect(result).toBe(user);
+    });
+
+    it('destroy 应清空密码缓存', async () => {
+      expect((provider as any).passwordMap.size).toBeGreaterThan(0);
+
+      await provider.destroy();
+
+      expect((provider as any).passwordMap.size).toBe(0);
     });
   });
 });

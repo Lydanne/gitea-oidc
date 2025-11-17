@@ -36,6 +36,8 @@ describe('AuthCoordinator', () => {
     renderLoginUI: vi.fn(),
     authenticate: vi.fn(),
     getUserInfo: vi.fn(),
+    registerWebhooks: undefined,
+    registerMiddleware: undefined,
     ...overrides,
   } as AuthProvider);
 
@@ -128,6 +130,55 @@ describe('AuthCoordinator', () => {
       const provider = createProvider();
       coordinator.registerProvider(provider);
       expect(() => coordinator.registerProvider(provider)).toThrow(/already registered/);
+    });
+
+    it('webhook handler验证签名失败返回401，成功时调用原处理', async () => {
+      const handler = vi.fn().mockResolvedValue({ ok: true });
+      const verifySignature = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      const provider = createProvider({
+        registerWebhooks: vi.fn().mockReturnValue([
+          { path: '/webhook', handler, verifySignature },
+        ]),
+        getMetadata: vi.fn().mockReturnValue({
+          name: 'feishu',
+          displayName: 'Feishu',
+          permissions: [PluginPermission.REGISTER_WEBHOOK],
+        }),
+      });
+
+      coordinator.registerProvider(provider);
+      const webhookHandler = app.post.mock.calls.find(call => call[0] === '/auth/feishu/webhook')?.[1];
+      const reply = { code: vi.fn().mockReturnThis(), send: vi.fn() } as any;
+
+      await webhookHandler?.({} as any, reply);
+      expect(verifySignature).toHaveBeenCalled();
+      expect(reply.code).toHaveBeenCalledWith(401);
+      expect(reply.send).toHaveBeenCalledWith({ error: 'Invalid signature' });
+
+      await webhookHandler?.({} as any, reply);
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it('middleware 钩子仅在匹配路径时触发', async () => {
+      const hookHandler = vi.fn();
+      const provider = createProvider({
+        registerMiddleware: vi.fn().mockImplementation(async context => {
+          context.addHook('onRequest', hookHandler);
+        }),
+        getMetadata: vi.fn().mockReturnValue({
+          name: 'feishu',
+          displayName: 'Feishu',
+          permissions: [PluginPermission.REGISTER_MIDDLEWARE],
+        }),
+      });
+
+      coordinator.registerProvider(provider);
+      const registeredHook = app.addHook.mock.calls.find(call => call[0] === 'onRequest')?.[1];
+
+      await registeredHook?.({ url: '/auth/feishu/callback' } as any, {} as any);
+      await registeredHook?.({ url: '/auth/other' } as any, {} as any);
+
+      expect(hookHandler).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -348,6 +399,56 @@ describe('AuthCoordinator', () => {
         expect.objectContaining({ err: expect.any(Error), userId: 'user-err', interactionUid: 'uid-err' }),
         'Failed to finish OIDC interaction',
       );
+    });
+
+    it('throws when oidcProvider 未初始化', async () => {
+      await expect(
+        coordinator.finishOidcInteraction({ raw: {} } as any, { raw: {} } as any, 'uid', 'user'),
+      ).rejects.toThrow('OIDC Provider not initialized');
+    });
+  });
+
+  describe('renderUnifiedLoginPage', () => {
+    it('收集登录 UI 并按优先级渲染 HTML', async () => {
+      const htmlProvider = createProvider({
+        name: 'local',
+        renderLoginUI: vi.fn().mockResolvedValue({ type: 'html', html: '<form id="local"></form>' }),
+      });
+      const redirectProvider = createProvider({
+        name: 'feishu',
+        renderLoginUI: vi.fn().mockResolvedValue({
+          type: 'redirect',
+          redirectUrl: 'https://feishu.com',
+          button: { text: 'Feishu', icon: '/icon.svg', style: 'color:red;' },
+        }),
+      });
+      (coordinator as any).providersConfig = {
+        local: { enabled: true, displayName: 'Local', priority: 2, config: {} },
+        feishu: { enabled: true, displayName: 'Feishu', priority: 1, config: {} },
+      };
+
+      coordinator.registerProvider(redirectProvider);
+      coordinator.registerProvider(htmlProvider);
+
+      const html = await coordinator.renderUnifiedLoginPage(createContext());
+
+      expect(html).toContain('<form id="local"></form>');
+      expect(html).toContain('https://feishu.com');
+    });
+  });
+
+  describe('findAccount', () => {
+    it('returns user from repository', async () => {
+      userRepository.findById.mockResolvedValue({ sub: 'user-1' } as any);
+      const result = await coordinator.findAccount('user-1');
+      expect(result).toEqual({ sub: 'user-1' });
+    });
+
+    it('returns null and logs on repository error', async () => {
+      userRepository.findById.mockRejectedValue(new Error('db error'));
+      const result = await coordinator.findAccount('user-2');
+      expect(result).toBeNull();
+      expect(app.log.error).toHaveBeenCalledWith(expect.objectContaining({ err: expect.any(Error), userId: 'user-2' }), 'Failed to find account');
     });
   });
 });

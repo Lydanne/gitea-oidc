@@ -79,6 +79,53 @@ describe('loadConfig', () => {
     expect(result.auth.providers.local.enabled).toBe(true);
   });
 
+  it('loads JS config (function export) and merges before验证', async () => {
+    const jsConfig = `export default () => ({
+      server: { port: 4100 },
+      logging: { level: 'warn' }
+    });`;
+    writeFileSync(join(tempDir, 'gitea-oidc.config.js'), jsConfig);
+    const validated = {
+      valid: true,
+      warnings: [],
+      errors: [],
+      config: { server: { port: 4100 } },
+    } as const;
+    mockValidateConfig.mockReturnValue(validated);
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(mockValidateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: expect.objectContaining({ port: 4100 }),
+        logging: expect.objectContaining({ level: 'warn' }),
+      }),
+    );
+    expect(result).toBe(validated.config);
+  });
+
+  it('returns default config when JS config fails to load', async () => {
+    const jsConfig = 'throw new Error("boom")';
+    writeFileSync(join(tempDir, 'gitea-oidc.config.js'), jsConfig);
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(mockValidateConfig).not.toHaveBeenCalled();
+    expect(result.server.port).toBe(3000);
+  });
+
+  it('returns default config when JSON parsing fails', async () => {
+    writeFileSync(join(tempDir, 'gitea-oidc.config.json'), '{"server": ');
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(mockValidateConfig).not.toHaveBeenCalled();
+    expect(result.server.host).toBe('0.0.0.0');
+  });
+
   it('exits process when validation fails', async () => {
     writeFileSync(
       join(tempDir, 'gitea-oidc.config.json'),
@@ -95,5 +142,14 @@ describe('loadConfig', () => {
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     exitSpy.mockRestore();
+  });
+});
+
+describe('defineConfig', () => {
+  it('should return the provided config', async () => {
+    const module = await import('../config');
+    const input = { foo: 'bar' } as any;
+
+    expect(module.defineConfig(input)).toBe(input);
   });
 });

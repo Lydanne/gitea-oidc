@@ -21,6 +21,7 @@ describe('AuthCoordinator', () => {
     set: vi.fn(),
     get: vi.fn(),
     delete: vi.fn(),
+    listAll: undefined as (() => any) | undefined,
   });
 
   const userRepositoryMock = () => ({
@@ -203,6 +204,37 @@ describe('AuthCoordinator', () => {
       vi.useRealTimers();
     });
 
+    it('verifyOAuthState logs listAll when available', async () => {
+      const listAll = vi.fn().mockReturnValue({ foo: 'bar' });
+      stateStore.listAll = listAll;
+      const data: OAuthStateData = { interactionUid: 'i-2', provider: 'feishu', createdAt: Date.now() };
+      stateStore.get.mockResolvedValue(data);
+
+      const result = await coordinator.verifyOAuthState('state-2');
+
+      expect(result).toEqual(data);
+      expect(listAll).toHaveBeenCalled();
+      expect(app.log.info).toHaveBeenCalledWith(expect.stringContaining('Current stored states'));
+    });
+
+    it('verifyOAuthState warns when state missing', async () => {
+      stateStore.get.mockResolvedValue(null);
+
+      const result = await coordinator.verifyOAuthState('state-missing');
+
+      expect(result).toBeNull();
+      expect(app.log.warn).toHaveBeenCalledWith(expect.stringContaining('Invalid or expired state'));
+    });
+
+    it('verifyOAuthState handles store errors', async () => {
+      stateStore.get.mockRejectedValue(new Error('boom'));
+
+      const result = await coordinator.verifyOAuthState('state-error');
+
+      expect(result).toBeNull();
+      expect(app.log.error).toHaveBeenCalledWith(expect.objectContaining({ err: expect.any(Error) }), 'Failed to verify OAuth state');
+    });
+
     it('storeAuthResult and getAuthResult roundtrip', async () => {
       await coordinator.storeAuthResult('inter-1', 'user-1');
       expect(stateStore.set).toHaveBeenCalledWith(
@@ -255,6 +287,67 @@ describe('AuthCoordinator', () => {
       await coordinator.destroy();
       expect(provider.destroy).toHaveBeenCalled();
       expect(coordinator.getProviders()).toHaveLength(0);
+    });
+
+    it('propagates initialization errors并记录日志', async () => {
+      const provider = createProvider({ initialize: vi.fn().mockRejectedValue(new Error('init failed')) });
+      coordinator.registerProvider(provider);
+
+      await expect(coordinator.initialize()).rejects.toThrow('init failed');
+      expect(app.log.error).toHaveBeenCalledWith(expect.objectContaining({ err: expect.any(Error), provider: 'feishu' }), 'Failed to initialize provider');
+    });
+
+    it('destroy ignores provider destroy errors但记录日志', async () => {
+      const provider = createProvider({ destroy: vi.fn().mockRejectedValue(new Error('boom')) });
+      coordinator.registerProvider(provider);
+
+      await coordinator.destroy();
+
+      expect(app.log.error).toHaveBeenCalledWith(expect.objectContaining({ err: expect.any(Error), provider: 'feishu' }), 'Failed to destroy provider');
+      expect(coordinator.getProviders()).toHaveLength(0);
+    });
+  });
+
+  describe('finishOidcInteraction', () => {
+    it('completes interaction via oidcProvider', async () => {
+      const oidcProvider = { interactionFinished: vi.fn().mockResolvedValue(undefined) } as any;
+      coordinator = new AuthCoordinator({
+        app: app as any,
+        stateStore: stateStore as any,
+        userRepository: userRepository as any,
+        providersConfig,
+        oidcProvider,
+      });
+
+      const request = { raw: {} } as any;
+      const reply = { raw: {} } as any;
+      await coordinator.finishOidcInteraction(request, reply, 'uid-1', 'user-1');
+
+      expect(oidcProvider.interactionFinished).toHaveBeenCalledWith(
+        request.raw,
+        reply.raw,
+        expect.objectContaining({ login: { accountId: 'user-1' } }),
+        { mergeWithLastSubmission: false },
+      );
+    });
+
+    it('logs并抛出 finishOidcInteraction 错误', async () => {
+      const oidcProvider = { interactionFinished: vi.fn().mockRejectedValue(new Error('finish failed')) } as any;
+      coordinator = new AuthCoordinator({
+        app: app as any,
+        stateStore: stateStore as any,
+        userRepository: userRepository as any,
+        providersConfig,
+        oidcProvider,
+      });
+
+      await expect(
+        coordinator.finishOidcInteraction({ raw: {} } as any, { raw: {} } as any, 'uid-err', 'user-err'),
+      ).rejects.toThrow('finish failed');
+      expect(app.log.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error), userId: 'user-err', interactionUid: 'uid-err' }),
+        'Failed to finish OIDC interaction',
+      );
     });
   });
 });

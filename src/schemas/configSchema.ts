@@ -12,6 +12,7 @@ export const ServerConfigSchema = z.object({
   host: z.string().default('0.0.0.0'),
   port: z.number().int().min(1).max(65535).default(3000),
   url: z.url({ message: '服务器 URL 必须是有效的 URL' }),
+  trustProxy: z.boolean().default(false),
 });
 
 /**

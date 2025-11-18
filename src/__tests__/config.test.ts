@@ -126,6 +126,130 @@ describe('loadConfig', () => {
     expect(result.server.host).toBe('0.0.0.0');
   });
 
+  it('loads trustProxy configuration from JSON config', async () => {
+    const jsonConfig = {
+      server: { 
+        host: '0.0.0.0',
+        port: 3000,
+        url: 'https://oidc.example.com',
+        trustProxy: true
+      },
+      oidc: {
+        issuer: 'https://oidc.example.com'
+      }
+    };
+    writeFileSync(join(tempDir, 'gitea-oidc.config.json'), JSON.stringify(jsonConfig));
+
+    const validated = {
+      valid: true,
+      warnings: [],
+      errors: [],
+      config: {
+        server: { 
+          host: '0.0.0.0', 
+          port: 3000, 
+          url: 'https://oidc.example.com',
+          trustProxy: true
+        },
+        oidc: {
+          issuer: 'https://oidc.example.com'
+        }
+      },
+    } as const;
+    mockValidateConfig.mockReturnValue(validated);
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(mockValidateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: expect.objectContaining({ 
+          trustProxy: true,
+          url: 'https://oidc.example.com'
+        }),
+      }),
+    );
+    expect(result.server.trustProxy).toBe(true);
+    expect(result.server.url).toBe('https://oidc.example.com');
+  });
+
+  it('loads trustProxy configuration from JS config', async () => {
+    const jsConfig = `export default {
+      server: { 
+        host: '0.0.0.0',
+        port: 3000,
+        url: 'https://oidc.example.com',
+        trustProxy: true
+      },
+      oidc: {
+        issuer: 'https://oidc.example.com'
+      }
+    };`;
+    writeFileSync(join(tempDir, 'gitea-oidc.config.js'), jsConfig);
+    
+    const validated = {
+      valid: true,
+      warnings: [],
+      errors: [],
+      config: {
+        server: { 
+          host: '0.0.0.0', 
+          port: 3000, 
+          url: 'https://oidc.example.com',
+          trustProxy: true
+        },
+        oidc: {
+          issuer: 'https://oidc.example.com'
+        }
+      },
+    } as const;
+    mockValidateConfig.mockReturnValue(validated);
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(mockValidateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: expect.objectContaining({ 
+          trustProxy: true,
+          url: 'https://oidc.example.com'
+        }),
+      }),
+    );
+    expect(result.server.trustProxy).toBe(true);
+  });
+
+  it('defaults trustProxy to false when not specified', async () => {
+    const jsonConfig = {
+      server: { 
+        port: 3000,
+        url: 'http://localhost:3000'
+      }
+    };
+    writeFileSync(join(tempDir, 'gitea-oidc.config.json'), JSON.stringify(jsonConfig));
+
+    const validated = {
+      valid: true,
+      warnings: [],
+      errors: [],
+      config: {
+        server: { 
+          host: '0.0.0.0', 
+          port: 3000, 
+          url: 'http://localhost:3000',
+          trustProxy: false
+        }
+      },
+    } as const;
+    mockValidateConfig.mockReturnValue(validated);
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    // 验证默认配置被合并
+    expect(result.server.trustProxy).toBe(false);
+  });
+
   it('exits process when validation fails', async () => {
     writeFileSync(
       join(tempDir, 'gitea-oidc.config.json'),

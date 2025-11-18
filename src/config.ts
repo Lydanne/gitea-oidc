@@ -37,7 +37,7 @@ export interface GiteaOidcConfig {
     host: string;
     port: number;
     url: string;
-    trustProxy?: boolean;
+    trustProxy: boolean;
   };
   
   /**

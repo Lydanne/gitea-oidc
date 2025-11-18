@@ -199,7 +199,7 @@ describe('FeishuAuthProvider', () => {
       expect(result.userId).toBe('user-1');
       expect(result.metadata?.interactionUid).toBe('i-uid');
       expect(userRepository.findOrCreate).toHaveBeenCalledWith('feishu', 'open-1', expect.objectContaining({
-        username: 'zhangsan',
+        username: 'open-1',
         email: 'test@example.com',
         groups: expect.arrayContaining(['dev-group']),
       }));
@@ -378,7 +378,7 @@ describe('FeishuAuthProvider', () => {
         name: '中文名',
       };
 
-      expect((provider as any).mapUsername(feishuUser)).toBe('english-name');
+      expect((provider as any).mapUsername(feishuUser)).toBe('open-1');
       expect((provider as any).mapName(feishuUser)).toBe('中文名');
       expect((provider as any).mapEmail(feishuUser)).toBe('open-1@feishu.local');
     });

@@ -1,33 +1,32 @@
-import fastify from 'fastify';
-import staticFiles from '@fastify/static';
-import cors from '@fastify/cors';
-import middie from '@fastify/middie';
-import formBody from '@fastify/formbody';
-import path from 'path';
-import { Provider, type Configuration } from 'oidc-provider';
-import { loadConfig } from './config';
+import fastify from "fastify";
+import staticFiles from "@fastify/static";
+import cors from "@fastify/cors";
+import middie from "@fastify/middie";
+import formBody from "@fastify/formbody";
+import path from "path";
+import { Provider, type Configuration } from "oidc-provider";
+import { loadConfig } from "./config";
 
 // 认证系统导入
-import { AuthCoordinator } from './core/AuthCoordinator';
-import { MemoryStateStore } from './stores/MemoryStateStore';
-import { OidcAdapterFactory } from './adapters/OidcAdapterFactory';
-import { UserRepositoryFactory } from './repositories/UserRepositoryFactory';
-import { LocalAuthProvider } from './providers/LocalAuthProvider';
-import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
-import type { AuthContext, AuthProvider } from './types/auth';
-import { getUserErrorMessage, formatAuthError } from './utils/authErrors';
-import { Logger, LogLevel } from './utils/Logger';
-import { getOrGenerateJWKS } from './utils/jwksManager';
-
+import { AuthCoordinator } from "./core/AuthCoordinator";
+import { MemoryStateStore } from "./stores/MemoryStateStore";
+import { OidcAdapterFactory } from "./adapters/OidcAdapterFactory";
+import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory";
+import { LocalAuthProvider } from "./providers/LocalAuthProvider";
+import { FeishuAuthProvider } from "./providers/FeishuAuthProvider";
+import type { AuthContext, AuthProvider } from "./types/auth";
+import { getUserErrorMessage, formatAuthError } from "./utils/authErrors";
+import { Logger, LogLevel } from "./utils/Logger";
+import { getOrGenerateJWKS } from "./utils/jwksManager";
 
 async function start() {
   const config = await loadConfig();
 
-  const app = fastify({ 
+  const app = fastify({
     logger: true,
-    trustProxy: config.server.trustProxy ?? false
+    trustProxy: config.server.trustProxy ?? false,
   });
-  
+
   // 从配置获取日志设置并配置 Logger
   const ENABLE_DETAILED_LOGGING = config.logging.enabled;
   Logger.setLevel(ENABLE_DETAILED_LOGGING ? LogLevel.INFO : LogLevel.WARN);
@@ -39,19 +38,21 @@ async function start() {
 
   // 配置静态文件服务
   await app.register(staticFiles, {
-    root: path.join(process.cwd(), 'public'),
-    prefix: '/',
+    root: path.join(process.cwd(), "public"),
+    prefix: "/",
   });
 
   // 初始化认证系统
-  Logger.info('[认证系统] 正在初始化...');
-  
+  Logger.info("[认证系统] 正在初始化...");
+
   const stateStore = new MemoryStateStore({
-    maxSize: 10000,         // 最大存储10000个state
-    cleanupIntervalMs: 30000 // 每30秒清理一次
+    maxSize: 10000, // 最大存储10000个state
+    cleanupIntervalMs: 30000, // 每30秒清理一次
   });
-  const userRepository = UserRepositoryFactory.create(config.auth.userRepository);
-  
+  const userRepository = UserRepositoryFactory.create(
+    config.auth.userRepository
+  );
+
   // 创建认证协调器
   const authCoordinator = new AuthCoordinator({
     app,
@@ -59,37 +60,40 @@ async function start() {
     userRepository,
     providersConfig: config.auth.providers,
   });
-  
+
   // 注册认证插件
   if (config.auth.providers.local?.enabled) {
     const localProvider = new LocalAuthProvider(userRepository);
     authCoordinator.registerProvider(localProvider);
-    Logger.info('[认证系统] 已注册 LocalAuthProvider');
+    Logger.info("[认证系统] 已注册 LocalAuthProvider");
   }
-  
+
   if (config.auth.providers.feishu?.enabled) {
-    const feishuProvider = new FeishuAuthProvider(userRepository, authCoordinator);
+    const feishuProvider = new FeishuAuthProvider(
+      userRepository,
+      authCoordinator
+    );
     authCoordinator.registerProvider(feishuProvider);
-    Logger.info('[认证系统] 已注册 FeishuAuthProvider');
+    Logger.info("[认证系统] 已注册 FeishuAuthProvider");
   }
-  
+
   // 初始化所有插件
   await authCoordinator.initialize();
-  Logger.info('[认证系统] 初始化完成');
+  Logger.info("[认证系统] 初始化完成");
 
   // 配置 OIDC 适配器
   if (config.adapter) {
     Logger.info(`[适配器] 配置类型: ${config.adapter.type}`);
     OidcAdapterFactory.configure(config.adapter);
   } else {
-    Logger.warn('[适配器] 未配置适配器,使用默认 SQLite');
-    OidcAdapterFactory.configure({ type: 'sqlite' });
+    Logger.warn("[适配器] 未配置适配器,使用默认 SQLite");
+    OidcAdapterFactory.configure({ type: "sqlite" });
   }
 
   // 加载或生成 JWKS
-  Logger.info('[JWKS] 正在加载密钥...');
+  Logger.info("[JWKS] 正在加载密钥...");
   const jwks = await getOrGenerateJWKS();
-  Logger.info('[JWKS] 密钥加载完成');
+  Logger.info("[JWKS] 密钥加载完成");
 
   // 配置OIDC Provider
   const configuration: Configuration = {
@@ -109,23 +113,36 @@ async function start() {
     claims: config.oidc.claims,
     features: config.oidc.features,
     findAccount: async (ctx, sub, token) => {
-      Logger.debug(`[查找账户] sub: ${sub}, token类型: ${token?.constructor?.name || 'unknown'} ctx: ${JSON.stringify(ctx)}`);
-      
+      Logger.debug(
+        `[查找账户] sub: ${sub}, token类型: ${
+          token?.constructor?.name || "unknown"
+        } ctx: ${JSON.stringify(ctx)}`
+      );
+
       // 使用 AuthCoordinator 查找用户
       const user = await authCoordinator.findAccount(sub);
-      
+
       if (!user) {
         Logger.info(`[账户查找结果] ${sub}: 未找到`);
         return undefined;
       }
-      
-      Logger.debug(`[账户查找结果] ${sub}: 找到 (${user.username}) JSON: ` + JSON.stringify(user));
-      
+
+      Logger.debug(
+        `[账户查找结果] ${sub}: 找到 (${user.username}) JSON: ` +
+          JSON.stringify(user)
+      );
+
       return {
         accountId: user.sub,
         async claims(use: string, scope: string, claims: any, rejected: any) {
-          Logger.debug(`[声明生成] 用户: ${user.username}, scope: ${scope} claims: ${JSON.stringify(claims)} rejected: ${JSON.stringify(rejected)} use: ${use}`);
-          
+          Logger.debug(
+            `[声明生成] 用户: ${
+              user.username
+            }, scope: ${scope} claims: ${JSON.stringify(
+              claims
+            )} rejected: ${JSON.stringify(rejected)} use: ${use}`
+          );
+
           // 直接使用 UserInfo 的 OIDC 标准字段
           const userClaims = {
             sub: user.sub,
@@ -136,9 +153,11 @@ async function start() {
             phone: user.phone,
             phone_verified: user.phoneVerified ?? false,
             groups: user.groups ?? [],
-            updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
+            updated_at: user.updatedAt
+              ? Math.floor(user.updatedAt.getTime() / 1000)
+              : undefined,
           };
-          
+
           Logger.debug(`[返回声明]`, userClaims);
           return userClaims;
         },
@@ -148,23 +167,31 @@ async function start() {
   };
 
   const oidc = new Provider(config.oidc.issuer, configuration);
-  
+
   // 配置 oidc-provider 信任反向代理（基于 Koa 的 proxy 设置）
   // 在反向代理（Nginx/Traefik）后必须启用，才能正确识别 X-Forwarded-Proto 等头信息
   if (config.server.trustProxy) {
     oidc.proxy = true;
-    Logger.info('[代理配置] oidc-provider 已启用 proxy 模式，将信任 X-Forwarded-* 头');
+    // 强制协议为 HTTPS 的中间件（在挂载 OIDC 之前）
+    app.use("/oidc", async (req, res, next) => {
+      // 强制设置 x-forwarded-proto 为 https，让 oidc-provider 生成 HTTPS URL
+      req.headers["x-forwarded-proto"] = "https";
+      next();
+    });
+    Logger.info(
+      "[代理配置] oidc-provider 已启用 proxy 模式，将信任 X-Forwarded-* 头"
+    );
   }
-  
+
   // 将 OIDC Provider 实例传递给 AuthCoordinator
   authCoordinator.setOidcProvider(oidc);
 
   // 挂载OIDC到Fastify
-  app.use('/oidc', oidc.callback());
+  app.use("/oidc", oidc.callback());
 
   // 添加中间件打印所有OIDC请求
-  app.addHook('preHandler', (request, reply, done) => {
-    if (request.url.startsWith('/oidc')) {
+  app.addHook("preHandler", (request, reply, done) => {
+    if (request.url.startsWith("/oidc")) {
       Logger.info(`[OIDC请求] ${request.method} ${request.url}`);
       if (request.query && Object.keys(request.query).length > 0) {
         Logger.debug(`[查询参数]`, request.query);
@@ -177,32 +204,37 @@ async function start() {
   });
 
   // 首页 - 项目介绍和GitHub链接
-  app.get('/', async (request, reply) => {
-    Logger.info('[首页] 用户访问首页');
-    return reply.redirect('/index.html');
+  app.get("/", async (request, reply) => {
+    Logger.info("[首页] 用户访问首页");
+    return reply.redirect("/index.html");
   });
 
   // 统一登录页面（使用认证插件系统）
-  app.get('/interaction/:uid', async (request, reply) => {
+  app.get("/interaction/:uid", async (request, reply) => {
     const { uid } = request.params as { uid: string };
     Logger.info(`[交互页面] 用户访问交互页面, UID: ${uid}`);
-    
+
     try {
       const details = await oidc.interactionDetails(request.raw, reply.raw);
-      
-      Logger.debug(`[GET 交互详情]` + JSON.stringify({
-        uid: details.uid,
-        prompt: details.prompt,
-        params: details.params,
-        grantId: details.grantId,
-      }));
-      
+
+      Logger.debug(
+        `[GET 交互详情]` +
+          JSON.stringify({
+            uid: details.uid,
+            prompt: details.prompt,
+            params: details.params,
+            grantId: details.grantId,
+          })
+      );
+
       // 如果是 consent prompt，说明用户已经登录，直接自动授予同意
-      if (details.prompt.name === 'consent') {
+      if (details.prompt.name === "consent") {
         Logger.info(`[自动授予同意] 用户已登录，自动处理 consent`);
-        
+
         // 获取或创建 grant
-        let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
+        let grant = details.grantId
+          ? await oidc.Grant.find(details.grantId)
+          : undefined;
         if (!grant) {
           grant = new oidc.Grant({
             accountId: details.session?.accountId,
@@ -211,27 +243,32 @@ async function start() {
         }
 
         // 添加缺失的 scope/claims
-        const missingScope = (details.prompt as any)?.details?.missingOIDCScope as string[] | undefined;
+        const missingScope = (details.prompt as any)?.details
+          ?.missingOIDCScope as string[] | undefined;
         if (missingScope && missingScope.length > 0) {
-          grant.addOIDCScope(missingScope.join(' '));
+          grant.addOIDCScope(missingScope.join(" "));
         }
 
-        const missingClaims = (details.prompt as any)?.details?.missingOIDCClaims as string[] | undefined;
+        const missingClaims = (details.prompt as any)?.details
+          ?.missingOIDCClaims as string[] | undefined;
         if (missingClaims && missingClaims.length > 0) {
           grant.addOIDCClaims(missingClaims);
         }
 
-        const missingResourceScopes = (details.prompt as any)?.details?.missingResourceScopes as Record<string, string[]> | undefined;
+        const missingResourceScopes = (details.prompt as any)?.details
+          ?.missingResourceScopes as Record<string, string[]> | undefined;
         if (missingResourceScopes) {
-          for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
+          for (const [indicator, scopes] of Object.entries(
+            missingResourceScopes
+          )) {
             if (scopes && scopes.length > 0) {
-              grant.addResourceScope(indicator, scopes.join(' '));
+              grant.addResourceScope(indicator, scopes.join(" "));
             }
           }
         }
 
         const grantId = await grant.save();
-        
+
         // 完成交互
         await oidc.interactionFinished(
           request.raw,
@@ -241,11 +278,11 @@ async function start() {
           },
           { mergeWithLastSubmission: true }
         );
-        
+
         Logger.info(`[自动授予完成] grantId: ${grantId}`);
         return;
       }
-      
+
       // 如果是 login prompt，渲染登录页面
       const context: AuthContext = {
         interactionUid: uid,
@@ -256,37 +293,43 @@ async function start() {
         query: request.query as Record<string, any>,
         interaction: details,
       };
-      
+
       // 渲染统一登录页面
       const html = await authCoordinator.renderUnifiedLoginPage(context);
-      
-      return reply.type('text/html').send(html);
+
+      return reply.type("text/html").send(html);
     } catch (err) {
-      Logger.error('[交互页面] 渲染失败:', err);
+      Logger.error("[交互页面] 渲染失败:", err);
 
       // 检查是否是会话相关的错误
-      if (err instanceof Error && (err.name === 'SessionNotFound' || err.message?.includes('interaction session id cookie not found'))) {
+      if (
+        err instanceof Error &&
+        (err.name === "SessionNotFound" ||
+          err.message?.includes("interaction session id cookie not found"))
+      ) {
         // 返回用户友好的错误页面
-        return reply.redirect('/error-session-expired.html');
+        return reply.redirect("/error-session-expired.html");
       }
 
       // 其他错误保持原样
-      return reply.code(500).send('Internal Server Error');
+      return reply.code(500).send("Internal Server Error");
     }
   });
 
   // OAuth 回调完成路由（用于飞书等第三方登录）
-  app.get('/interaction/:uid/complete', async (request, reply) => {
+  app.get("/interaction/:uid/complete", async (request, reply) => {
     const { uid } = request.params as { uid: string };
     Logger.info(`[OAuth 完成] UID: ${uid}`);
 
     try {
       // 从临时存储中获取认证结果
       const userId = await authCoordinator.getAuthResult(uid);
-      
+
       if (!userId) {
         Logger.warn(`[OAuth 完成] 未找到认证结果: ${uid}`);
-        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent('认证会话已过期')}`);
+        return reply.redirect(
+          `/interaction/${uid}?error=${encodeURIComponent("认证会话已过期")}`
+        );
       }
 
       Logger.info(`[OAuth 完成] 用户 ${userId} 认证通过，完成 login 交互`);
@@ -303,13 +346,15 @@ async function start() {
 
       Logger.info(`[OAuth Login 完成] 用户 ${userId}`);
     } catch (err) {
-      Logger.error('[OAuth 完成] 错误:', err);
-      return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent('登录失败')}`);
+      Logger.error("[OAuth 完成] 错误:", err);
+      return reply.redirect(
+        `/interaction/${uid}?error=${encodeURIComponent("登录失败")}`
+      );
     }
   });
 
   // 登录处理（使用认证插件系统）
-  app.post('/interaction/:uid/login', async (request, reply) => {
+  app.post("/interaction/:uid/login", async (request, reply) => {
     const { uid } = request.params as { uid: string };
     const body = request.body as Record<string, any>;
 
@@ -326,12 +371,14 @@ async function start() {
         body,
         query: request.query as Record<string, any>,
       };
-      
+
       // 执行认证
       const result = await authCoordinator.handleAuthentication(context);
-      
+
       if (result.success && result.userId) {
-        Logger.info(`[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`);
+        Logger.info(
+          `[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`
+        );
 
         // 只完成 login，consent 会在后续的 GET 请求中自动处理
         await oidc.interactionFinished(
@@ -349,53 +396,64 @@ async function start() {
         if (result.error) {
           Logger.warn(`[登录失败] ${formatAuthError(result.error)}`);
         } else {
-          Logger.warn('[登录失败] 未知错误');
+          Logger.warn("[登录失败] 未知错误");
         }
-        
+
         // 认证失败，重定向回登录页面并显示用户友好的错误消息
-        const errorMessage = result.error 
+        const errorMessage = result.error
           ? getUserErrorMessage(result.error)
-          : '认证失败';
-        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent(errorMessage)}`);
+          : "认证失败";
+        return reply.redirect(
+          `/interaction/${uid}?error=${encodeURIComponent(errorMessage)}`
+        );
       }
     } catch (err) {
-      Logger.error('[登录处理] 错误:', err);
-      return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent('系统错误，请稍后重试')}`);
+      Logger.error("[登录处理] 错误:", err);
+      return reply.redirect(
+        `/interaction/${uid}?error=${encodeURIComponent(
+          "系统错误，请稍后重试"
+        )}`
+      );
     }
   });
 
   try {
-    await app.listen({ 
-      port: config.server.port, 
-      host: config.server.host 
+    await app.listen({
+      port: config.server.port,
+      host: config.server.host,
     });
     Logger.info(`OIDC IdP server listening on ${config.server.url}`);
-    Logger.info(`认证插件已启用: ${authCoordinator.getProviders().map((p: AuthProvider) => p.name).join(', ')}`);
+    Logger.info(
+      `认证插件已启用: ${authCoordinator
+        .getProviders()
+        .map((p: AuthProvider) => p.name)
+        .join(", ")}`
+    );
   } catch (err) {
-    Logger.error('服务器启动失败:', err);
+    Logger.error("服务器启动失败:", err);
     process.exit(1);
   }
-  
+
   // 优雅关闭
   const shutdown = async () => {
-    Logger.info('[服务器] 正在关闭...');
-    
+    Logger.info("[服务器] 正在关闭...");
+
     // 销毁认证系统
     await authCoordinator.destroy();
     stateStore.destroy();
-    
+
     // 清理适配器资源
     await OidcAdapterFactory.cleanup();
-    
+
     // 关闭 Fastify
     await app.close();
-    
-    Logger.info('[服务器] 关闭完成');
+
+    Logger.info("[服务器] 关闭完成");
     process.exit(0);
   };
-  
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-};
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+}
 
 start();

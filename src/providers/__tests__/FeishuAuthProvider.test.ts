@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createCipheriv, createHash } from 'crypto';
+import * as lark from '@larksuiteoapi/node-sdk';
 
 import { PluginPermission } from '../../types/auth';
 import type { AuthContext, AuthProviderConfig, FeishuAuthConfig, UserInfo } from '../../types/auth';
@@ -58,8 +59,25 @@ describe('FeishuAuthProvider', () => {
 
     provider = new FeishuAuthProvider(userRepository as any, coordinator as any);
     (provider as any).config = baseProviderConfig.config;
-    (provider as any).appAccessToken = 'app-token';
-    (provider as any).tokenExpiresAt = Date.now() + 1000 * 60;
+    
+    // Mock SDK 客户端
+    (provider as any).larkClient = {
+      authen: {
+        v1: {
+          userInfo: {
+            get: vi.fn(),
+          },
+        },
+      },
+      contact: {
+        v3: {
+          user: {
+            get: vi.fn(),
+          },
+        },
+      },
+    };
+    
     fetchSpy = vi.spyOn(global, 'fetch' as any).mockRejectedValue(new Error('fetch not mocked'));
   });
 
@@ -206,33 +224,9 @@ describe('FeishuAuthProvider', () => {
     });
   });
 
-  describe('refreshAppAccessToken', () => {
-    it('should store token and expiry when fetch succeeds', async () => {
-      const response = {
-        json: vi.fn().mockResolvedValue({ code: 0, app_access_token: 'new-token', expires_in: 100 }),
-      };
-      fetchSpy.mockResolvedValue(response as any);
-
-      await (provider as any).refreshAppAccessToken();
-
-      expect((provider as any).appAccessToken).toBe('new-token');
-      expect((provider as any).tokenExpiresAt).toBeGreaterThan(Date.now());
-    });
-
-    it('should throw when fetch returns error code', async () => {
-      const response = {
-        json: vi.fn().mockResolvedValue({ code: 1, msg: 'invalid' }),
-      };
-      fetchSpy.mockResolvedValue(response as any);
-
-      await expect((provider as any).refreshAppAccessToken()).rejects.toThrow('invalid');
-    });
-  });
 
   describe('exchangeCodeForToken', () => {
-    it('should refresh app token when expired before exchange', async () => {
-      (provider as any).tokenExpiresAt = Date.now() - 1000;
-      const refreshSpy = vi.spyOn(provider as any, 'refreshAppAccessToken').mockResolvedValue(undefined);
+    it('returns user access token when successful', async () => {
       const response = {
         json: vi.fn().mockResolvedValue({ code: 0, data: { access_token: 'user-token' } }),
       };
@@ -240,7 +234,6 @@ describe('FeishuAuthProvider', () => {
 
       const token = await (provider as any).exchangeCodeForToken('code-123');
 
-      expect(refreshSpy).toHaveBeenCalled();
       expect(token).toBe('user-token');
     });
 
@@ -256,33 +249,55 @@ describe('FeishuAuthProvider', () => {
 
   describe('getFeishuUserInfo', () => {
     it('returns merged user data with full info', async () => {
-      fetchSpy
-        .mockResolvedValueOnce({
-          json: vi.fn().mockResolvedValue({ code: 0, data: { open_id: 'open-1', name: 'Alice' } }),
-        } as any)
-        .mockResolvedValueOnce({
-          json: vi.fn().mockResolvedValue({ code: 0, data: { user: { department_path: [] } } }),
-        } as any);
+      const mockLarkClient = (provider as any).larkClient;
+      
+      // Mock 基本用户信息
+      mockLarkClient.authen.v1.userInfo.get.mockResolvedValue({
+        code: 0,
+        data: { open_id: 'open-1', name: 'Alice', email: 'alice@test.com' },
+      });
+      
+      // Mock 完整用户信息
+      mockLarkClient.contact.v3.user.get.mockResolvedValue({
+        code: 0,
+        data: { user: { department_path: [], department_ids: ['dept-1'] } },
+      });
 
       const result = await (provider as any).getFeishuUserInfo('user-token');
 
-      expect(fetchSpy).toHaveBeenCalledTimes(2);
       expect(result.open_id).toBe('open-1');
-      expect(result.fullInfo).toEqual({ department_path: [] });
+      expect(result.name).toBe('Alice');
+      expect(result.fullInfo).toEqual({ department_path: [], department_ids: ['dept-1'] });
     });
 
     it('throws when user info fetch fails', async () => {
-      fetchSpy.mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ code: 2, msg: 'denied' }) } as any);
+      const mockLarkClient = (provider as any).larkClient;
+      mockLarkClient.authen.v1.userInfo.get.mockResolvedValue({
+        code: 2,
+        msg: 'denied',
+      });
 
       await expect((provider as any).getFeishuUserInfo('user-token')).rejects.toThrow(/denied/);
     });
 
-    it('throws when full user info fetch fails', async () => {
-      fetchSpy
-        .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ code: 0, data: { open_id: 'open-1' } }) } as any)
-        .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ code: 3, msg: 'no access' }) } as any);
+    it('falls back to basic info when full user info fetch fails', async () => {
+      const mockLarkClient = (provider as any).larkClient;
+      
+      mockLarkClient.authen.v1.userInfo.get.mockResolvedValue({
+        code: 0,
+        data: { open_id: 'open-1', name: 'Bob' },
+      });
+      
+      mockLarkClient.contact.v3.user.get.mockResolvedValue({
+        code: 3,
+        msg: 'no access',
+      });
 
-      await expect((provider as any).getFeishuUserInfo('token')).rejects.toThrow(/no access/);
+      const result = await (provider as any).getFeishuUserInfo('token');
+      
+      expect(result.open_id).toBe('open-1');
+      expect(result.name).toBe('Bob');
+      expect(result.fullInfo).toBeUndefined();
     });
   });
 
@@ -294,9 +309,7 @@ describe('FeishuAuthProvider', () => {
     });
 
     it('getMetadata 返回健康状态并包含权限', () => {
-      (provider as any).appAccessToken = 'token';
-      (provider as any).tokenExpiresAt = Date.now() + 10_000;
-
+      // larkClient 已在 beforeEach 中 mock
       const metadata = provider.getMetadata();
 
       expect(metadata.permissions).toEqual(
@@ -310,15 +323,8 @@ describe('FeishuAuthProvider', () => {
       expect(metadata.status?.stats?.appId).toContain('app-test'.substring(0, 8));
     });
 
-    it('destroy 会清空 token 并令 isTokenValid 失效', async () => {
-      (provider as any).appAccessToken = 'token';
-      (provider as any).tokenExpiresAt = Date.now() + 10_000;
-
-      await provider.destroy();
-
-      expect((provider as any).appAccessToken).toBeUndefined();
-      expect((provider as any).tokenExpiresAt).toBeUndefined();
-      expect((provider as any).isTokenValid()).toBe(false);
+    it('destroy 不会抛出错误', async () => {
+      await expect(provider.destroy()).resolves.not.toThrow();
     });
   });
 
@@ -534,8 +540,7 @@ describe('FeishuAuthProvider', () => {
     });
 
     it('status 路由返回插件状态', async () => {
-      (provider as any).appAccessToken = 'token';
-      (provider as any).tokenExpiresAt = Date.now() + 10_000;
+      // larkClient 已在 beforeEach 中 mock
       const routes = provider.registerRoutes();
       const statusRoute = routes.find(route => route.path === '/status');
 
@@ -544,7 +549,7 @@ describe('FeishuAuthProvider', () => {
       expect(result).toEqual({
         provider: 'feishu',
         configured: true,
-        tokenValid: true,
+        sdkInitialized: true,
       });
     });
   });

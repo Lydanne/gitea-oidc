@@ -3,6 +3,7 @@
  * 支持飞书 OAuth 2.0 登录
  */
 
+import * as lark from "@larksuiteoapi/node-sdk";
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type {
   AuthProvider,
@@ -140,6 +141,7 @@ interface FeishuTokenResponse {
   code: number;
   msg: string;
   app_access_token?: string;
+  tenant_access_token?: string;
   expires_in?: number;
 }
 
@@ -161,8 +163,7 @@ export class FeishuAuthProvider implements AuthProvider {
   private config!: FeishuAuthConfig;
   private userRepository!: UserRepository;
   private coordinator!: IAuthCoordinator;
-  private appAccessToken?: string;
-  private tokenExpiresAt?: number;
+  private larkClient!: lark.Client;
 
   constructor(userRepository: UserRepository, coordinator: IAuthCoordinator) {
     this.userRepository = userRepository;
@@ -172,8 +173,15 @@ export class FeishuAuthProvider implements AuthProvider {
   async initialize(config: AuthProviderConfig): Promise<void> {
     this.config = config.config as FeishuAuthConfig;
 
-    // 获取 app access token
-    await this.refreshAppAccessToken();
+    // 初始化飞书 SDK 客户端
+    this.larkClient = new lark.Client({
+      appId: this.config.appId,
+      appSecret: this.config.appSecret,
+      // SDK 自动管理 token 的获取与刷新
+      disableTokenCache: false,
+    });
+
+    Logger.info("[FeishuAuth] Lark SDK client initialized");
   }
 
   canHandle(context: AuthContext): boolean {
@@ -439,7 +447,7 @@ export class FeishuAuthProvider implements AuthProvider {
           return {
             provider: this.name,
             configured: !!this.config.appId,
-            tokenValid: this.isTokenValid(),
+            sdkInitialized: !!this.larkClient,
           };
         },
         options: {
@@ -650,8 +658,8 @@ export class FeishuAuthProvider implements AuthProvider {
       ],
       status: {
         initialized: !!this.config,
-        healthy: this.isTokenValid(),
-        message: this.isTokenValid() ? "运行正常" : "Token 已过期",
+        healthy: !!this.larkClient,
+        message: this.larkClient ? "运行正常" : "未初始化",
         stats: {
           appId: this.config?.appId
             ? `${this.config.appId.substring(0, 8)}...`
@@ -661,45 +669,11 @@ export class FeishuAuthProvider implements AuthProvider {
     };
   }
 
-  /**
-   * 刷新 app access token
-   */
-  private async refreshAppAccessToken(): Promise<void> {
-    const url =
-      "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal";
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        app_id: this.config.appId,
-        app_secret: this.config.appSecret,
-      }),
-    });
-
-    const data = (await response.json()) as FeishuTokenResponse;
-
-    if (data.code !== 0 || !data.app_access_token) {
-      throw new Error(`Failed to get app access token: ${data.msg}`);
-    }
-
-    this.appAccessToken = data.app_access_token;
-    this.tokenExpiresAt = Date.now() + (data.expires_in || 7200) * 1000;
-
-    Logger.info("[FeishuAuth] App access token refreshed");
-  }
 
   /**
    * 用 code 换取 user access token
    */
   private async exchangeCodeForToken(code: string): Promise<string> {
-    // 确保 app access token 有效
-    if (!this.isTokenValid()) {
-      await this.refreshAppAccessToken();
-    }
-
     const url = "https://open.feishu.cn/open-apis/authen/v1/access_token";
 
     const response = await fetch(url, {
@@ -722,7 +696,6 @@ export class FeishuAuthProvider implements AuthProvider {
       msg: data.msg,
       hasData: !!data.data,
       hasAccessToken: !!data.data?.access_token,
-      fullResponse: JSON.stringify(data),
     });
 
     if (data.code !== 0 || !data.data?.access_token) {
@@ -735,77 +708,81 @@ export class FeishuAuthProvider implements AuthProvider {
   }
 
   /**
-   * 获取飞书用户信息
+   * 获取飞书用户信息(使用 SDK)
    */
   private async getFeishuUserInfo(
     userAccessToken: string
   ): Promise<FeishuUserInfo> {
-    const url = "https://open.feishu.cn/open-apis/authen/v1/user_info";
+    // 1. 使用 SDK 获取基本用户信息
+    try {
+      const userInfoRes = await this.larkClient.authen.v1.userInfo.get({}, 
+        lark.withUserAccessToken(userAccessToken)
+      );
 
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${userAccessToken}`,
-      },
-    });
-
-    const data = (await response.json()) as {
-      code: number;
-      msg: string;
-      data?: FeishuUserInfo;
-    };
-
-    if (data.code !== 0 || !data.data) {
-      throw new Error(`Failed to get user info: ${data.msg}`);
-    }
-
-    const fullUserUrl = `https://open.feishu.cn/open-apis/contact/v3/users/${data.data.open_id}?department_id_type=open_department_id&user_id_type=open_id`;
-    
-    // 确保有有效的 app access token（通讯录 API 需要应用级别的 token）
-    if (!this.isTokenValid()) {
-      await this.refreshAppAccessToken();
-    }
-    
-    const fullUserResponse = await fetch(fullUserUrl, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${this.appAccessToken}`,
-      },
-    });
-    const fullUserData = (await fullUserResponse.json()) as {
-      code: number;
-      msg: string;
-      data?: { user: FullFeishuUserInfo };
-    };
-    
-    Logger.debug("[FeishuAuth] Full user info response:", {
-      code: fullUserData.code,
-      msg: fullUserData.msg,
-      hasData: !!fullUserData.data,
-      open_id: data.data.open_id,
-    });
-    
-    if (fullUserData.code !== 0 || !fullUserData.data) {
-      Logger.error("[FeishuAuth] Failed to get full user info:", {
-        code: fullUserData.code,
-        msg: fullUserData.msg,
-        open_id: data.data.open_id,
+      Logger.debug("[FeishuAuth] SDK basic user info response:", {
+        success: userInfoRes.code === 0,
+        code: userInfoRes.code,
+        msg: userInfoRes.msg,
+        hasData: !!userInfoRes.data,
       });
-      throw new Error(`Failed to get full user info: ${fullUserData.msg} (code: ${fullUserData.code})`);
+
+      if (userInfoRes.code !== 0 || !userInfoRes.data) {
+        throw new Error(`Failed to get user info: ${userInfoRes.msg} (code: ${userInfoRes.code})`);
+      }
+
+      const basicUserInfo = userInfoRes.data as FeishuUserInfo;
+      const openId = basicUserInfo.open_id;
+
+      Logger.debug("[FeishuAuth] Got basic user info:", {
+        open_id: openId,
+        name: basicUserInfo.name,
+        email: basicUserInfo.email,
+      });
+
+      // 2. 使用 SDK 获取完整用户信息(使用 tenant token)
+      try {
+        const fullUserRes = await this.larkClient.contact.v3.user.get({
+          path: {
+            user_id: openId,
+          },
+          params: {
+            user_id_type: "open_id",
+            department_id_type: "open_department_id",
+          },
+        });
+
+        Logger.debug("[FeishuAuth] SDK full user info response:", {
+          success: fullUserRes.code === 0,
+          code: fullUserRes.code,
+          msg: fullUserRes.msg,
+          hasData: !!fullUserRes.data,
+        });
+
+        if (fullUserRes.code === 0 && fullUserRes.data?.user) {
+          return { ...basicUserInfo, fullInfo: fullUserRes.data.user as FullFeishuUserInfo };
+        } else {
+          Logger.warn("[FeishuAuth] Failed to get full user info via SDK, using basic info:", {
+            code: fullUserRes.code,
+            msg: fullUserRes.msg,
+            open_id: openId,
+          });
+          return basicUserInfo;
+        }
+      } catch (error) {
+        Logger.warn("[FeishuAuth] Exception getting full user info via SDK, using basic info:", {
+          error: error instanceof Error ? error.message : String(error),
+          open_id: openId,
+        });
+        return basicUserInfo;
+      }
+    } catch (error) {
+      Logger.error("[FeishuAuth] Failed to get basic user info:", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
-    return { ...data.data, fullInfo: fullUserData.data.user };
   }
 
-  /**
-   * 检查 token 是否有效
-   */
-  private isTokenValid(): boolean {
-    return (
-      !!this.appAccessToken &&
-      !!this.tokenExpiresAt &&
-      Date.now() < this.tokenExpiresAt
-    );
-  }
 
   /**
    * 映射用户名
@@ -859,7 +836,7 @@ export class FeishuAuthProvider implements AuthProvider {
   }
 
   async destroy(): Promise<void> {
-    this.appAccessToken = undefined;
-    this.tokenExpiresAt = undefined;
+    // SDK 会自动清理资源
+    Logger.info("[FeishuAuth] Provider destroyed");
   }
 }

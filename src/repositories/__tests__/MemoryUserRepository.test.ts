@@ -132,7 +132,16 @@ describe('MemoryUserRepository', () => {
       const created = await repository.create(mockUserData);
       const found = await repository.findOrCreate('local', 'ext123', stripUserData(mockUserData));
 
-      expect(found).toEqual(created);
+      // 现在 findOrCreate 会更新用户，所以 updatedAt 会不同
+      expect(found.sub).toEqual(created.sub);
+      expect(found.username).toEqual(created.username);
+      expect(found.email).toEqual(created.email);
+      expect(found.createdAt).toEqual(created.createdAt);
+      expect(found.updatedAt).toBeDefined();
+      expect(created.updatedAt).toBeDefined();
+      if (found.updatedAt && created.updatedAt) {
+        expect(found.updatedAt.getTime()).toBeGreaterThanOrEqual(created.updatedAt.getTime());
+      }
     });
 
     it('应该创建新用户当不存在时', async () => {

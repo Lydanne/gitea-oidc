@@ -127,7 +127,12 @@ export class SqliteUserRepository implements UserRepository {
     const existingUser = await this.findByProviderAndExternalId(provider, externalId);
 
     if (existingUser) {
-      return existingUser;
+      // 用户已存在，更新用户信息（保持 sub 和 createdAt 不变）
+      return await this.update(existingUser.sub, {
+        ...userData,
+        authProvider: provider,
+        externalId,
+      });
     }
 
     // 创建新用户

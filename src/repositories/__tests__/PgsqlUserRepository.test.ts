@@ -220,12 +220,22 @@ describe('PgsqlUserRepository', () => {
 
   it('should reuse existing user via findOrCreate when present', async () => {
     const row = createRow();
-    const client = setupNextClient(() => ({ rows: [row] }));
+    // findOrCreate 现在会调用 update，update 会先 findById 再执行 UPDATE
+    // 1. findByProviderAndExternalId
+    const findClient = setupNextClient(() => ({ rows: [row] }));
+    // 2. update -> findById
+    const findByIdClient = setupNextClient(() => ({ rows: [row] }));
+    // 3. update -> UPDATE query
+    const updateClient = setupNextClient(() => ({ rows: [] }));
 
     const result = await repository.findOrCreate('local', 'ext123', stripUserData(baseUserData));
 
-    expect(result).toEqual(expectedUserFromRow(row));
-    expect(client.release).toHaveBeenCalled();
+    expect(result.sub).toEqual(row.sub);
+    expect(result.username).toEqual(row.username);
+    expect(result.email).toEqual(row.email);
+    expect(findClient.release).toHaveBeenCalled();
+    expect(findByIdClient.release).toHaveBeenCalled();
+    expect(updateClient.release).toHaveBeenCalled();
   });
 
   it('should update an existing user and keep metadata', async () => {

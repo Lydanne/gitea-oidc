@@ -63,7 +63,12 @@ export class MemoryUserRepository implements UserRepository {
     if (existingUserId) {
       const existingUser = this.users.get(existingUserId);
       if (existingUser) {
-        return existingUser;
+        // 用户已存在，更新用户信息（保持 sub 和 createdAt 不变）
+        return await this.update(existingUserId, {
+          ...userData,
+          authProvider: provider,
+          externalId,
+        });
       }
     }
 

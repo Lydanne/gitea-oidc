@@ -760,10 +760,16 @@ export class FeishuAuthProvider implements AuthProvider {
     }
 
     const fullUserUrl = `https://open.feishu.cn/open-apis/contact/v3/users/${data.data.open_id}?department_id_type=open_department_id&user_id_type=open_id`;
+    
+    // 确保有有效的 app access token（通讯录 API 需要应用级别的 token）
+    if (!this.isTokenValid()) {
+      await this.refreshAppAccessToken();
+    }
+    
     const fullUserResponse = await fetch(fullUserUrl, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${userAccessToken}`,
+        Authorization: `Bearer ${this.appAccessToken}`,
       },
     });
     const fullUserData = (await fullUserResponse.json()) as {
@@ -771,8 +777,21 @@ export class FeishuAuthProvider implements AuthProvider {
       msg: string;
       data?: { user: FullFeishuUserInfo };
     };
+    
+    Logger.debug("[FeishuAuth] Full user info response:", {
+      code: fullUserData.code,
+      msg: fullUserData.msg,
+      hasData: !!fullUserData.data,
+      open_id: data.data.open_id,
+    });
+    
     if (fullUserData.code !== 0 || !fullUserData.data) {
-      throw new Error(`Failed to get full user info: ${fullUserData.msg}`);
+      Logger.error("[FeishuAuth] Failed to get full user info:", {
+        code: fullUserData.code,
+        msg: fullUserData.msg,
+        open_id: data.data.open_id,
+      });
+      throw new Error(`Failed to get full user info: ${fullUserData.msg} (code: ${fullUserData.code})`);
     }
     return { ...data.data, fullInfo: fullUserData.data.user };
   }

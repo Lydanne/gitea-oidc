@@ -31,11 +31,13 @@ export interface GiteaOidcConfig {
    * - host: 监听地址，'0.0.0.0' 表示监听所有网络接口
    * - port: 服务端口，范围 1-65535
    * - url: 公开访问的完整 URL，用于 OIDC 发现和回调
+   * - trustProxy: 是否信任反向代理的 X-Forwarded-* 头（在 Nginx/Traefik 等反向代理后必须启用）
    */
   server: {
     host: string;
     port: number;
     url: string;
+    trustProxy?: boolean;
   };
   
   /**
@@ -188,6 +190,7 @@ const defaultConfig: GiteaOidcConfig = {
     host: '0.0.0.0',
     port: 3000,
     url: 'http://localhost:3000',
+    trustProxy: false,
   },
   
   logging: {

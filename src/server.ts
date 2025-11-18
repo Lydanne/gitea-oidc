@@ -21,7 +21,10 @@ import { Logger, LogLevel } from './utils/Logger';
 async function start() {
   const config = await loadConfig();
 
-  const app = fastify({ logger: true });
+  const app = fastify({ 
+    logger: true,
+    trustProxy: config.server.trustProxy ?? false
+  });
   
   // 从配置获取日志设置并配置 Logger
   const ENABLE_DETAILED_LOGGING = config.logging.enabled;
@@ -125,6 +128,13 @@ async function start() {
   };
 
   const oidc = new Provider(config.oidc.issuer, configuration);
+  
+  // 配置 oidc-provider 信任反向代理（基于 Koa 的 proxy 设置）
+  // 在反向代理（Nginx/Traefik）后必须启用，才能正确识别 X-Forwarded-Proto 等头信息
+  if (config.server.trustProxy) {
+    oidc.proxy = true;
+    Logger.info('[代理配置] oidc-provider 已启用 proxy 模式，将信任 X-Forwarded-* 头');
+  }
   
   // 将 OIDC Provider 实例传递给 AuthCoordinator
   authCoordinator.setOidcProvider(oidc);

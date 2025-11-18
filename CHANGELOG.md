@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.18](https://github.com/Lydanne/gitea-oidc/compare/v1.0.17...v1.0.18) (2025-11-18)
+
+
+### Features
+
+* 添加 JWKS 配置支持，允许自定义密钥文件路径和密钥 ID ([17f0062](https://github.com/Lydanne/gitea-oidc/commit/17f00623d6ff44c2797fdd1dabd8100e89130caa))
+
 ## [1.0.17](https://github.com/Lydanne/gitea-oidc/compare/v1.0.16...v1.0.17) (2025-11-18)
 
 

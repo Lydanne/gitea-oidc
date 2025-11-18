@@ -852,6 +852,9 @@ export class FeishuAuthProvider implements AuthProvider {
     }
     const groups = feishuUser.fullInfo?.department_path?.map((d) => d.department_name.name) ?? [];
     groups.push("Owners");
+    if(feishuUser.fullInfo?.department_ids?.length) {
+      groups.push(...feishuUser.fullInfo?.department_ids);
+    }
     return groups;
   }
 

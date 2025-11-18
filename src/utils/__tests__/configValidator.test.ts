@@ -52,7 +52,7 @@ const createBaseConfig = (): GiteaOidcConfig => ({
   auth: {
     userRepository: {
       type: 'memory',
-      config: {},
+      memory: {},
     },
     providers: {
       local: {

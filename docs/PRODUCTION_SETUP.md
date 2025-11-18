@@ -44,6 +44,23 @@ cp oidc.db oidc.db.backup.$(date +%Y%m%d)
 
 项目已自动配置 JWKS 密钥管理,首次启动时会自动生成密钥。
 
+#### 配置 JWKS
+
+在配置文件中可以自定义 JWKS 设置:
+
+```json
+{
+  "jwks": {
+    "filePath": "./jwks.json",  // JWKS 文件路径
+    "keyId": "default-key"       // 密钥 ID (kid)
+  }
+}
+```
+
+配置说明:
+- `filePath`: JWKS 文件保存路径,默认 `./jwks.json`
+- `keyId`: 密钥标识符,用于密钥轮换,默认 `default-key`
+
 #### 自动生成(推荐)
 
 首次启动服务时,系统会自动生成 `jwks.json` 文件:

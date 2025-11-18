@@ -192,6 +192,14 @@ export const OidcAdapterConfigSchema = z.object({
 );
 
 /**
+ * JWKS 配置 Schema
+ */
+export const JwksConfigSchema = z.object({
+  filePath: z.string().optional().default('./jwks.json'),
+  keyId: z.string().optional().default('default-key'),
+});
+
+/**
  * 完整配置 Schema
  */
 export const GiteaOidcConfigSchema = z.object({
@@ -205,6 +213,10 @@ export const GiteaOidcConfigSchema = z.object({
     sqlite: {
       dbPath: './oidc.db',
     },
+  }),
+  jwks: JwksConfigSchema.optional().default({
+    filePath: './jwks.json',
+    keyId: 'default-key',
   }),
 });
 

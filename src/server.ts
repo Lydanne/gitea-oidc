@@ -3,7 +3,7 @@ import staticFiles from "@fastify/static";
 import cors from "@fastify/cors";
 import middie from "@fastify/middie";
 import formBody from "@fastify/formbody";
-import path from "path";
+import path, { join } from "path";
 import { Provider, type Configuration } from "oidc-provider";
 import { loadConfig } from "./config";
 
@@ -92,8 +92,10 @@ async function start() {
 
   // 加载或生成 JWKS
   Logger.info("[JWKS] 正在加载密钥...");
-  const jwks = await getOrGenerateJWKS();
-  Logger.info("[JWKS] 密钥加载完成");
+  const jwksFilePath = config.jwks?.filePath || join(process.cwd(), 'jwks.json');
+  const jwksKeyId = config.jwks?.keyId || 'default-key';
+  const jwks = await getOrGenerateJWKS(jwksFilePath, jwksKeyId);
+  Logger.info(`[JWKS] 密钥加载完成 (文件: ${jwksFilePath}, keyId: ${jwksKeyId})`);
 
   // 配置OIDC Provider
   const configuration: Configuration = {

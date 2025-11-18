@@ -173,6 +173,24 @@ export interface GiteaOidcConfig {
    * - memory: 内存存储 (仅开发)
    */
   adapter?: OidcAdapterConfig;
+  
+  /**
+   * JWKS (JSON Web Key Set) 配置
+   * 用于签名和验证 JWT 令牌的密钥配置
+   */
+  jwks?: {
+    /**
+     * JWKS 文件路径
+     * 默认: './jwks.json'
+     */
+    filePath?: string;
+    /**
+     * 密钥 ID (kid)
+     * 用于标识密钥，支持密钥轮换
+     * 默认: 'default-key'
+     */
+    keyId?: string;
+  };
 }
 
 /**
@@ -260,6 +278,11 @@ const defaultConfig: GiteaOidcConfig = {
     sqlite: {
       dbPath: './oidc.db',
     },
+  },
+  
+  jwks: {
+    filePath: './jwks.json',
+    keyId: 'default-key',
   },
 };
 

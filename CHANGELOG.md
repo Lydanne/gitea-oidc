@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.20](https://github.com/Lydanne/gitea-oidc/compare/v1.0.19...v1.0.20) (2025-11-18)
+
+
+### Bug Fixes
+
+* 修复飞书通讯录 API 调用使用错误的 token 类型 ([0f5ede8](https://github.com/Lydanne/gitea-oidc/commit/0f5ede8d40e32c859d440d321aaaa3bc4b1af869))
+
 ## [1.0.19](https://github.com/Lydanne/gitea-oidc/compare/v1.0.18...v1.0.19) (2025-11-18)
 
 ## [1.0.18](https://github.com/Lydanne/gitea-oidc/compare/v1.0.17...v1.0.18) (2025-11-18)

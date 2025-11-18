@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.17](https://github.com/Lydanne/gitea-oidc/compare/v1.0.16...v1.0.17) (2025-11-18)
+
+
+### Bug Fixes
+
+* 修复https的问题 ([40fea62](https://github.com/Lydanne/gitea-oidc/commit/40fea62130d0d50a50a0a9c471baafc165fd3548))
+
 ## [1.0.16](https://github.com/Lydanne/gitea-oidc/compare/v1.0.14...v1.0.16) (2025-11-18)
 
 ## [1.0.14](https://github.com/Lydanne/gitea-oidc/compare/v1.0.13...v1.0.14) (2025-11-18)

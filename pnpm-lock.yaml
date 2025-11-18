@@ -29,6 +29,9 @@ importers:
       fastify:
         specifier: ^5.6.1
         version: 5.6.1
+      jose:
+        specifier: ^6.1.2
+        version: 6.1.2
       oidc-provider:
         specifier: ^9.5.2
         version: 9.5.2
@@ -1594,8 +1597,8 @@ packages:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
     hasBin: true
 
-  jose@6.1.0:
-    resolution: {integrity: sha512-TTQJyoEoKcC1lscpVDCSsVgYzUDg/0Bt3WE//WiTPK6uOCQC2KZS4MpugbMWt/zyjkopgZoXhZuCi00gLudfUA==}
+  jose@6.1.2:
+    resolution: {integrity: sha512-MpcPtHLE5EmztuFIqB0vzHAWJPpmN1E6L4oo+kze56LIs3MyXIj9ZHMDxqOvkP38gBR7K1v3jqd4WU2+nrfONQ==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -3923,7 +3926,7 @@ snapshots:
 
   jiti@2.6.1: {}
 
-  jose@6.1.0: {}
+  jose@6.1.2: {}
 
   js-tokens@4.0.0: {}
 
@@ -4107,7 +4110,7 @@ snapshots:
       '@koa/router': 14.0.0
       debug: 4.4.3
       eta: 4.0.1
-      jose: 6.1.0
+      jose: 6.1.2
       jsesc: 3.1.0
       koa: 3.1.1
       nanoid: 5.1.6

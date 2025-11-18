@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
-    "release": "release-it"
+    "release": "release-it",
+    "generate-jwks": "tsx scripts/generate-jwks.ts"
   },
   "keywords": [
     "oidc",
@@ -52,6 +53,7 @@
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.4.1",
     "fastify": "^5.6.1",
+    "jose": "^6.1.2",
     "oidc-provider": "^9.5.2",
     "pg": "^8.16.3",
     "zod": "^4.1.12"

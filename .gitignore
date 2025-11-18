@@ -170,3 +170,9 @@ Temporary Items
 gitea-oidc.config.*
 .pnpm-store
 tests/data
+
+# OIDC 持久化文件 (包含敏感数据)
+jwks.json
+oidc.db
+oidc.db-shm
+oidc.db-wal

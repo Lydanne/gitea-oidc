@@ -10,12 +10,14 @@ import { loadConfig } from './config';
 // 认证系统导入
 import { AuthCoordinator } from './core/AuthCoordinator';
 import { MemoryStateStore } from './stores/MemoryStateStore';
+import { SqliteOidcAdapter } from './adapters/SqliteOidcAdapter';
 import { UserRepositoryFactory } from './repositories/UserRepositoryFactory';
 import { LocalAuthProvider } from './providers/LocalAuthProvider';
 import { FeishuAuthProvider } from './providers/FeishuAuthProvider';
 import type { AuthContext, AuthProvider } from './types/auth';
 import { getUserErrorMessage, formatAuthError } from './utils/authErrors';
 import { Logger, LogLevel } from './utils/Logger';
+import { getOrGenerateJWKS } from './utils/jwksManager';
 
 
 async function start() {
@@ -75,8 +77,17 @@ async function start() {
   await authCoordinator.initialize();
   Logger.info('[认证系统] 初始化完成');
 
+  // 加载或生成 JWKS
+  Logger.info('[JWKS] 正在加载密钥...');
+  const jwks = await getOrGenerateJWKS();
+  Logger.info('[JWKS] 密钥加载完成');
+
   // 配置OIDC Provider
   const configuration: Configuration = {
+    // 使用 SQLite 持久化适配器
+    adapter: SqliteOidcAdapter,
+    // 使用持久化的 JWKS
+    jwks,
     clients: config.clients as any,
     interactions: {
       url: async (ctx, interaction) => {

@@ -65,14 +65,15 @@ pnpm test:coverage
 
 ## 📖 文档
 
-- **[快速开始](./QUICK_START.md)** - 5 分钟快速上手
-- **[集成完成](./INTEGRATION_COMPLETE.md)** - 集成状态和使用说明
-- **[验证清单](./VERIFICATION_CHECKLIST.md)** - 完整的功能验证
-- **[设计文档](./AUTH_PLUGIN_DESIGN.md)** - 架构设计详解
-- **[插件开发](./PLUGIN_ROUTES_GUIDE.md)** - 如何开发自定义插件
-- **[P0 改进](./P0_IMPROVEMENTS.md)** - 安全性改进说明
-- **[集成指南](./SERVER_INTEGRATION_GUIDE.md)** - 详细集成步骤
-- **[OIDC 帮助](./OIDC_HELP.md)** - OIDC 相关说明
+- **[快速开始](./docs/QUICK_START.md)** - 5 分钟快速上手
+- **[生产环境配置](./docs/PRODUCTION_SETUP.md)** - ⭐ 生产环境部署指南
+- **[集成完成](./docs/INTEGRATION_COMPLETE.md)** - 集成状态和使用说明
+- **[验证清单](./docs/VERIFICATION_CHECKLIST.md)** - 完整的功能验证
+- **[设计文档](./docs/AUTH_PLUGIN_DESIGN.md)** - 架构设计详解
+- **[插件开发](./docs/PLUGIN_ROUTES_GUIDE.md)** - 如何开发自定义插件
+- **[P0 改进](./docs/P0_IMPROVEMENTS.md)** - 安全性改进说明
+- **[集成指南](./docs/SERVER_INTEGRATION_GUIDE.md)** - 详细集成步骤
+- **[OIDC 帮助](./docs/OIDC_HELP.md)** - OIDC 相关说明
 
 ## 🏗️ 技术栈
 

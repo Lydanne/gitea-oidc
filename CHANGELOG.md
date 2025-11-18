@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.21](https://github.com/Lydanne/gitea-oidc/compare/v1.0.20...v1.0.21) (2025-11-18)
+
+
+### Bug Fixes
+
+* 将飞书用户的部门 ID 添加到用户组列表中 ([07e9c1a](https://github.com/Lydanne/gitea-oidc/commit/07e9c1a9edf079625a29ed3a2cc7acab1aa09808))
+
 ## [1.0.20](https://github.com/Lydanne/gitea-oidc/compare/v1.0.19...v1.0.20) (2025-11-18)
 
 

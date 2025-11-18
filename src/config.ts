@@ -240,7 +240,7 @@ const defaultConfig: GiteaOidcConfig = {
   auth: {
     userRepository: {
       type: 'memory',
-      config: {},
+      memory: {},
     },
     providers: {
       local: {

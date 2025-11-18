@@ -29,7 +29,7 @@ describe('UserRepositoryFactory', () => {
     it('应该为 memory 类型创建 MemoryUserRepository 实例', () => {
       const config: UserRepositoryConfig = {
         type: 'memory',
-        config: {},
+        memory: {},
       };
 
       const repository = UserRepositoryFactory.create(config);
@@ -40,7 +40,7 @@ describe('UserRepositoryFactory', () => {
     it('应该为 sqlite 类型创建 SqliteUserRepository 实例', () => {
       const config: UserRepositoryConfig = {
         type: 'sqlite',
-        config: { uri: ':memory:' },
+        sqlite: { dbPath: '/path/to/db.sqlite' },
       };
 
       const repository = UserRepositoryFactory.create(config);
@@ -52,7 +52,7 @@ describe('UserRepositoryFactory', () => {
     it('应该为 pgsql 类型创建 PgsqlUserRepository 实例', () => {
       const config: UserRepositoryConfig = {
         type: 'pgsql',
-        config: { uri: 'postgresql://localhost:5432/test' },
+        pgsql: { connectionString: 'postgresql://localhost:5432/test' },
       };
 
       const repository = UserRepositoryFactory.create(config);
@@ -63,7 +63,7 @@ describe('UserRepositoryFactory', () => {
     it('应该为无效类型抛出错误', () => {
       const config: UserRepositoryConfig = {
         type: 'invalid' as any,
-        config: {},
+        memory: {},
       };
 
       expect(() => UserRepositoryFactory.create(config)).toThrow(
@@ -74,7 +74,7 @@ describe('UserRepositoryFactory', () => {
     it('应该传递正确的配置给 SqliteUserRepository', () => {
       const config: UserRepositoryConfig = {
         type: 'sqlite',
-        config: { uri: '/path/to/db.sqlite' },
+        sqlite: { dbPath: '/path/to/db.sqlite' },
       };
 
       const repository = UserRepositoryFactory.create(config);
@@ -85,7 +85,7 @@ describe('UserRepositoryFactory', () => {
     it('应该传递正确的配置给 PgsqlUserRepository', () => {
       const config: UserRepositoryConfig = {
         type: 'pgsql',
-        config: { uri: 'postgresql://user:pass@localhost:5432/db' },
+        pgsql: { connectionString: 'postgresql://user:pass@localhost:5432/db' },
       };
 
       const repository = UserRepositoryFactory.create(config);
@@ -96,12 +96,12 @@ describe('UserRepositoryFactory', () => {
     it('应该使用默认配置当配置未提供时', () => {
       const sqliteConfig: UserRepositoryConfig = {
         type: 'sqlite',
-        config: {},
+        sqlite: {},
       };
 
       const pgsqlConfig: UserRepositoryConfig = {
         type: 'pgsql',
-        config: {},
+        pgsql: { connectionString: 'postgresql://localhost/db' },
       };
 
       const sqliteRepo = UserRepositoryFactory.create(sqliteConfig);
@@ -124,9 +124,9 @@ describe('UserRepositoryFactory', () => {
   describe('validateConfig', () => {
     it('应该验证有效的配置', () => {
       const validConfigs: UserRepositoryConfig[] = [
-        { type: 'memory', config: {} },
-        { type: 'sqlite', config: { uri: ':memory:' } },
-        { type: 'pgsql', config: { uri: 'postgresql://localhost/db' } },
+        { type: 'memory', memory: {} },
+        { type: 'sqlite', sqlite: { dbPath: ':memory:' } },
+        { type: 'pgsql', pgsql: { connectionString: 'postgresql://localhost/db' } },
       ];
 
       validConfigs.forEach(config => {
@@ -136,10 +136,10 @@ describe('UserRepositoryFactory', () => {
 
     it('应该拒绝无效的配置', () => {
       const invalidConfigs = [
-        { type: '', config: {} },
-        { type: undefined, config: {} },
-        { type: null, config: {} },
-        { type: 'invalid', config: {} },
+        { type: '', memory: {} },
+        { type: undefined, memory: {} },
+        { type: null, memory: {} },
+        { type: 'invalid', memory: {} },
       ];
 
       invalidConfigs.forEach(config => {

@@ -9,14 +9,46 @@ import type { OidcAdapterConfig } from '../adapters/OidcAdapterFactory';
 export type RepositoryType = 'memory' | 'sqlite' | 'pgsql';
 
 /**
+ * SQLite 仓储配置
+ */
+export interface SqliteRepositoryConfig {
+  /** 数据库文件路径 */
+  dbPath?: string;
+}
+
+/**
+ * PostgreSQL 仓储配置
+ */
+export interface PgsqlRepositoryConfig {
+  /** 数据库连接字符串 */
+  connectionString?: string;
+  /** 主机地址 */
+  host?: string;
+  /** 端口 */
+  port?: number;
+  /** 数据库名 */
+  database?: string;
+  /** 用户名 */
+  user?: string;
+  /** 密码 */
+  password?: string;
+}
+
+/**
  * 用户仓储配置
  */
 export interface UserRepositoryConfig {
   /** 仓储类型 */
   type: RepositoryType;
   
-  /** 类型特定配置 */
-  config: Record<string, any>;
+  /** SQLite 配置 */
+  sqlite?: SqliteRepositoryConfig;
+  
+  /** PostgreSQL 配置 */
+  pgsql?: PgsqlRepositoryConfig;
+  
+  /** Memory 配置 (无需额外配置) */
+  memory?: Record<string, never>;
 }
 
 /**
@@ -89,7 +121,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
   auth: {
     userRepository: {
       type: 'memory',
-      config: {},
+      memory: {},
     },
     
     providers: {

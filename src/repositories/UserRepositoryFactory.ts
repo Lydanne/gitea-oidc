@@ -20,15 +20,36 @@ export class UserRepositoryFactory {
       case 'memory':
         return new MemoryUserRepository();
 
-      case 'sqlite':
-        // 数据库配置，默认为 SQLite
-        const sqliteUri = config.config?.uri || ':memory:';
-        return new SqliteUserRepository(sqliteUri);
+      case 'sqlite': {
+        // SQLite 数据库配置
+        const dbPath = config.sqlite?.dbPath || './users.db';
+        return new SqliteUserRepository(dbPath);
+      }
 
-      case 'pgsql':
+      case 'pgsql': {
         // PostgreSQL 数据库配置
-        const pgsqlUri = config.config?.uri || 'postgresql://localhost:5432/gitea_oidc';
-        return new PgsqlUserRepository(pgsqlUri);
+        if (!config.pgsql) {
+          throw new Error('PostgreSQL configuration is required');
+        }
+        
+        // 优先使用 connectionString
+        let uri: string;
+        if (config.pgsql.connectionString) {
+          uri = config.pgsql.connectionString;
+        } else if (config.pgsql.host) {
+          // 构建连接字符串
+          const host = config.pgsql.host;
+          const port = config.pgsql.port || 5432;
+          const database = config.pgsql.database || 'gitea_oidc';
+          const user = config.pgsql.user || 'postgres';
+          const password = config.pgsql.password ? `:${config.pgsql.password}` : '';
+          uri = `postgresql://${user}${password}@${host}:${port}/${database}`;
+        } else {
+          throw new Error('PostgreSQL configuration must provide connectionString or host');
+        }
+        
+        return new PgsqlUserRepository(uri);
+      }
 
       default:
         throw new Error(`Unknown user repository type: ${config.type}`);

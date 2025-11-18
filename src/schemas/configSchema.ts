@@ -80,14 +80,61 @@ export const AuthProviderConfigSchema = z.object({
 });
 
 /**
+ * SQLite 仓储配置 Schema
+ */
+export const SqliteRepositoryConfigSchema = z.object({
+  dbPath: z.string().optional().default('./users.db'),
+});
+
+/**
+ * PostgreSQL 仓储配置 Schema
+ */
+export const PgsqlRepositoryConfigSchema = z.object({
+  connectionString: z.string().optional(),
+  host: z.string().optional(),
+  port: z.number().int().min(1).max(65535).optional().default(5432),
+  database: z.string().optional(),
+  user: z.string().optional(),
+  password: z.string().optional(),
+}).refine(
+  (data) => {
+    // 必须提供 connectionString 或 host
+    return data.connectionString || data.host;
+  },
+  {
+    message: 'PostgreSQL 配置必须提供 connectionString 或 host',
+  }
+);
+
+/**
  * 用户仓储配置 Schema
  */
 export const UserRepositoryConfigSchema = z.object({
-  type: z.enum(['memory', 'sqlite'], {
-    message: '用户仓储类型必须是 memory、sqlite',
+  type: z.enum(['memory', 'sqlite', 'pgsql'], {
+    message: '用户仓储类型必须是 memory、sqlite 或 pgsql',
   }),
-  config: z.record(z.string(), z.any()),
-});
+  sqlite: SqliteRepositoryConfigSchema.optional(),
+  pgsql: PgsqlRepositoryConfigSchema.optional(),
+  memory: z.object({}).optional(),
+}).refine(
+  (data) => {
+    // 如果类型是 sqlite，建议提供 sqlite 配置
+    if (data.type === 'sqlite' && !data.sqlite) {
+      // 允许没有配置,使用默认值
+      return true;
+    }
+    // 如果类型是 pgsql，必须提供 pgsql 配置
+    if (data.type === 'pgsql') {
+      if (!data.pgsql) {
+        return false;
+      }
+    }
+    return true;
+  },
+  {
+    message: 'PostgreSQL 仓储必须提供 pgsql 配置',
+  }
+);
 
 /**
  * 认证配置 Schema

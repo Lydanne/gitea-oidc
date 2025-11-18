@@ -4,6 +4,7 @@
 
 import type { GiteaOidcConfig } from '../config';
 import type { AuthProviderConfig } from './auth';
+import type { OidcAdapterConfig } from '../adapters/OidcAdapterFactory';
 
 export type RepositoryType = 'memory' | 'sqlite' | 'pgsql';
 
@@ -46,6 +47,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     host: '0.0.0.0',
     port: 3000,
     url: 'http://localhost:3000',
+    trustProxy: false,
   },
   
   logging: {

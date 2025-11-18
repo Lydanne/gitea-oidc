@@ -98,6 +98,53 @@ export const AuthConfigSchema = z.object({
 });
 
 /**
+ * SQLite 适配器配置 Schema
+ */
+export const SqliteAdapterConfigSchema = z.object({
+  dbPath: z.string().optional().default('./oidc.db'),
+});
+
+/**
+ * Redis 适配器配置 Schema
+ */
+export const RedisAdapterConfigSchema = z.object({
+  url: z.string().optional(),
+  host: z.string().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  password: z.string().optional(),
+  database: z.number().int().min(0).max(15).optional().default(0),
+  keyPrefix: z.string().optional().default('oidc:'),
+});
+
+/**
+ * OIDC 适配器配置 Schema
+ */
+export const OidcAdapterConfigSchema = z.object({
+  type: z.enum(['sqlite', 'redis', 'memory'], {
+    message: '适配器类型必须是 sqlite、redis 或 memory',
+  }),
+  sqlite: SqliteAdapterConfigSchema.optional(),
+  redis: RedisAdapterConfigSchema.optional(),
+}).refine(
+  (data) => {
+    // 如果类型是 redis，必须提供 redis 配置
+    if (data.type === 'redis') {
+      if (!data.redis) {
+        return false;
+      }
+      // 必须提供 url 或 host
+      if (!data.redis.url && !data.redis.host) {
+        return false;
+      }
+    }
+    return true;
+  },
+  {
+    message: 'Redis 适配器必须提供 redis 配置，且必须包含 url 或 host',
+  }
+);
+
+/**
  * 完整配置 Schema
  */
 export const GiteaOidcConfigSchema = z.object({
@@ -106,6 +153,12 @@ export const GiteaOidcConfigSchema = z.object({
   oidc: OidcConfigSchema,
   clients: z.array(ClientConfigSchema).min(1, '至少需要配置一个客户端'),
   auth: AuthConfigSchema,
+  adapter: OidcAdapterConfigSchema.optional().default({
+    type: 'sqlite',
+    sqlite: {
+      dbPath: './oidc.db',
+    },
+  }),
 });
 
 /**

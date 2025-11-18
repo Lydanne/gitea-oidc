@@ -19,6 +19,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import type { RepositoryType, AuthConfig } from './types/config';
 import type { AuthProviderConfig } from './types/auth';
+import type { OidcAdapterConfig } from './adapters/OidcAdapterFactory';
 
 /**
  * Gitea OIDC IdP 完整配置接口
@@ -163,6 +164,15 @@ export interface GiteaOidcConfig {
    * 包含用户仓储和认证提供者配置
    */
   auth: AuthConfig;
+  
+  /**
+   * OIDC 适配器配置
+   * 配置持久化存储方式
+   * - sqlite: SQLite 文件数据库 (默认)
+   * - redis: Redis 内存数据库
+   * - memory: 内存存储 (仅开发)
+   */
+  adapter?: OidcAdapterConfig;
 }
 
 /**
@@ -242,6 +252,13 @@ const defaultConfig: GiteaOidcConfig = {
           passwordFormat: 'bcrypt',
         },
       },
+    },
+  },
+  
+  adapter: {
+    type: 'sqlite',
+    sqlite: {
+      dbPath: './oidc.db',
     },
   },
 };

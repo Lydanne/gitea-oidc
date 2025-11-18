@@ -103,6 +103,6 @@ export class SqliteOidcAdapter implements Adapter {
   }
 
   async revokeByGrantId(grantId: string) {
-    this.db.prepare('DELETE FROM oidc_store WHERE name = ? AND json_extract(value, "$.grantId") = ?').run(this.name, grantId);
+    this.db.prepare('DELETE FROM oidc_store WHERE name = ? AND json_extract(value, \'$.grantId\') = ?').run(this.name, grantId);
   }
 }

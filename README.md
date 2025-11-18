@@ -34,8 +34,10 @@ pnpm install
 ### 2. 配置
 
 ```bash
-# 复制示例配置
+# 复制示例配置（支持 .json 或 .js 格式，.js 优先级更高）
 cp example.gitea-oidc.config.json gitea-oidc.config.json
+# 或使用 .js 格式以支持动态配置
+# cp example.gitea-oidc.config.json gitea-oidc.config.js
 
 # 创建密码文件（本地认证）
 node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync('admin123', 10));" > .htpasswd
@@ -79,37 +81,65 @@ pnpm test:coverage
 
 - **Node.js 22+** - JavaScript 运行时环境
 - **Fastify 5.x** - 高性能 Node.js Web 框架
-- **oidc-provider 8.x** - OpenID Certified™ OIDC 服务器
+- **oidc-provider 9.x** - OpenID Certified™ OIDC 服务器
 - **TypeScript 5.x** - 类型安全
-- **Jest** - 测试框架
+- **Vitest** - 测试框架
+- **Rolldown** - 高性能打包工具
 - **bcrypt** - 密码哈希
+- **better-sqlite3** - SQLite 数据库
+- **pg** - PostgreSQL 客户端
+- **redis** - Redis 客户端
+- **Zod** - 配置验证
 
 ## 📦 项目结构
 
 ```bash
 gitea-oidc/
 ├── src/
+│   ├── adapters/               # OIDC 适配器
+│   │   ├── OidcAdapterFactory.ts
+│   │   ├── SqliteAdapter.ts
+│   │   ├── RedisAdapter.ts
+│   │   └── MemoryAdapter.ts
 │   ├── core/
-│   │   └── AuthCoordinator.ts      # 认证协调器
-│   ├── providers/
-│   │   ├── LocalAuthProvider.ts    # 本地密码认证
-│   │   └── FeishuAuthProvider.ts   # 飞书认证
-│   ├── repositories/
-│   │   └── MemoryUserRepository.ts # 用户存储
-│   ├── stores/
-│   │   └── MemoryStateStore.ts     # OAuth State 存储
-│   ├── types/
-│   │   ├── auth.ts                 # 认证类型定义
-│   │   └── config.ts               # 配置类型
-│   ├── __tests__/                  # 测试文件
-│   ├── config.ts                   # 配置加载
-│   └── server.ts                   # 主服务器
-├── .htpasswd                       # 密码文件
+│   │   ├── AuthCoordinator.ts  # 认证协调器
+│   │   └── PermissionChecker.ts
+│   ├── providers/              # 认证提供者
+│   │   ├── LocalAuthProvider.ts
+│   │   └── FeishuAuthProvider.ts
+│   ├── repositories/           # 用户仓储
+│   │   ├── MemoryUserRepository.ts
+│   │   ├── SqliteUserRepository.ts
+│   │   └── PgsqlUserRepository.ts
+│   ├── stores/                 # OAuth State 存储
+│   │   └── OAuthStateStore.ts
+│   ├── types/                  # 类型定义
+│   │   ├── auth.ts
+│   │   └── config.ts
+│   ├── utils/                  # 工具函数
+│   │   ├── configValidator.ts
+│   │   └── ...
+│   ├── schemas/                # 验证模式
+│   ├── __tests__/              # 测试文件
+│   ├── config.ts               # 配置加载
+│   └── server.ts               # 主服务器
+├── public/                     # 静态文件
+│   ├── index.html
+│   └── error-session-expired.html
+├── .htpasswd                   # 密码文件
 ├── example.gitea-oidc.config.json  # 配置示例
-└── jest.config.js                  # Jest 配置
+├── Dockerfile                  # Docker 镜像构建
+└── vitest.config.ts            # Vitest 配置
 ```
 
 ## 🔧 配置说明
+
+### 配置文件格式
+
+支持两种配置文件格式（按优先级排序）：
+
+1. **gitea-oidc.config.js** - JavaScript 格式，支持动态配置、环境变量、函数导出
+2. **gitea-oidc.config.json** - JSON 格式，静态配置
 
 ### 配置文件结构
 
@@ -118,15 +148,55 @@ gitea-oidc/
   "server": {
     "host": "0.0.0.0",
     "port": 3000,
-    "url": "http://localhost:3000"
+    "url": "http://localhost:3000",
+    "trustProxy": false
   },
+  "logging": {
+    "enabled": true,
+    "level": "info"
+  },
+  "oidc": {
+    "issuer": "http://localhost:3000",
+    "cookieKeys": [
+      "change-this-to-a-random-string-in-production",
+      "and-another-one-for-key-rotation"
+    ],
+    "ttl": {
+      "AccessToken": 3600,
+      "AuthorizationCode": 600,
+      "IdToken": 3600,
+      "RefreshToken": 86400
+    },
+    "claims": {
+      "openid": ["sub"],
+      "profile": ["name", "email", "email_verified", "picture"]
+    },
+    "features": {
+      "devInteractions": { "enabled": false },
+      "registration": { "enabled": false },
+      "revocation": { "enabled": true }
+    }
+  },
+  "clients": [
+    {
+      "client_id": "gitea",
+      "client_secret": "gitea-client-secret-change-in-production",
+      "redirect_uris": ["http://localhost:3001/user/oauth2/gitea/callback"],
+      "response_types": ["code"],
+      "grant_types": ["authorization_code", "refresh_token"],
+      "token_endpoint_auth_method": "client_secret_basic"
+    }
+  ],
   "auth": {
     "userRepository": {
-      "type": "memory"
+      "type": "memory",
+      "config": {}
     },
     "providers": {
       "local": {
         "enabled": true,
+        "displayName": "本地密码",
+        "priority": 1,
         "config": {
           "passwordFile": ".htpasswd",
           "passwordFormat": "bcrypt"
@@ -134,13 +204,140 @@ gitea-oidc/
       },
       "feishu": {
         "enabled": false,
+        "displayName": "飞书登录",
+        "priority": 2,
         "config": {
-          "appId": "your_app_id",
-          "appSecret": "your_app_secret"
+          "appId": "cli_your_app_id_here",
+          "appSecret": "your_app_secret_here",
+          "redirectUri": "http://localhost:3000/auth/feishu/callback",
+          "scope": "contact:user.base:readonly",
+          "autoCreateUser": true,
+          "userMapping": {
+            "username": "en_name",
+            "name": "name",
+            "email": "email"
+          },
+          "encryptKey": "your_encrypt_key_here",
+          "verificationToken": "your_verification_token_here"
         }
       }
     }
+  },
+  "adapter": {
+    "type": "sqlite",
+    "sqlite": {
+      "dbPath": "./oidc.db"
+    }
   }
+}
+```
+
+### 配置字段说明
+
+#### server
+
+- `host`: 服务器监听地址（`0.0.0.0` 表示监听所有网络接口）
+- `port`: 服务器端口
+- `url`: 公开访问的完整 URL
+- `trustProxy`: 是否信任反向代理（Nginx/Traefik 后必须启用）
+
+#### logging
+
+- `enabled`: 是否启用日志
+- `level`: 日志级别（`info` | `warn` | `error` | `debug`）
+
+#### oidc
+
+- `issuer`: OIDC 发行者 URL，必须与 `server.url` 一致
+- `cookieKeys`: Cookie 签名密钥数组，支持密钥轮换
+- `ttl`: 各种令牌的生存时间（秒）
+- `claims`: OIDC 声明配置
+- `features`: 功能开关
+
+#### auth.userRepository
+
+支持三种用户仓储类型：
+
+**Memory（内存）**
+
+```json
+{
+  "type": "memory",
+  "memory": {}
+}
+```
+
+**SQLite**
+
+```json
+{
+  "type": "sqlite",
+  "sqlite": {
+    "dbPath": "./users.db"
+  }
+}
+```
+
+**PostgreSQL**
+
+```json
+{
+  "type": "pgsql",
+  "pgsql": {
+    "connectionString": "postgresql://user:pass@localhost:5432/dbname"
+  }
+}
+```
+
+或使用分离的配置：
+
+```json
+{
+  "type": "pgsql",
+  "pgsql": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "gitea_oidc",
+    "user": "postgres",
+    "password": "password"
+  }
+}
+```
+
+#### adapter
+
+OIDC 数据持久化适配器配置，支持三种类型：
+
+**SQLite（推荐用于单机部署）**
+
+```json
+{
+  "type": "sqlite",
+  "sqlite": {
+    "dbPath": "./oidc.db"
+  }
+}
+```
+
+**Redis（推荐用于分布式部署）**
+
+```json
+{
+  "type": "redis",
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "optional",
+    "db": 0
+  }
+}
+```
+
+**Memory（仅用于开发测试）**
+
+```json
+{
+  "type": "memory"
 }
 ```
 
@@ -190,7 +387,15 @@ docker pull lydamirror/gitea-oidc:1.0.3
 # 基本运行
 docker run -d -p 3000:3000 lydamirror/gitea-oidc
 
-# 使用自定义配置
+# 使用自定义配置（JSON 格式）
+docker run -p 3000:3000 \
+  -e NODE_ENV=production \
+  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
+  --log-opt max-size=10m \
+  --log-opt max-file=3 \
+  lydamirror/gitea-oidc
+
+# 使用自定义配置（JS 格式）
 docker run -p 3000:3000 \
   -e NODE_ENV=production \
   -v ./gitea-oidc.config.js:/app/gitea-oidc.config.js \
@@ -207,36 +412,108 @@ docker run -p 3000:3000 \
 ### 数据持久化
 
 ```bash
-# 使用外部数据库
+# 使用 SQLite 持久化（OIDC 会话数据）
 docker run -d -p 3000:3000 \
-  -e DATABASE_URL=sqlite:///data/users.db \
-  -v /host/data:/data \
+  -v /host/data:/app/data \
+  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
   lydamirror/gitea-oidc
+
+# 配置文件中设置：
+# "adapter": {
+#   "type": "sqlite",
+#   "sqlite": {
+#     "dbPath": "/app/data/oidc.db"
+#   }
+# }
+
+# 使用 Redis 持久化（分布式部署）
+docker run -d -p 3000:3000 \
+  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
+  lydamirror/gitea-oidc
+
+# 配置文件中设置：
+# "adapter": {
+#   "type": "redis",
+#   "redis": {
+#     "host": "redis",
+#     "port": 6379
+#   }
+# }
 ```
 
 ## 🔐 生产环境
 
 ### 安全建议
 
-1. **更换 Cookie 密钥**：修改配置中的 `cookieKeys`
-2. **使用 HTTPS**：配置 SSL 证书
-3. **强密码策略**：使用 bcrypt 生成强密码
-4. **数据库存储**：实现 PostgreSQL/MySQL 用户仓储
-5. **Redis State Store**：用于分布式部署
+1. **更换 Cookie 密钥**：修改配置中的 `oidc.cookieKeys`
+2. **更换客户端密钥**：修改 `clients[].client_secret`
+3. **使用 HTTPS**：配置 SSL 证书，更新 `server.url` 为 https
+4. **启用反向代理支持**：设置 `server.trustProxy: true`
+5. **强密码策略**：使用 bcrypt 生成强密码（`passwordFormat: "bcrypt"`）
+6. **持久化存储**：
+   - 用户数据：使用 PostgreSQL 或 SQLite（`auth.userRepository.type`）
+   - OIDC 会话：使用 Redis 或 SQLite（`adapter.type`）
+7. **日志管理**：配置适当的日志级别（`logging.level`）
+8. **限制访问**：配置防火墙规则，仅允许必要的端口访问
+
+### 生产环境配置示例
+
+```json
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 3000,
+    "url": "https://auth.example.com",
+    "trustProxy": true
+  },
+  "logging": {
+    "enabled": true,
+    "level": "warn"
+  },
+  "oidc": {
+    "issuer": "https://auth.example.com",
+    "cookieKeys": ["your-secure-random-key-1", "your-secure-random-key-2"]
+  },
+  "auth": {
+    "userRepository": {
+      "type": "pgsql",
+      "pgsql": {
+        "connectionString": "postgresql://user:pass@db:5432/auth"
+      }
+    }
+  },
+  "adapter": {
+    "type": "redis",
+    "redis": {
+      "host": "redis",
+      "port": 6379
+    }
+  }
+}
+```
 
 ### 扩展功能
 
-- 实现数据库用户仓储（PostgreSQL/MySQL）
-- 实现 Redis State Store
-- 添加更多认证插件（企业微信、钉钉、LDAP）
-- 添加管理界面
-- 实现 MFA 支持
+已实现功能：
+
+- ✅ 数据库用户仓储（PostgreSQL、SQLite）
+- ✅ Redis 适配器（分布式部署）
+- ✅ 插件化认证架构
+- ✅ Webhook 支持
+
+计划中的功能：
+
+- ⏳ 添加更多认证插件（企业微信、钉钉、LDAP）
+- ⏳ 添加管理界面
+- ⏳ 实现 MFA 支持
+- ⏳ 用户自助服务（密码重置、账号管理）
 
 ## 📄 许可证
 
 ISC License
 
 ## 🚀 发布流程
+
 项目使用 [release-it](https://github.com/release-it/release-it) 自动化发布，支持 npm 包发布和 Docker 镜像发布。
 
 ### 环境变量配置
@@ -264,6 +541,7 @@ pnpm run release -- prerelease --preReleaseId=beta
 ```
 
 发布流程将自动执行：
+
 1. 构建生产版本
 2. 递增版本号
 3. 提交 Git 变更和标签

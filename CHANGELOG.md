@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.22](https://github.com/Lydanne/gitea-oidc/compare/v1.0.21...v1.0.22) (2025-11-18)
+
+
+### Features
+
+* 迁移飞书认证到官方 SDK 并添加详细文档 ([5ebe236](https://github.com/Lydanne/gitea-oidc/commit/5ebe23649fe8c454c741ec08c8f1807327f2e1ee))
+
 ## [1.0.21](https://github.com/Lydanne/gitea-oidc/compare/v1.0.20...v1.0.21) (2025-11-18)
 
 

@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.0.29](https://github.com/Lydanne/gitea-oidc/compare/v1.0.28...v1.0.29) (2025-11-20)
+
 ## [1.0.28](https://github.com/Lydanne/gitea-oidc/compare/v1.0.27...v1.0.28) (2025-11-20)
 
 ## [1.0.27](https://github.com/Lydanne/gitea-oidc/compare/v1.0.26...v1.0.27) (2025-11-20)

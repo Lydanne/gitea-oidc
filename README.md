@@ -1,6 +1,30 @@
 # Gitea OIDC Identity Provider
 
+[English README](./README.en.md) · [中文文档](./README.md)
+
+[![CI-CHECK](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml)
+[![Release](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml)
+[![npm version](https://img.shields.io/npm/v/gitea-oidc)](https://www.npmjs.com/package/gitea-oidc)
+[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/gitea-oidc)](https://hub.docker.com/r/lydamirror/gitea-oidc)
+![Node version](https://img.shields.io/badge/node-%3E%3D22.0.0-43853d?logo=node.js)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Coverage](https://img.shields.io/badge/coverage-via%20Vitest%20V8-blue)
+
 一个使用 Fastify + TypeScript + oidc-provider 实现的可扩展 OIDC (OpenID Connect) 身份提供者，支持多种认证方式的插件化架构。
+
+## 📚 目录
+
+- [✨ 功能特性](#-功能特性)
+- [🚀 快速开始](#-快速开始)
+- [📖 文档](#-文档)
+- [🏗️ 技术栈](#技术栈)
+- [📦 项目结构](#-项目结构)
+- [🔧 配置说明](#-配置说明)
+- [🔗 Gitea 集成](#-gitea-集成)
+- [🐳 Docker 使用](#-docker-使用)
+- [🔐 生产环境](#-生产环境)
+- [🚀 发布流程](#-发布流程)
+- [CI/CD](#cicd)
 
 ## ✨ 功能特性
 
@@ -70,14 +94,15 @@ pnpm test:coverage
 - **[快速开始](./docs/QUICK_START.md)** - 5 分钟快速上手
 - **[生产环境配置](./docs/PRODUCTION_SETUP.md)** - ⭐ 生产环境部署指南
 - **[集成完成](./docs/INTEGRATION_COMPLETE.md)** - 集成状态和使用说明
-- **[验证清单](./docs/VERIFICATION_CHECKLIST.md)** - 完整的功能验证
+- **[实现状态 & 验证清单](./docs/P0_IMPLEMENTATION_STATUS.md)** - 核心功能实现与验证状态
 - **[设计文档](./docs/AUTH_PLUGIN_DESIGN.md)** - 架构设计详解
 - **[插件开发](./docs/PLUGIN_ROUTES_GUIDE.md)** - 如何开发自定义插件
 - **[P0 改进](./docs/P0_IMPROVEMENTS.md)** - 安全性改进说明
 - **[集成指南](./docs/SERVER_INTEGRATION_GUIDE.md)** - 详细集成步骤
 - **[OIDC 帮助](./docs/OIDC_HELP.md)** - OIDC 相关说明
+ - **[发布与 CI/CD 指南](./docs/RELEASE_AND_CI_CD.md)** - release-it 与 GitHub Actions 工作流说明
 
-## 🏗️ 技术栈
+## 技术栈
 
 - **Node.js 22+** - JavaScript 运行时环境
 - **Fastify 5.x** - 高性能 Node.js Web 框架
@@ -96,39 +121,34 @@ pnpm test:coverage
 ```bash
 gitea-oidc/
 ├── src/
-│   ├── adapters/               # OIDC 适配器
-│   │   ├── OidcAdapterFactory.ts
-│   │   ├── SqliteAdapter.ts
-│   │   ├── RedisAdapter.ts
-│   │   └── MemoryAdapter.ts
-│   ├── core/
-│   │   ├── AuthCoordinator.ts  # 认证协调器
+│   ├── server.ts               # Fastify + oidc-provider 入口
+│   ├── config.ts               # 配置加载与合并
+│   ├── core/                   # 认证核心
+│   │   ├── AuthCoordinator.ts
 │   │   └── PermissionChecker.ts
-│   ├── providers/              # 认证提供者
+│   ├── adapters/               # OIDC 持久化适配器
+│   │   ├── OidcAdapterFactory.ts
+│   │   ├── SqliteOidcAdapter.ts
+│   │   └── RedisOidcAdapter.ts
+│   ├── stores/                 # OAuth State / 认证结果存储
+│   │   └── MemoryStateStore.ts
+│   ├── providers/              # 认证提供者插件
 │   │   ├── LocalAuthProvider.ts
 │   │   └── FeishuAuthProvider.ts
 │   ├── repositories/           # 用户仓储
 │   │   ├── MemoryUserRepository.ts
 │   │   ├── SqliteUserRepository.ts
 │   │   └── PgsqlUserRepository.ts
-│   ├── stores/                 # OAuth State 存储
-│   │   └── OAuthStateStore.ts
+│   ├── schemas/                # Zod 配置 Schema
 │   ├── types/                  # 类型定义
-│   │   ├── auth.ts
-│   │   └── config.ts
-│   ├── utils/                  # 工具函数
-│   │   ├── configValidator.ts
-│   │   └── ...
-│   ├── schemas/                # 验证模式
-│   ├── __tests__/              # 测试文件
-│   ├── config.ts               # 配置加载
-│   └── server.ts               # 主服务器
-├── public/                     # 静态文件
-│   ├── index.html
-│   └── error-session-expired.html
-├── .htpasswd                   # 密码文件
-├── example.gitea-oidc.config.json  # 配置示例
+│   ├── utils/                  # 工具与日志
+│   └── __tests__/              # 单元测试
+├── docs/                       # 文档
+├── public/                     # 静态页面（首页、会话过期页等）
+├── example.gitea-oidc.config.json  # JSON 配置示例
+├── gitea-oidc.config.js        # JS 配置示例（支持动态配置）
 ├── Dockerfile                  # Docker 镜像构建
+├── pnpm-lock.yaml
 └── vitest.config.ts            # Vitest 配置
 ```
 
@@ -156,7 +176,7 @@ gitea-oidc/
     "level": "info"
   },
   "oidc": {
-    "issuer": "http://localhost:3000",
+    "issuer": "http://localhost:3000/oidc",
     "cookieKeys": [
       "change-this-to-a-random-string-in-production",
       "and-another-one-for-key-rotation"
@@ -190,7 +210,7 @@ gitea-oidc/
   "auth": {
     "userRepository": {
       "type": "memory",
-      "config": {}
+      "memory": {}
     },
     "providers": {
       "local": {
@@ -248,7 +268,7 @@ gitea-oidc/
 
 #### oidc
 
-- `issuer`: OIDC 发行者 URL，必须与 `server.url` 一致
+- `issuer`: OIDC 发行者 URL，必须与对外访问的 OIDC 根路径一致（例如 `https://auth.example.com/oidc`），应与实际挂载路径 `/oidc` 对应
 - `cookieKeys`: Cookie 签名密钥数组，支持密钥轮换
 - `ttl`: 各种令牌的生存时间（秒）
 - `claims`: OIDC 声明配置
@@ -378,7 +398,7 @@ OIDC 数据持久化适配器配置，支持三种类型：
 docker pull lydamirror/gitea-oidc:latest
 
 # 拉取指定版本
-docker pull lydamirror/gitea-oidc:1.0.3
+docker pull lydamirror/gitea-oidc:<version>  # 例如 1.0.22，具体以实际发布的 tag 为准
 ```
 
 ### 运行容器
@@ -407,7 +427,7 @@ docker run -p 3000:3000 \
 ### 环境变量
 
 - `NODE_ENV`: 运行环境（默认 development）
-- `PORT`: 监听端口（默认 3000）
+- `PORT`: 当前服务不会自动读取该变量，请通过配置文件 `server.port` 和容器端口映射控制实际监听端口
 
 ### 数据持久化
 
@@ -471,7 +491,7 @@ docker run -d -p 3000:3000 \
     "level": "warn"
   },
   "oidc": {
-    "issuer": "https://auth.example.com",
+    "issuer": "https://auth.example.com/oidc",
     "cookieKeys": ["your-secure-random-key-1", "your-secure-random-key-2"]
   },
   "auth": {
@@ -508,74 +528,27 @@ docker run -d -p 3000:3000 \
 - ⏳ 实现 MFA 支持
 - ⏳ 用户自助服务（密码重置、账号管理）
 
-## 📄 许可证
-
-ISC License
 
 ## 🚀 发布流程
 
-项目使用 [release-it](https://github.com/release-it/release-it) 自动化发布，支持 npm 包发布和 Docker 镜像发布。
+更多关于发布与 CI/CD 的说明已迁移至独立文档：
 
-### 环境变量配置
+- **[发布与 CI/CD 指南](./docs/RELEASE_AND_CI_CD.md)** - release-it 与 GitHub Actions 工作流说明
 
-发布前需要设置以下环境变量：
+该文档涵盖：
 
-- `NPM_TOKEN`: npm 发布令牌
-- `GHUB_TOKEN`: GitHub 令牌（用于创建 release）
-- `DOCKER_USERNAME`: Docker Hub 用户名
-- `DOCKER_PASSWORD`: Docker Hub 密码
+- 使用 `release-it` 进行版本发布与 npm 发布
+- 发布所需环境变量 / GitHub Secrets 配置
+- GitHub Actions 中 `Release` / `CI-CHECK` 工作流的执行流程
+- Docker 镜像构建与推送流程
 
-### 发布步骤
+## CI/CD
 
-```bash
-# 发布补丁版本
-pnpm run release
+本项目使用 GitHub Actions 提供完整的 CI 与发布自动化，详情请参考上面的「发布与 CI/CD 指南」文档。
 
-# 或指定版本类型
-pnpm run release -- patch
-pnpm run release -- minor
-pnpm run release -- major
+## 📄 许可证
 
-# 预发布版本
-pnpm run release -- prerelease --preReleaseId=beta
-```
-
-发布流程将自动执行：
-
-1. 构建生产版本
-2. 递增版本号
-3. 提交 Git 变更和标签
-4. 推送代码到 GitHub
-5. 创建 GitHub Release
-6. 发布到 npm
-7. 触发 Docker 镜像构建和推送
-
-### CI/CD
-
-项目使用 GitHub Actions 实现完整的 CI/CD 流程：
-
-- **CI 工作流**：在每次推送和 PR 时运行代码检查、测试和构建
-- **发布工作流**：支持手动触发和自动发布，包括 npm 包发布和 Docker 镜像构建
-
-#### 所需环境变量
-
-在 GitHub 仓库设置中配置以下 Secrets：
-
-- `NPM_TOKEN`: npm 发布令牌
-- `GHUB_TOKEN`: 自动配置（用于创建 release）
-- `DOCKER_USERNAME`: Docker Hub 用户名
-- `DOCKER_PASSWORD`: Docker Hub 密码
-
-#### 手动发布
-
-1. 进入 GitHub 仓库的 Actions 标签页
-2. 选择 "Release" 工作流
-3. 点击 "Run workflow" 按钮
-4. 选择发布类型（patch/minor/major/prerelease）
-
-#### 自动发布
-
-推送代码到主分支时会自动触发发布流程（补丁版本）。
+MIT License
 
 ---
 

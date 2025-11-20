@@ -129,7 +129,7 @@ pnpm test:coverage
 - **[P0 改进](./docs/P0_IMPROVEMENTS.md)** - 安全性改进说明
 - **[集成指南](./docs/SERVER_INTEGRATION_GUIDE.md)** - 详细集成步骤
 - **[OIDC 帮助](./docs/OIDC_HELP.md)** - OIDC 相关说明
- - **[发布与 CI/CD 指南](./docs/RELEASE_AND_CI_CD.md)** - release-it 与 GitHub Actions 工作流说明
+- **[发布与 CI/CD 指南](./docs/RELEASE_AND_CI_CD.md)** - release-it 与 GitHub Actions 工作流说明
 
 ## 技术栈
 
@@ -557,7 +557,6 @@ docker run -d -p 3000:3000 \
 - ⏳ 实现 MFA 支持
 - ⏳ 用户自助服务（密码重置、账号管理）
 
-
 ## 🚀 发布流程
 
 更多关于发布与 CI/CD 的说明已迁移至独立文档：
@@ -578,6 +577,10 @@ docker run -d -p 3000:3000 \
 ## 📄 许可证
 
 MIT License
+
+## Team
+
+XGJ lydanne
 
 ---
 

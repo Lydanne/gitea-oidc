@@ -38,6 +38,7 @@ user repositories, and pluggable OIDC persistence adapters.
   - [Development \& Testing](#development--testing)
   - [Documentation](#documentation)
   - [License](#license)
+  - [Team](#team)
 
 ---
 
@@ -286,3 +287,7 @@ If you can read Chinese, please start from `docs/QUICK_START.md`.
 ## License
 
 This project is licensed under the **ISC License**.
+
+## Team
+
+XGJ lydanne

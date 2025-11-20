@@ -13,7 +13,13 @@
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
     "release": "release-it",
-    "generate-jwks": "tsx scripts/generate-jwks.ts"
+    "generate-jwks": "tsx scripts/generate-jwks.ts",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules\" \"!dist\"",
+    "lint:md:fix": "markdownlint-cli2 --fix \"**/*.md\" \"!node_modules\" \"!dist\"",
+    "prepare": "husky"
   },
   "keywords": [
     "oidc",
@@ -30,6 +36,9 @@
     "access": "public"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.6",
+    "@commitlint/cli": "^20.1.0",
+    "@commitlint/config-conventional": "^20.0.0",
     "@release-it/conventional-changelog": "^10.0.1",
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
@@ -38,6 +47,9 @@
     "@types/oidc-provider": "^9.5.0",
     "@types/pg": "^8.15.6",
     "@vitest/coverage-v8": "4.0.9",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "markdownlint-cli2": "^0.19.0",
     "release-it": "^19.0.6",
     "rolldown": "1.0.0-beta.47",
     "ts-node": "^10.9.0",

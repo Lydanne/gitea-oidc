@@ -5,7 +5,7 @@ import middie from "@fastify/middie";
 import formBody from "@fastify/formbody";
 import path, { join } from "path";
 import { Provider, type Configuration } from "oidc-provider";
-import { loadConfig } from "./config";
+import { loadConfig, type GiteaOidcConfig } from "./config";
 
 // 认证系统导入
 import { AuthCoordinator } from "./core/AuthCoordinator";
@@ -19,8 +19,14 @@ import { getUserErrorMessage, formatAuthError } from "./utils/authErrors";
 import { Logger, LogLevel } from "./utils/Logger";
 import { getOrGenerateJWKS } from "./utils/jwksManager";
 
-async function start() {
-  const config = await loadConfig();
+/**
+ * 启动 OIDC 服务器
+ * @param customConfig - 可选的自定义配置，如果不提供则从配置文件加载
+ * @returns Fastify 应用实例
+ */
+export async function start(customConfig?: GiteaOidcConfig) {
+  // 如果传入了自定义配置则使用，否则从文件加载
+  const config = customConfig ?? await loadConfig();
 
   const app = fastify({
     logger: true,
@@ -456,6 +462,16 @@ async function start() {
 
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+
+  return app;
 }
 
-start();
+// 仅在直接执行时启动服务器
+// 通过检查当前模块是否为主模块来判断
+const isMainModule = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
+if (isMainModule) {
+  start().catch((err) => {
+    Logger.error("服务器启动失败:", err);
+    process.exit(1);
+  });
+}

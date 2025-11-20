@@ -69,6 +69,8 @@ node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSyn
 
 ### 3. 启动服务器
 
+#### 方式 1: 直接启动（推荐）
+
 ```bash
 # 开发模式（热重载）
 pnpm dev
@@ -78,6 +80,33 @@ pnpm build && pnpm start
 ```
 
 服务器将在 `http://localhost:3000` 启动
+
+#### 方式 2: 作为模块导入使用
+
+如果你需要在其他项目中集成此服务器，可以作为模块导入：
+
+```typescript
+import { start } from 'gitea-oidc/server';
+import type { GiteaOidcConfig } from 'gitea-oidc/config';
+
+// 使用自定义配置启动
+const customConfig: GiteaOidcConfig = {
+  server: {
+    host: '0.0.0.0',
+    port: 4000,
+    url: 'http://localhost:4000',
+    trustProxy: false,
+  },
+  // ... 其他配置
+};
+
+const app = await start(customConfig);
+
+// 或者不传入配置，使用配置文件
+const app = await start();
+```
+
+详细示例请参考 `example-import-usage.ts` 文件。
 
 ### 4. 测试
 

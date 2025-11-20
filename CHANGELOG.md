@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.0.28](https://github.com/Lydanne/gitea-oidc/compare/v1.0.27...v1.0.28) (2025-11-20)
+
 ## [1.0.27](https://github.com/Lydanne/gitea-oidc/compare/v1.0.26...v1.0.27) (2025-11-20)
 
 ## [1.0.26](https://github.com/Lydanne/gitea-oidc/compare/v1.0.25...v1.0.26) (2025-11-20)
@@ -12,20 +14,17 @@
 
 ## [1.0.22](https://github.com/Lydanne/gitea-oidc/compare/v1.0.21...v1.0.22) (2025-11-18)
 
-
 ### Features
 
 * 迁移飞书认证到官方 SDK 并添加详细文档 ([5ebe236](https://github.com/Lydanne/gitea-oidc/commit/5ebe23649fe8c454c741ec08c8f1807327f2e1ee))
 
 ## [1.0.21](https://github.com/Lydanne/gitea-oidc/compare/v1.0.20...v1.0.21) (2025-11-18)
 
-
 ### Bug Fixes
 
 * 将飞书用户的部门 ID 添加到用户组列表中 ([07e9c1a](https://github.com/Lydanne/gitea-oidc/commit/07e9c1a9edf079625a29ed3a2cc7acab1aa09808))
 
 ## [1.0.20](https://github.com/Lydanne/gitea-oidc/compare/v1.0.19...v1.0.20) (2025-11-18)
-
 
 ### Bug Fixes
 
@@ -35,13 +34,11 @@
 
 ## [1.0.18](https://github.com/Lydanne/gitea-oidc/compare/v1.0.17...v1.0.18) (2025-11-18)
 
-
 ### Features
 
 * 添加 JWKS 配置支持，允许自定义密钥文件路径和密钥 ID ([17f0062](https://github.com/Lydanne/gitea-oidc/commit/17f00623d6ff44c2797fdd1dabd8100e89130caa))
 
 ## [1.0.17](https://github.com/Lydanne/gitea-oidc/compare/v1.0.16...v1.0.17) (2025-11-18)
-
 
 ### Bug Fixes
 
@@ -55,13 +52,11 @@
 
 ## [1.0.12](https://github.com/Lydanne/gitea-oidc/compare/v1.0.11...v1.0.12) (2025-11-17)
 
-
 ### Features
 
 * 添加确定性用户 ID 生成文档和实现 ([d3e0062](https://github.com/Lydanne/gitea-oidc/commit/d3e0062bdf514e3793bed38f89c44a2e524b9ec2))
 
 ## [1.0.11](https://github.com/Lydanne/gitea-oidc/compare/v1.0.10...v1.0.11) (2025-11-17)
-
 
 ### Features
 
@@ -85,7 +80,6 @@
 
 ## 1.0.2 (2025-11-13)
 
-
 ### Bug Fixes
 
 * 修复 GitHub Actions 工作流中的条件表达式语法 ([a84916d](https://github.com/Lydanne/gitea-oidc/commit/a84916d683664c8927a18bc5fb20c3c20e34e540))
@@ -97,7 +91,6 @@
 * 修正飞书用户完整信息的数据结构解析 ([ad8a531](https://github.com/Lydanne/gitea-oidc/commit/ad8a531ae67859ea94f6a67ddff80d9b4a1a4ac5))
 * 将 better-sqlite3 重建命令从 pnpm 改为 npm ([a900960](https://github.com/Lydanne/gitea-oidc/commit/a900960abe4e0e5d6d797f69a470bcfee351e00a))
 * 移除 GitHub release 配置中的尾随逗号 ([45fba85](https://github.com/Lydanne/gitea-oidc/commit/45fba852773427909c6c621dbfb1101c14426853))
-
 
 ### Features
 

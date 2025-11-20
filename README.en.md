@@ -9,6 +9,7 @@
 ![Node version](https://img.shields.io/badge/node-%3E%3D22.0.0-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
+[![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
 
 A simple and extensible **OpenID Connect Identity Provider** for Gitea and other clients,
 built with **Fastify**, **TypeScript** and **oidc-provider**. It provides a plugin-based

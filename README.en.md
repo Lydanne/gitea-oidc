@@ -8,7 +8,7 @@
 [![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/gitea-oidc)](https://hub.docker.com/r/lydamirror/gitea-oidc)
 ![Node version](https://img.shields.io/badge/node-%3E%3D22.0.0-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Coverage](https://img.shields.io/badge/coverage-via%20Vitest%20V8-blue)
+[![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
 
 A simple and extensible **OpenID Connect Identity Provider** for Gitea and other clients,
 built with **Fastify**, **TypeScript** and **oidc-provider**. It provides a plugin-based

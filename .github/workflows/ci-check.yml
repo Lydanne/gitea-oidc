@@ -3,6 +3,8 @@ name: CI-CHECK
 on:
   pull_request:
     branches: [ main, master ]
+  push:
+    branches: [ main, master ]
 
 jobs:
   lint:
@@ -46,6 +48,13 @@ jobs:
 
       - name: Run test coverage
         run: pnpm test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: unit-tests
+          fail_ci_if_error: false
 
   build:
     runs-on: ubuntu-latest

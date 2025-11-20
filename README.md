@@ -8,7 +8,7 @@
 [![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/gitea-oidc)](https://hub.docker.com/r/lydamirror/gitea-oidc)
 ![Node version](https://img.shields.io/badge/node-%3E%3D22.0.0-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Coverage](https://img.shields.io/badge/coverage-via%20Vitest%20V8-blue)
+[![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
 
 一个使用 Fastify + TypeScript + oidc-provider 实现的可扩展 OIDC (OpenID Connect) 身份提供者，支持多种认证方式的插件化架构。
 

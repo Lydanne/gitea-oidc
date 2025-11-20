@@ -11,7 +11,6 @@
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
 [![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
 
-
 一个使用 Fastify + TypeScript + oidc-provider 实现的可扩展 OIDC (OpenID Connect) 身份提供者，支持多种认证方式的插件化架构。
 
 ## 📚 目录
@@ -309,7 +308,7 @@ gitea-oidc/
 
 支持三种用户仓储类型：
 
-**Memory（内存）**
+##### Memory（内存）
 
 ```json
 {
@@ -318,7 +317,7 @@ gitea-oidc/
 }
 ```
 
-**SQLite**
+##### SQLite
 
 ```json
 {
@@ -329,7 +328,7 @@ gitea-oidc/
 }
 ```
 
-**PostgreSQL**
+##### PostgreSQL
 
 ```json
 {
@@ -359,7 +358,7 @@ gitea-oidc/
 
 OIDC 数据持久化适配器配置，支持三种类型：
 
-**SQLite（推荐用于单机部署）**
+##### SQLite（推荐用于单机部署）
 
 ```json
 {
@@ -370,7 +369,7 @@ OIDC 数据持久化适配器配置，支持三种类型：
 }
 ```
 
-**Redis（推荐用于分布式部署）**
+##### Redis（推荐用于分布式部署）
 
 ```json
 {
@@ -384,7 +383,7 @@ OIDC 数据持久化适配器配置，支持三种类型：
 }
 ```
 
-**Memory（仅用于开发测试）**
+##### Memory（仅用于开发测试）
 
 ```json
 {

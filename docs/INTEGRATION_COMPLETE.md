@@ -5,6 +5,7 @@
 ### 1. 配置系统更新
 
 #### `src/config.ts`
+
 - ✅ 添加 `AuthProviderConfig` 接口
 - ✅ 添加 `AuthConfig` 接口
 - ✅ 更新 `GiteaOidcConfig` 接口，新增 `auth` 字段
@@ -12,6 +13,7 @@
 - ✅ 更新默认配置，包含认证系统配置
 
 #### 配置文件
+
 - ✅ 更新 `example.gitea-oidc.config.json` 使用新的配置结构
 - ✅ 创建 `gitea-oidc-auth.config.json` 完整示例
 - ✅ 创建 `.htpasswd` 密码文件（包含 admin 和 testuser）
@@ -19,6 +21,7 @@
 ### 2. Server.ts 集成
 
 #### 导入
+
 ```typescript
 // 认证系统导入
 import { AuthCoordinator } from './core/AuthCoordinator.js';
@@ -30,6 +33,7 @@ import type { AuthContext } from './types/auth.js';
 ```
 
 #### 初始化认证系统
+
 - ✅ 创建 `MemoryStateStore` 和 `MemoryUserRepository`
 - ✅ 迁移旧配置中的 `accounts` 到 `userRepository`
 - ✅ 创建 `AuthCoordinator` 实例
@@ -37,15 +41,18 @@ import type { AuthContext } from './types/auth.js';
 - ✅ 初始化所有插件
 
 #### OIDC Provider 配置
+
 - ✅ 修改 `findAccount` 使用 `authCoordinator.findAccount()`
 - ✅ 返回完整的用户声明（email_verified, picture, phone 等）
 
 #### 路由更新
+
 - ✅ `GET /interaction/:uid` - 使用 `authCoordinator.renderUnifiedLoginPage()`
 - ✅ `POST /interaction/:uid/login` - 使用 `authCoordinator.handleAuthentication()`
 - ✅ `GET /interaction/:uid/feishu-success` - 飞书登录成功回调处理
 
 #### 优雅关闭
+
 - ✅ 添加 `SIGTERM` 和 `SIGINT` 信号处理
 - ✅ 销毁认证系统资源
 - ✅ 关闭 Fastify 服务器
@@ -53,11 +60,13 @@ import type { AuthContext } from './types/auth.js';
 ### 3. 测试配置
 
 #### `jest.config.js`
+
 - ✅ 配置 TypeScript + ESM 支持
 - ✅ 配置测试匹配模式
 - ✅ 配置代码覆盖率
 
 #### `package.json`
+
 - ✅ 添加 `test` 脚本
 - ✅ 添加 `test:watch` 脚本
 - ✅ 添加 `test:coverage` 脚本
@@ -83,6 +92,7 @@ cp example.gitea-oidc.config.json gitea-oidc.config.json
 ### 3. 验证密码文件
 
 `.htpasswd` 文件已创建，包含：
+
 - **用户名**: `admin` / **密码**: `admin123`
 - **用户名**: `testuser` / **密码**: `password`
 
@@ -156,13 +166,16 @@ OIDC IdP server listening on http://localhost:3000
 ### 配置字段说明
 
 #### `auth.userRepository`
+
 - **type**: 用户仓储类型
   - `memory`: 内存存储（开发/测试）
   - `database`: 数据库存储（生产环境，待实现）
   - `config`: 从配置文件读取（向后兼容）
 
 #### `auth.providers`
+
 每个认证提供者包含：
+
 - **enabled**: 是否启用
 - **displayName**: 显示名称
 - **priority**: 优先级（数字越小越靠前）
@@ -181,11 +194,13 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 ### 2. 触发登录流程
 
 在浏览器中访问：
+
 ```
 http://localhost:3000/interaction/test
 ```
 
 或配置 Gitea 客户端：
+
 - Authorization URL: `http://localhost:3000/auth`
 - Token URL: `http://localhost:3000/token`
 - User Info URL: `http://localhost:3000/me`
@@ -204,6 +219,7 @@ http://localhost:3000/interaction/test
 ### 4. 测试飞书登录（可选）
 
 1. 在配置文件中启用飞书认证：
+
    ```json
    "feishu": {
      "enabled": true,
@@ -270,6 +286,7 @@ http://localhost:3000/interaction/test
 ## 📝 关键文件清单
 
 ### 核心实现
+
 - ✅ `src/core/AuthCoordinator.ts` - 认证协调器
 - ✅ `src/stores/MemoryStateStore.ts` - State 存储
 - ✅ `src/repositories/MemoryUserRepository.ts` - 用户仓储
@@ -277,10 +294,12 @@ http://localhost:3000/interaction/test
 - ✅ `src/providers/FeishuAuthProvider.ts` - 飞书认证
 
 ### 类型定义
+
 - ✅ `src/types/auth.ts` - 认证类型
 - ✅ `src/types/config.ts` - 配置类型扩展
 
 ### 配置
+
 - ✅ `src/config.ts` - 配置加载（已更新）
 - ✅ `src/server.ts` - 主服务器（已集成）
 - ✅ `example.gitea-oidc.config.json` - 示例配置
@@ -288,10 +307,12 @@ http://localhost:3000/interaction/test
 - ✅ `.htpasswd` - 密码文件
 
 ### 测试
+
 - ✅ `src/__tests__/p0-improvements.test.ts` - P0 改进测试
 - ✅ `jest.config.js` - Jest 配置
 
 ### 文档
+
 - ✅ `AUTH_PLUGIN_DESIGN.md` - 设计文档
 - ✅ `PLUGIN_ROUTES_GUIDE.md` - 插件开发指南
 - ✅ `SERVER_INTEGRATION_GUIDE.md` - 集成指南
@@ -305,18 +326,21 @@ http://localhost:3000/interaction/test
 ## 🎯 下一步
 
 ### 立即可做
+
 1. ✅ 启动服务器测试
 2. ✅ 运行测试套件
 3. ✅ 测试本地密码登录
 4. ✅ 配置 Gitea 客户端测试完整流程
 
 ### 短期优化
+
 1. 实现 Redis State Store（生产环境）
 2. 实现 PostgreSQL User Repository
 3. 添加更多集成测试
 4. 添加日志和监控
 
 ### 中期扩展
+
 1. 实现企业微信认证插件
 2. 实现钉钉认证插件
 3. 实现 LDAP 认证插件
@@ -336,6 +360,7 @@ node -e "const bcrypt = require('bcrypt'); console.log('newuser:' + bcrypt.hashS
 ### 查看日志
 
 服务器日志会显示详细的认证流程：
+
 ```
 [认证系统] 正在初始化...
 [认证系统] 已注册 LocalAuthProvider
@@ -347,6 +372,7 @@ node -e "const bcrypt = require('bcrypt'); console.log('newuser:' + bcrypt.hashS
 ### 故障排查
 
 如果遇到问题：
+
 1. 检查配置文件格式是否正确
 2. 确认 `.htpasswd` 文件存在且格式正确
 3. 查看服务器日志了解详细错误
@@ -359,6 +385,7 @@ node -e "const bcrypt = require('bcrypt'); console.log('newuser:' + bcrypt.hashS
 认证插件系统已成功集成到 `server.ts`！
 
 **核心特性**：
+
 - ✅ 插件化架构
 - ✅ 多种认证方式
 - ✅ 类型安全
@@ -366,6 +393,7 @@ node -e "const bcrypt = require('bcrypt'); console.log('newuser:' + bcrypt.hashS
 - ✅ 生产就绪
 
 **代码统计**：
+
 - 核心代码: ~2500+ 行
 - 测试代码: ~300+ 行
 - 文档: 7 个完整文档

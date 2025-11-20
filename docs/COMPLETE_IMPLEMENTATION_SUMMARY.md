@@ -9,6 +9,7 @@
 ### 1. 适配器实现
 
 #### SqliteOidcAdapter
+
 - **文件**: `src/adapters/SqliteOidcAdapter.ts`
 - **功能**: SQLite 文件数据库持久化
 - **测试**: 36 个测试用例,覆盖率 96.66%
@@ -19,6 +20,7 @@
   - ✅ 适合单实例部署
 
 #### RedisOidcAdapter
+
 - **文件**: `src/adapters/RedisOidcAdapter.ts`
 - **功能**: Redis 内存数据库持久化
 - **测试**: 45 个测试用例,覆盖率 96.36%
@@ -30,6 +32,7 @@
   - ✅ 连接池管理
 
 #### OidcAdapterFactory
+
 - **文件**: `src/adapters/OidcAdapterFactory.ts`
 - **功能**: 适配器工厂模式
 - **测试**: 32 个测试用例,覆盖率 97.20%
@@ -42,11 +45,13 @@
 ### 2. 配置系统
 
 #### 配置类型定义
+
 - **文件**: `src/config.ts`
 - **更新**: 添加 `adapter` 字段到 `GiteaOidcConfig`
 - **默认值**: SQLite 适配器
 
 #### 配置 Schema
+
 - **文件**: `src/schemas/configSchema.ts`
 - **新增**:
   - `SqliteAdapterConfigSchema` - SQLite 配置验证
@@ -61,12 +66,14 @@
   - ✅ 数据库编号 0-15
 
 #### 示例配置
+
 - **文件**: `example.gitea-oidc.config.json`
 - **更新**: 添加适配器配置示例
 
 ### 3. 服务器集成
 
 #### 主服务器
+
 - **文件**: `src/server.ts`
 - **更新**:
   - 导入 `OidcAdapterFactory`
@@ -103,6 +110,7 @@ await OidcAdapterFactory.cleanup();
 #### 测试覆盖范围
 
 **SqliteOidcAdapter** (36 测试):
+
 - 构造函数 (2)
 - upsert 操作 (4)
 - find 操作 (4)
@@ -117,6 +125,7 @@ await OidcAdapterFactory.cleanup();
 - 边界情况 (5)
 
 **RedisOidcAdapter** (45 测试):
+
 - 构造函数 (3)
 - upsert 操作 (6)
 - find 操作 (3)
@@ -132,6 +141,7 @@ await OidcAdapterFactory.cleanup();
 - 错误处理 (3)
 
 **OidcAdapterFactory** (32 测试):
+
 - configure 配置 (3)
 - create 创建适配器 (7)
 - getAdapterFactory (3)
@@ -142,6 +152,7 @@ await OidcAdapterFactory.cleanup();
 - 边界情况 (3)
 
 **adapterConfigSchema** (27 测试):
+
 - SqliteAdapterConfigSchema (3)
 - RedisAdapterConfigSchema (6)
 - OidcAdapterConfigSchema (18)
@@ -149,12 +160,14 @@ await OidcAdapterFactory.cleanup();
 ### 5. 文档
 
 #### 用户文档
+
 - `docs/ADAPTER_CONFIGURATION.md` - 适配器配置完整指南
 - `docs/REDIS_ADAPTER_GUIDE.md` - Redis 适配器详细说明
 - `docs/ADAPTER_FACTORY_SUMMARY.md` - 工厂实现总结
 - `docs/COMPLETE_IMPLEMENTATION_SUMMARY.md` - 本文档
 
 #### 开发文档
+
 - `src/adapters/__tests__/README.md` - 测试文档
 - `examples/redis-adapter-example.ts` - 使用示例
 
@@ -362,6 +375,7 @@ const OidcAdapterConfigSchema = z.object({
 **症状**: 启动时报配置错误
 
 **解决**:
+
 ```bash
 # 检查配置格式
 cat gitea-oidc.config.json | jq .
@@ -375,6 +389,7 @@ jq '.adapter' gitea-oidc.config.json
 **症状**: `ECONNREFUSED` 错误
 
 **解决**:
+
 ```bash
 # 检查 Redis 是否运行
 redis-cli ping
@@ -388,6 +403,7 @@ redis-cli -h localhost -p 6379 ping
 **症状**: `database is locked` 错误
 
 **解决**:
+
 ```bash
 # 检查是否有其他进程使用数据库
 lsof oidc.db
@@ -437,6 +453,7 @@ pnpm build:prod
 ## 文件清单
 
 ### 核心代码
+
 - `src/adapters/SqliteOidcAdapter.ts` - SQLite 适配器
 - `src/adapters/RedisOidcAdapter.ts` - Redis 适配器
 - `src/adapters/OidcAdapterFactory.ts` - 适配器工厂
@@ -445,12 +462,14 @@ pnpm build:prod
 - `src/schemas/configSchema.ts` - 配置 Schema (已更新)
 
 ### 测试文件
+
 - `src/adapters/__tests__/SqliteOidcAdapter.test.ts` - SQLite 测试
 - `src/adapters/__tests__/RedisOidcAdapter.test.ts` - Redis 测试
 - `src/adapters/__tests__/OidcAdapterFactory.test.ts` - 工厂测试
 - `src/schemas/__tests__/adapterConfigSchema.test.ts` - Schema 测试
 
 ### 文档文件
+
 - `docs/ADAPTER_CONFIGURATION.md` - 配置指南
 - `docs/REDIS_ADAPTER_GUIDE.md` - Redis 指南
 - `docs/ADAPTER_FACTORY_SUMMARY.md` - 工厂总结
@@ -458,6 +477,7 @@ pnpm build:prod
 - `src/adapters/__tests__/README.md` - 测试文档
 
 ### 示例文件
+
 - `examples/redis-adapter-example.ts` - Redis 示例
 - `example.gitea-oidc.config.json` - 配置示例 (已更新)
 

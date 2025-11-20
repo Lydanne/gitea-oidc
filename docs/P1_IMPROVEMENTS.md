@@ -20,6 +20,7 @@ export interface AuthResult {
 ```
 
 **存在的问题**：
+
 - ❌ 错误信息不够结构化
 - ❌ 缺少错误码，难以国际化
 - ❌ 缺少错误详情和上下文
@@ -260,8 +261,11 @@ async authenticate(context: AuthContext): Promise<AuthResult> {
 ```
 
 ### 优先级：P1 - 高
+
 ### 预计工作量：4-6 小时
-### 影响范围：
+
+### 影响范围
+
 - `src/types/auth.ts` - 类型定义
 - `src/utils/authErrors.ts` - 错误工厂（新建）
 - `src/providers/LocalAuthProvider.ts` - 更新错误处理
@@ -276,6 +280,7 @@ async authenticate(context: AuthContext): Promise<AuthResult> {
 ### 当前问题
 
 配置加载缺少验证机制：
+
 - ❌ 无法检测配置错误
 - ❌ 错误的配置可能导致运行时崩溃
 - ❌ 缺少配置提示和默认值说明
@@ -523,8 +528,11 @@ export async function loadConfig(): Promise<GiteaOidcConfig> {
 ```
 
 ### 优先级：P1 - 高
+
 ### 预计工作量：3-4 小时
-### 影响范围：
+
+### 影响范围
+
 - `package.json` - 添加 zod 依赖
 - `src/schemas/configSchema.ts` - Schema 定义（新建）
 - `src/utils/configValidator.ts` - 验证逻辑（新建）
@@ -537,6 +545,7 @@ export async function loadConfig(): Promise<GiteaOidcConfig> {
 ### 当前问题
 
 插件缺少权限声明和验证：
+
 - ❌ 无法限制插件可以访问的资源
 - ❌ 无法控制插件的能力范围
 - ❌ 缺少安全审计
@@ -708,8 +717,11 @@ export class LocalAuthProvider implements AuthProvider {
 ```
 
 ### 优先级：P1 - 中
+
 ### 预计工作量：4-5 小时
-### 影响范围：
+
+### 影响范围
+
 - `src/types/auth.ts` - 权限定义
 - `src/core/PermissionChecker.ts` - 权限检查器（新建）
 - `src/core/AuthCoordinator.ts` - 集成权限检查
@@ -720,6 +732,7 @@ export class LocalAuthProvider implements AuthProvider {
 ## 实施计划
 
 ### 第一阶段：错误处理统一（优先）
+
 - [ ] 定义错误码枚举
 - [ ] 创建 AuthError 接口
 - [ ] 实现错误工厂函数
@@ -729,6 +742,7 @@ export class LocalAuthProvider implements AuthProvider {
 - [ ] 添加测试
 
 ### 第二阶段：配置验证
+
 - [ ] 安装 zod 依赖
 - [ ] 定义配置 Schema
 - [ ] 实现验证函数
@@ -737,6 +751,7 @@ export class LocalAuthProvider implements AuthProvider {
 - [ ] 添加测试
 
 ### 第三阶段：插件权限控制
+
 - [ ] 定义权限枚举
 - [ ] 实现权限检查器
 - [ ] 集成到 AuthCoordinator
@@ -749,18 +764,21 @@ export class LocalAuthProvider implements AuthProvider {
 ## 预期收益
 
 ### 错误处理统一
+
 - ✅ 更好的用户体验
 - ✅ 更容易调试和排查问题
 - ✅ 支持国际化
 - ✅ 前端可以根据错误码做精确处理
 
 ### 配置验证
+
 - ✅ 启动时发现配置错误
 - ✅ 避免运行时崩溃
 - ✅ 更好的配置提示
 - ✅ 提高系统稳定性
 
 ### 插件权限控制
+
 - ✅ 提高安全性
 - ✅ 限制插件能力
 - ✅ 支持安全审计
@@ -771,6 +789,7 @@ export class LocalAuthProvider implements AuthProvider {
 ## 总结
 
 P1 改进将显著提升系统的：
+
 - **健壮性** - 通过配置验证和错误处理
 - **安全性** - 通过权限控制
 - **可维护性** - 通过结构化错误和清晰的权限模型

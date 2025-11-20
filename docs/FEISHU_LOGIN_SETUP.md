@@ -46,6 +46,7 @@ OAuth2 提供者：OpenID Connect
 **原因**：通过内网地址（`192.168.111.154:3000`）访问，导致 Cookie 在错误的域名下。
 
 **解决**：
+
 1. 确保始终通过 `bore.pub:24602` 访问 Gitea
 2. 检查 Gitea 的 OIDC 配置，确保使用 `bore.pub:21395`
 3. 清除浏览器 Cookie 后重试
@@ -53,6 +54,7 @@ OAuth2 提供者：OpenID Connect
 ### 问题：飞书回调失败
 
 **检查**：
+
 1. 飞书开放平台的「重定向 URL」配置：`http://bore.pub:21395/auth/feishu/callback`
 2. 确保 `encryptKey` 和 `verificationToken` 配置正确
 

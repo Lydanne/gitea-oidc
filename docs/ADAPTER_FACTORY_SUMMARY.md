@@ -9,15 +9,17 @@
 ### 1. 适配器实现
 
 #### SqliteOidcAdapter
+
 - **文件**: `src/adapters/SqliteOidcAdapter.ts`
 - **测试**: `src/adapters/__tests__/SqliteOidcAdapter.test.ts` (36 个测试用例)
-- **特性**: 
+- **特性**:
   - SQLite 文件数据库
   - 自动清理过期数据
   - 支持所有 OIDC 操作
   - 适合单实例部署
 
 #### RedisOidcAdapter
+
 - **文件**: `src/adapters/RedisOidcAdapter.ts`
 - **特性**:
   - Redis 内存数据库
@@ -29,6 +31,7 @@
 ### 2. 适配器工厂
 
 #### OidcAdapterFactory
+
 - **文件**: `src/adapters/OidcAdapterFactory.ts`
 - **功能**:
   - 统一的适配器创建接口
@@ -55,6 +58,7 @@ const validation = OidcAdapterFactory.validateConfig(config);
 ### 3. 配置类型
 
 #### OidcAdapterConfig
+
 ```typescript
 interface OidcAdapterConfig {
   type: 'sqlite' | 'redis' | 'memory';
@@ -129,21 +133,25 @@ interface OidcAdapterConfig {
 ## 架构优势
 
 ### 1. 灵活性
+
 - ✅ 支持多种存储后端
 - ✅ 易于扩展新的适配器
 - ✅ 配置驱动,无需修改代码
 
 ### 2. 类型安全
+
 - ✅ 完整的 TypeScript 类型定义
 - ✅ 编译时类型检查
 - ✅ IDE 智能提示
 
 ### 3. 可维护性
+
 - ✅ 统一的接口
 - ✅ 清晰的职责分离
 - ✅ 完善的文档
 
 ### 4. 可测试性
+
 - ✅ 单元测试覆盖
 - ✅ 模拟和隔离
 - ✅ 配置验证
@@ -151,6 +159,7 @@ interface OidcAdapterConfig {
 ## 文件清单
 
 ### 核心代码
+
 - `src/adapters/SqliteOidcAdapter.ts` - SQLite 适配器
 - `src/adapters/RedisOidcAdapter.ts` - Redis 适配器
 - `src/adapters/OidcAdapterFactory.ts` - 适配器工厂
@@ -159,20 +168,24 @@ interface OidcAdapterConfig {
 - `src/types/config.ts` - 类型定义(已更新)
 
 ### 测试
+
 - `src/adapters/__tests__/SqliteOidcAdapter.test.ts` - SQLite 适配器测试
 
 ### 文档
+
 - `docs/ADAPTER_CONFIGURATION.md` - 适配器配置指南
 - `docs/REDIS_ADAPTER_GUIDE.md` - Redis 适配器详细指南
 - `docs/ADAPTER_FACTORY_SUMMARY.md` - 本文档
 
 ### 示例
+
 - `examples/redis-adapter-example.ts` - Redis 适配器使用示例
 - `example.gitea-oidc.config.json` - 配置示例(已更新)
 
 ## 依赖变更
 
 ### 新增依赖
+
 ```json
 {
   "dependencies": {
@@ -182,12 +195,14 @@ interface OidcAdapterConfig {
 ```
 
 ### 现有依赖
+
 - `better-sqlite3`: SQLite 支持
 - `oidc-provider`: OIDC Provider 核心
 
 ## 测试覆盖
 
 ### SqliteOidcAdapter
+
 - ✅ 36 个测试用例
 - ✅ 覆盖率: 96.66%
 - ✅ 所有 OIDC 操作
@@ -195,11 +210,13 @@ interface OidcAdapterConfig {
 - ✅ 并发操作
 
 ### RedisOidcAdapter
+
 - ⏳ 待添加单元测试
 
 ## 部署建议
 
 ### 开发环境
+
 ```json
 {
   "adapter": {
@@ -212,6 +229,7 @@ interface OidcAdapterConfig {
 ```
 
 ### 生产环境 (单实例)
+
 ```json
 {
   "adapter": {
@@ -224,6 +242,7 @@ interface OidcAdapterConfig {
 ```
 
 ### 生产环境 (分布式)
+
 ```json
 {
   "adapter": {
@@ -240,16 +259,19 @@ interface OidcAdapterConfig {
 ## 性能特性
 
 ### SQLite
+
 - **读取**: ~10,000 ops/s
 - **写入**: ~5,000 ops/s
 - **适合**: 单实例,中小规模
 
 ### Redis
+
 - **读取**: ~100,000 ops/s
 - **写入**: ~80,000 ops/s
 - **适合**: 分布式,高并发
 
 ### Memory
+
 - **读取**: ~1,000,000 ops/s
 - **写入**: ~1,000,000 ops/s
 - **适合**: 仅开发测试
@@ -259,6 +281,7 @@ interface OidcAdapterConfig {
 ### 添加新适配器
 
 1. **实现适配器类**:
+
 ```typescript
 import { Adapter } from 'oidc-provider';
 
@@ -273,14 +296,16 @@ export class MyAdapter implements Adapter {
 }
 ```
 
-2. **更新工厂类**:
+1. **更新工厂类**:
+
 ```typescript
 // OidcAdapterFactory.ts
 case 'my-adapter':
   return new MyAdapter(name, this.config.myAdapter);
 ```
 
-3. **更新类型定义**:
+1. **更新类型定义**:
+
 ```typescript
 // OidcAdapterConfig
 export type AdapterType = 'sqlite' | 'redis' | 'memory' | 'my-adapter';
@@ -291,7 +316,8 @@ export interface OidcAdapterConfig {
 }
 ```
 
-4. **添加测试**:
+1. **添加测试**:
+
 ```typescript
 // __tests__/MyAdapter.test.ts
 describe('MyAdapter', () => {

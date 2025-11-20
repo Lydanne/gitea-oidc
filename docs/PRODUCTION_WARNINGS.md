@@ -27,6 +27,7 @@ pnpm start
 ```
 
 系统会自动:
+
 - 生成 `jwks.json` 密钥文件
 - 创建 `oidc.db` 数据库文件
 - 警告消失 ✅
@@ -49,6 +50,7 @@ oidc.db-wal     # SQLite 预写日志
 👉 **[生产环境配置指南](./PRODUCTION_SETUP.md)**
 
 包含:
+
 - 安全最佳实践
 - 密钥轮换策略
 - 多实例部署方案

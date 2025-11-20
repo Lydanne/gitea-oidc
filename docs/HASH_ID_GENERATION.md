@@ -2,7 +2,9 @@
 
 ## 概述
 
-从本版本开始，所有 UserRepository 实现（MemoryUserRepository、SqliteUserRepository、PgsqlUserRepository）都使用基于 `authProvider` 和 `externalId` 的 SHA-256 哈希来生成确定性的用户 ID (`sub`)。
+从本版本开始，所有 UserRepository 实现（MemoryUserRepository、SqliteUserRepository、
+PgsqlUserRepository）都使用基于 `authProvider` 和 `externalId` 的 SHA-256 哈希来生成
+确定性的用户 ID (`sub`)。
 
 ## 工作原理
 

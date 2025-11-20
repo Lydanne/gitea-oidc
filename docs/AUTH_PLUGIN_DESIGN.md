@@ -3,7 +3,9 @@
 ## 1. 概述
 
 ### 1.1 目标
+
 设计一个可扩展的认证插件系统，支持多种国内外登录方式：
+
 - 本地密码认证（htpasswd 格式）
 - 飞书 OAuth 登录
 - 企业微信登录
@@ -12,6 +14,7 @@
 - 其他自定义认证方式
 
 ### 1.2 设计原则
+
 - **开放封闭原则**：对扩展开放，对修改封闭
 - **插件化架构**：新增认证方式无需修改核心代码
 - **配置驱动**：通过配置文件启用/禁用插件
@@ -75,6 +78,7 @@
 ## 3. 认证协调器 (AuthCoordinator)
 
 ### 3.1 职责
+
 - 管理所有认证插件的生命周期
 - 路由认证请求到对应插件
 - 渲染统一登录页面
@@ -109,6 +113,7 @@ AuthCoordinator 完成 OIDC 交互
 ### 4.1 本地密码认证插件 (LocalAuthProvider)
 
 #### 功能特性
+
 - 支持用户名/密码登录
 - 支持 htpasswd 格式密码文件
 - 支持 bcrypt、MD5、SHA 等多种哈希算法
@@ -147,6 +152,7 @@ user3:{SHA}base64hash...
 ### 4.2 飞书认证插件 (FeishuAuthProvider)
 
 #### 功能特性
+
 - 支持飞书 OAuth 2.0 登录
 - 自动获取用户信息（姓名、邮箱、头像）
 - 支持企业内部应用和自建应用
@@ -199,6 +205,7 @@ Plugin.handleCallback()
 ### 5.1 接口定义
 
 提供统一的用户数据访问接口：
+
 - `findById(userId)`: 根据 ID 查找用户
 - `findByUsername(username)`: 根据用户名查找
 - `create(user)`: 创建用户
@@ -208,14 +215,17 @@ Plugin.handleCallback()
 ### 5.2 内置实现
 
 #### 内存存储 (MemoryUserRepository)
+
 - 适用于开发和测试
 - 数据不持久化
 
 #### 配置文件存储 (ConfigUserRepository)
+
 - 从配置文件读取用户
 - 只读，不支持动态创建
 
 #### 数据库存储 (DatabaseUserRepository)
+
 - 支持 SQLite、PostgreSQL、MySQL
 - 完整的 CRUD 操作
 
@@ -272,6 +282,7 @@ Plugin.handleCallback()
 ### 7.1 UI 设计
 
 动态渲染所有启用的认证方式：
+
 - 本地密码登录表单
 - 第三方登录按钮（飞书、企业微信等）
 - 现代化、响应式设计
@@ -431,6 +442,7 @@ getMetadata(): PluginMetadata {
 ### 8.6 使用场景
 
 #### 管理 API
+
 ```
 GET  /auth/:provider/status    - 获取插件状态
 POST /auth/:provider/sync      - 同步用户
@@ -438,12 +450,14 @@ GET  /auth/:provider/users     - 获取用户列表
 ```
 
 #### 监控和统计
+
 ```
 GET /auth/:provider/stats      - 获取统计信息
 GET /auth/:provider/health     - 健康检查
 ```
 
 #### Webhook 回调
+
 ```
 POST /auth/:provider/webhook   - 接收外部事件
 ```
@@ -495,11 +509,13 @@ authCoordinator.registerProvider(new CustomAuthProvider());
 ## 10. 安全考虑
 
 ### 10.1 认证安全
+
 - 密码使用 bcrypt 等强哈希算法
 - 生产环境必须使用 HTTPS
 - 实施速率限制防止暴力破解
 
 ### 10.2 OAuth 安全
+
 - 使用 state 参数防止 CSRF
 - 验证 redirect URI
 - 安全存储 access token
@@ -517,22 +533,26 @@ authCoordinator.registerProvider(new CustomAuthProvider());
 ## 11. 实施计划
 
 ### Phase 1: 核心框架（1-2 周）
+
 - [ ] 定义核心接口
 - [ ] 实现 AuthCoordinator
 - [ ] 实现 UserRepository 基础接口
 - [ ] 重构现有认证逻辑
 
 ### Phase 2: 本地认证插件（1 周）
+
 - [ ] 实现 LocalAuthProvider
 - [ ] 支持 htpasswd 格式
 - [ ] 密码验证逻辑
 
 ### Phase 3: 飞书认证插件（1-2 周）
+
 - [ ] 实现 FeishuAuthProvider
 - [ ] OAuth 流程集成
 - [ ] 用户信息同步
 
 ### Phase 4: UI 和测试（1 周）
+
 - [ ] 统一登录页面
 - [ ] 插件开发文档
 - [ ] 单元测试和集成测试
@@ -542,4 +562,3 @@ authCoordinator.registerProvider(new CustomAuthProvider());
 ## 附录 A: TypeScript 接口定义
 
 详见 `src/types/auth.ts`
-

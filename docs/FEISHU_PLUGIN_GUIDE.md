@@ -75,7 +75,7 @@
 }
 ```
 
-2. **安全设置** → 配置重定向 URL：
+1. **安全设置** → 配置重定向 URL：
 
    ```
    http://your-server:3000/auth/feishu/callback
@@ -83,10 +83,9 @@
 
    ⚠️ **重要**：必须使用实际的外网地址，不能使用 `localhost`
 
-3. 获取凭证：
+2. 获取凭证：
    - **App ID**：在「凭证与基础信息」页面获取
    - **App Secret**：在「凭证与基础信息」页面获取
-
 
 ### 3. 发布应用
 
@@ -232,6 +231,7 @@ http(s)://your-server:port/auth/feishu/callback
 ```
 
 ⚠️ **注意事项**：
+
 - 必须与飞书开放平台配置的重定向 URL **完全一致**
 - 必须使用实际的外网地址，不能使用 `localhost` 或 `127.0.0.1`
 - 协议（http/https）、域名、端口、路径都必须完全匹配
@@ -395,11 +395,13 @@ userMapping: {
 **错误信息**：`Invalid or expired state`
 
 **原因**：
+
 - State 参数已过期（默认 10 分钟）
 - State 参数被篡改
 - 用户重复使用回调链接
 
 **解决方案**：
+
 1. 重新发起登录流程
 2. 检查系统时间是否正确
 3. 确保 State Store 正常工作
@@ -409,11 +411,13 @@ userMapping: {
 **错误信息**：`Failed to exchange code for token`
 
 **原因**：
+
 - App Secret 配置错误
 - 授权码已过期或已使用
 - 网络连接问题
 
 **解决方案**：
+
 1. 检查 `appId` 和 `appSecret` 是否正确
 2. 检查服务器能否访问飞书 API（`https://open.feishu.cn`）
 3. 查看详细错误日志
@@ -423,11 +427,13 @@ userMapping: {
 **错误信息**：`Failed to get user info`
 
 **原因**：
+
 - User Access Token 无效
 - 权限不足
 - API 调用限流
 
 **解决方案**：
+
 1. 确认权限配置正确
 2. 检查 API 调用频率
 3. 查看飞书开放平台错误码文档
@@ -435,6 +441,7 @@ userMapping: {
 ### 调试技巧
 
 1. **启用详细日志**：
+
    ```javascript
    logging: {
      enabled: true,

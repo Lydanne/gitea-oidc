@@ -228,6 +228,7 @@ client.on('ready', () => {
 **错误**: `Redis Client Error: connect ECONNREFUSED`
 
 **解决**:
+
 ```bash
 # 检查 Redis 是否运行
 redis-cli ping
@@ -244,6 +245,7 @@ docker run -d -p 6379:6379 redis:latest
 **错误**: `Redis Client Error: NOAUTH Authentication required`
 
 **解决**:
+
 ```typescript
 const redisOptions = {
   url: 'redis://:your-password@localhost:6379',
@@ -257,6 +259,7 @@ const redisOptions = {
 **原因**: Redis 重启后数据丢失
 
 **解决**: 启用 Redis 持久化
+
 ```bash
 # redis.conf
 save 900 1
@@ -272,6 +275,7 @@ appendfsync everysec
 **错误**: `OOM command not allowed when used memory > 'maxmemory'`
 
 **解决**:
+
 ```bash
 # redis.conf
 maxmemory 2gb
@@ -343,6 +347,7 @@ redis-cli BGSAVE
 ### 从 SQLite 迁移到 Redis
 
 1. **安装 Redis**
+
    ```bash
    # macOS
    brew install redis
@@ -357,6 +362,7 @@ redis-cli BGSAVE
    ```
 
 2. **更新代码**
+
    ```typescript
    // 旧代码
    import { SqliteOidcAdapter } from './adapters/SqliteOidcAdapter';
@@ -368,6 +374,7 @@ redis-cli BGSAVE
    ```
 
 3. **测试**
+
    ```bash
    # 启动服务
    pnpm dev

@@ -43,7 +43,7 @@ node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSyn
 
 ### 方式 3: 使用在线工具
 
-访问 https://bcrypt-generator.com/ 生成哈希，然后手动创建 `.htpasswd`：
+访问 <https://bcrypt-generator.com/> 生成哈希，然后手动创建 `.htpasswd`：
 
 ```
 admin:$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
@@ -165,6 +165,7 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 ### Q: 登录页面为空？
 
 **A**: 检查：
+
 1. 配置文件中 `auth.providers` 是否正确
 2. 插件是否启用（`enabled: true`）
 3. 查看服务器日志确认插件是否注册成功
@@ -172,6 +173,7 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 ### Q: 本地密码认证失败？
 
 **A**: 检查：
+
 1. `.htpasswd` 文件是否存在
 2. 密码哈希格式是否正确（bcrypt 格式以 `$2b$` 开头）
 3. 用户名和密码是否匹配
@@ -179,6 +181,7 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 ### Q: 飞书登录失败？
 
 **A**: 检查：
+
 1. 飞书应用配置是否正确
 2. `redirectUri` 是否与飞书后台配置一致
 3. `appId` 和 `appSecret` 是否正确

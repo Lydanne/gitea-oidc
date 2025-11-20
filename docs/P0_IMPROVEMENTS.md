@@ -7,6 +7,7 @@
 ### 问题描述
 
 原设计中 `registerMiddleware()` 直接暴露 Fastify 实例，插件可以：
+
 - 注册全局钩子监听所有请求
 - 修改全局配置影响其他插件
 - 造成插件间相互干扰
@@ -136,6 +137,7 @@ class AuthCoordinator implements IAuthCoordinator {
 ### 问题描述
 
 设计文档提到"验证 state 参数"，但缺少：
+
 - State 生成和存储机制
 - State 过期管理
 - State 与 OIDC interaction UID 的关联
@@ -548,7 +550,7 @@ class FeishuAuthProvider implements AuthProvider {
 ### 2. OAuth State 管理 ✅
 
 - **改进前**: 缺少 state 生成、存储和验证机制
-- **改进后**: 
+- **改进后**:
   - 新增 `StateStore` 接口和 `MemoryStateStore` 实现
   - 在 `IAuthCoordinator` 中添加 `generateOAuthState()` 和 `verifyOAuthState()` 方法
   - 支持 state 过期和一次性消费

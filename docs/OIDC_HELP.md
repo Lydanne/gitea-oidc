@@ -524,19 +524,23 @@ provider.on('grant.error', (ctx, err) => {
 ### 常见问题
 
 #### 客户端认证失败
+
 - 检查 `client_secret` 是否正确
 - 确认 `token_endpoint_auth_method` 设置
 - 验证 Basic Auth 编码
 
 #### 重定向 URI 不匹配
+
 - 确保 `redirect_uris` 完全匹配
 - 检查协议 (http/https)
 
 #### CORS 错误
+
 - 配置适当的 CORS 设置
 - 检查预检请求
 
 #### 令牌过期
+
 - 调整 `ttl` 配置
 - 实现令牌刷新逻辑
 
@@ -550,6 +554,7 @@ provider.on('grant.error', (ctx, err) => {
 ## 🔄 更新日志
 
 ### v8.x 主要变化
+
 - 改进的 TypeScript 支持
 - 更强的安全默认设置
 - 更好的错误处理

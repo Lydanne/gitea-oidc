@@ -328,6 +328,7 @@ cp gitea-oidc-auth.config.json gitea-oidc.config.json
 **症状**：登录页面为空或显示错误
 
 **解决**：
+
 1. 检查配置文件中 `auth.providers` 是否正确
 2. 查看日志确认插件是否成功注册
 3. 确认 `enabled: true`
@@ -337,6 +338,7 @@ cp gitea-oidc-auth.config.json gitea-oidc.config.json
 **症状**：提示"用户名或密码错误"
 
 **解决**：
+
 1. 检查 `.htpasswd` 文件是否存在
 2. 确认密码哈希格式正确
 3. 查看日志了解详细错误
@@ -346,6 +348,7 @@ cp gitea-oidc-auth.config.json gitea-oidc.config.json
 **症状**：回调后显示错误
 
 **解决**：
+
 1. 检查飞书应用配置
 2. 确认 `redirectUri` 与飞书后台配置一致
 3. 检查 `appId` 和 `appSecret` 是否正确

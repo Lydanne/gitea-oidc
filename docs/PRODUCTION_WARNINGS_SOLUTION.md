@@ -18,11 +18,13 @@ you are expected to provide your own in the configuration "jwks" property
 ### 警告 1: 内存适配器 (In-memory adapter)
 
 **原因:**
+
 - 默认使用内存存储所有 OIDC 状态数据(session、token、授权码等)
 - 服务重启后所有数据丢失
 - 无法在多进程间共享数据
 
 **影响:**
+
 - ❌ 用户登录状态在服务重启后失效
 - ❌ 无法进行水平扩展(负载均衡)
 - ❌ 不适合生产环境
@@ -30,10 +32,12 @@ you are expected to provide your own in the configuration "jwks" property
 ### 警告 2: 临时签名密钥 (Development signing keys)
 
 **原因:**
+
 - 每次启动时临时生成 JWKS 密钥
 - 密钥未持久化
 
 **影响:**
+
 - ❌ 服务重启后,旧 token 无法验证
 - ❌ 用户需要重新登录
 - ❌ 不符合安全最佳实践
@@ -56,12 +60,14 @@ const configuration: Configuration = {
 ```
 
 **特性:**
+
 - ✅ 数据持久化到 `oidc.db` 文件
 - ✅ 服务重启后数据不丢失
 - ✅ 自动清理过期数据
 - ✅ 支持所有 OIDC 操作(upsert, find, consume, destroy 等)
 
 **数据库文件:**
+
 ```
 oidc.db         # 主数据库文件
 oidc.db-shm     # 共享内存文件
@@ -73,6 +79,7 @@ oidc.db-wal     # 预写日志文件
 **实现位置:** `src/utils/jwksManager.ts`
 
 **功能:**
+
 1. **自动生成密钥** - 首次启动时自动生成 RSA 2048 位密钥对
 2. **持久化存储** - 保存到 `jwks.json` 文件
 3. **自动加载** - 服务启动时自动加载现有密钥
@@ -139,6 +146,7 @@ ls -lh jwks.json oidc.db
 ```
 
 **预期输出:**
+
 ```
 -rw-------  1 user  staff   4.0K  jwks.json
 -rw-r--r--  1 user  staff    20K  oidc.db
@@ -222,11 +230,13 @@ pnpm start
 ### 问题 1: 警告仍然出现
 
 **检查:**
+
 1. 确认代码已更新到最新版本
 2. 确认 `jwks.json` 文件存在
 3. 查看服务启动日志
 
 **解决:**
+
 ```bash
 # 删除旧文件重新生成
 rm jwks.json oidc.db*
@@ -238,6 +248,7 @@ pnpm start
 **症状:** 服务启动失败或数据异常
 
 **解决:**
+
 ```bash
 # 恢复备份
 cp oidc.db.backup.20240101 oidc.db
@@ -252,6 +263,7 @@ pnpm start
 **症状:** 服务启动时报错 "无效的 JWKS 文件格式"
 
 **解决:**
+
 ```bash
 # 验证 JSON 格式
 node -e "JSON.parse(require('fs').readFileSync('jwks.json', 'utf-8'))"
@@ -346,6 +358,7 @@ export async function generateJWKS(
 你的 OIDC Provider 已经可以安全地部署到生产环境,不会再出现开发环境警告。
 
 **关键优势:**
+
 - ✅ 数据持久化,服务重启不丢失
 - ✅ 密钥持久化,token 持续有效
 - ✅ 自动化管理,无需手动配置

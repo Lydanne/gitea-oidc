@@ -11,6 +11,7 @@ OIDC 适配器负责持久化存储 OIDC Provider 的状态数据(如 Session、
 **适用场景**: 单实例部署、中小规模应用
 
 **优点**:
+
 - ✅ 无需额外服务
 - ✅ 配置简单
 - ✅ 数据持久化
@@ -34,6 +35,7 @@ OIDC 适配器负责持久化存储 OIDC Provider 的状态数据(如 Session、
 **适用场景**: 分布式部署、高并发应用
 
 **优点**:
+
 - ✅ 高性能
 - ✅ 支持分布式
 - ✅ 自动过期
@@ -197,6 +199,7 @@ REDIS_KEY_PREFIX=myapp:oidc:
 ### 从 SQLite 切换到 Redis
 
 1. **安装 Redis**:
+
    ```bash
    # macOS
    brew install redis
@@ -207,6 +210,7 @@ REDIS_KEY_PREFIX=myapp:oidc:
    ```
 
 2. **更新配置**:
+
    ```json
    {
      "adapter": {
@@ -219,6 +223,7 @@ REDIS_KEY_PREFIX=myapp:oidc:
    ```
 
 3. **重启服务**:
+
    ```bash
    pnpm start
    ```
@@ -226,6 +231,7 @@ REDIS_KEY_PREFIX=myapp:oidc:
 ### 从 Redis 切换到 SQLite
 
 1. **更新配置**:
+
    ```json
    {
      "adapter": {
@@ -238,6 +244,7 @@ REDIS_KEY_PREFIX=myapp:oidc:
    ```
 
 2. **重启服务**:
+
    ```bash
    pnpm start
    ```
@@ -336,6 +343,7 @@ if (!validation.valid) {
 **问题**: 数据库文件权限错误
 
 **解决**:
+
 ```bash
 chmod 644 oidc.db
 chown user:group oidc.db
@@ -350,6 +358,7 @@ chown user:group oidc.db
 **问题**: 连接失败
 
 **解决**:
+
 ```bash
 # 检查 Redis 是否运行
 redis-cli ping
@@ -361,6 +370,7 @@ redis-cli -h localhost -p 6379 -a password ping
 **问题**: 内存不足
 
 **解决**: 配置 Redis 最大内存和淘汰策略
+
 ```bash
 # redis.conf
 maxmemory 2gb

@@ -76,8 +76,8 @@ export default {
       feishu: {
         enabled: true,
         config: {
-          appId: 'cli_a999cacbf57d901c',
-          appSecret: 'QxLsSE39dJjYq6U7MigvjbYoPiKZEinV',
+          appId: 'cli_a999cacbf233d901c',
+          appSecret: 'QxLsSE39dJjYq6U7Migj1bYoPiKZEinV',
           redirectUri: 'http://bore.pub:21395/auth/feishu/callback',  // ← 必须是公网域名
           // ...
         }

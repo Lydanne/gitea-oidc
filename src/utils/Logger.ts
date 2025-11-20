@@ -20,20 +20,20 @@ export class Logger {
   static init(): void {
     const envLevel = process.env.LOG_LEVEL?.toUpperCase();
     switch (envLevel) {
-      case 'DEBUG':
-        this.currentLevel = LogLevel.DEBUG;
+      case "DEBUG":
+        Logger.currentLevel = LogLevel.DEBUG;
         break;
-      case 'INFO':
-        this.currentLevel = LogLevel.INFO;
+      case "INFO":
+        Logger.currentLevel = LogLevel.INFO;
         break;
-      case 'WARN':
-        this.currentLevel = LogLevel.WARN;
+      case "WARN":
+        Logger.currentLevel = LogLevel.WARN;
         break;
-      case 'ERROR':
-        this.currentLevel = LogLevel.ERROR;
+      case "ERROR":
+        Logger.currentLevel = LogLevel.ERROR;
         break;
       default:
-        this.currentLevel = LogLevel.INFO;
+        Logger.currentLevel = LogLevel.INFO;
     }
   }
 
@@ -42,7 +42,7 @@ export class Logger {
    * @param level 日志级别
    */
   static setLevel(level: LogLevel): void {
-    this.currentLevel = level;
+    Logger.currentLevel = level;
   }
 
   /**
@@ -51,7 +51,7 @@ export class Logger {
    * @param data 额外数据
    */
   static debug(message: string, ...data: any[]): void {
-    if (this.currentLevel <= LogLevel.DEBUG) {
+    if (Logger.currentLevel <= LogLevel.DEBUG) {
       console.log(`[DEBUG] ${new Date().toISOString()} - ${message}`, ...data);
     }
   }
@@ -62,7 +62,7 @@ export class Logger {
    * @param data 额外数据
    */
   static info(message: string, ...data: any[]): void {
-    if (this.currentLevel <= LogLevel.INFO) {
+    if (Logger.currentLevel <= LogLevel.INFO) {
       console.info(`[INFO] ${new Date().toISOString()} - ${message}`, ...data);
     }
   }
@@ -73,7 +73,7 @@ export class Logger {
    * @param data 额外数据
    */
   static warn(message: string, ...data: any[]): void {
-    if (this.currentLevel <= LogLevel.WARN) {
+    if (Logger.currentLevel <= LogLevel.WARN) {
       console.warn(`[WARN] ${new Date().toISOString()} - ${message}`, ...data);
     }
   }
@@ -84,7 +84,7 @@ export class Logger {
    * @param data 额外数据
    */
   static error(message: string, ...data: any[]): void {
-    if (this.currentLevel <= LogLevel.ERROR) {
+    if (Logger.currentLevel <= LogLevel.ERROR) {
       console.error(`[ERROR] ${new Date().toISOString()} - ${message}`, ...data);
     }
   }

@@ -3,11 +3,11 @@
  * 根据配置创建合适的用户仓储实例
  */
 
-import type { UserRepository } from '../types/auth';
-import type { UserRepositoryConfig } from '../types/config';
-import { MemoryUserRepository } from './MemoryUserRepository';
-import { SqliteUserRepository } from './SqliteUserRepository';
-import { PgsqlUserRepository } from './PgsqlUserRepository';
+import type { UserRepository } from "../types/auth";
+import type { UserRepositoryConfig } from "../types/config";
+import { MemoryUserRepository } from "./MemoryUserRepository";
+import { PgsqlUserRepository } from "./PgsqlUserRepository";
+import { SqliteUserRepository } from "./SqliteUserRepository";
 
 export class UserRepositoryFactory {
   /**
@@ -17,21 +17,21 @@ export class UserRepositoryFactory {
    */
   static create(config: UserRepositoryConfig): UserRepository {
     switch (config.type) {
-      case 'memory':
+      case "memory":
         return new MemoryUserRepository();
 
-      case 'sqlite': {
+      case "sqlite": {
         // SQLite 数据库配置
-        const dbPath = config.sqlite?.dbPath || './users.db';
+        const dbPath = config.sqlite?.dbPath || "./users.db";
         return new SqliteUserRepository(dbPath);
       }
 
-      case 'pgsql': {
+      case "pgsql": {
         // PostgreSQL 数据库配置
         if (!config.pgsql) {
-          throw new Error('PostgreSQL configuration is required');
+          throw new Error("PostgreSQL configuration is required");
         }
-        
+
         // 优先使用 connectionString
         let uri: string;
         if (config.pgsql.connectionString) {
@@ -40,14 +40,14 @@ export class UserRepositoryFactory {
           // 构建连接字符串
           const host = config.pgsql.host;
           const port = config.pgsql.port || 5432;
-          const database = config.pgsql.database || 'gitea_oidc';
-          const user = config.pgsql.user || 'postgres';
-          const password = config.pgsql.password ? `:${config.pgsql.password}` : '';
+          const database = config.pgsql.database || "gitea_oidc";
+          const user = config.pgsql.user || "postgres";
+          const password = config.pgsql.password ? `:${config.pgsql.password}` : "";
           uri = `postgresql://${user}${password}@${host}:${port}/${database}`;
         } else {
-          throw new Error('PostgreSQL configuration must provide connectionString or host');
+          throw new Error("PostgreSQL configuration must provide connectionString or host");
         }
-        
+
         return new PgsqlUserRepository(uri);
       }
 
@@ -60,7 +60,7 @@ export class UserRepositoryFactory {
    * 获取支持的仓储类型列表
    */
   static getSupportedTypes(): string[] {
-    return ['memory', 'sqlite', 'pgsql'];
+    return ["memory", "sqlite", "pgsql"];
   }
 
   /**
@@ -73,6 +73,6 @@ export class UserRepositoryFactory {
       return false;
     }
 
-    return this.getSupportedTypes().includes(config.type);
+    return UserRepositoryFactory.getSupportedTypes().includes(config.type);
   }
 }

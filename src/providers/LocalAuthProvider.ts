@@ -3,27 +3,27 @@
  * 支持 htpasswd 格式的密码文件
  */
 
-import { readFile } from 'fs/promises';
-import { compare } from 'bcrypt';
-import { createHash } from 'crypto';
+import { compare } from "bcrypt";
+import { createHash } from "crypto";
+import { readFile } from "fs/promises";
 import type {
-  AuthProvider,
   AuthContext,
+  AuthProvider,
+  AuthProviderConfig,
   AuthResult,
+  LocalAuthConfig,
   LoginUIResult,
+  PluginMetadata,
   UserInfo,
   UserRepository,
-  AuthProviderConfig,
-  LocalAuthConfig,
-  PluginMetadata,
-} from '../types/auth';
-import { PluginPermission } from '../types/auth';
-import { Logger } from '../utils/Logger';
-import { AuthErrors } from '../utils/authErrors';
+} from "../types/auth";
+import { PluginPermission } from "../types/auth";
+import { AuthErrors } from "../utils/authErrors";
+import { Logger } from "../utils/Logger";
 
 export class LocalAuthProvider implements AuthProvider {
-  readonly name = 'local';
-  readonly displayName = '本地密码';
+  readonly name = "local";
+  readonly displayName = "本地密码";
 
   private config!: LocalAuthConfig;
   private userRepository!: UserRepository;
@@ -45,19 +45,21 @@ export class LocalAuthProvider implements AuthProvider {
    */
   private async loadPasswordFile(): Promise<void> {
     try {
-      const content = await readFile(this.config.passwordFile, 'utf-8');
-      const lines = content.split('\n').filter(line => line.trim() && !line.startsWith('#'));
+      const content = await readFile(this.config.passwordFile, "utf-8");
+      const lines = content.split("\n").filter((line) => line.trim() && !line.startsWith("#"));
 
       for (const line of lines) {
-        const [username, hash] = line.split(':', 2);
+        const [username, hash] = line.split(":", 2);
         if (username && hash) {
           this.passwordMap.set(username.trim(), hash.trim());
         }
       }
 
-      Logger.debug(`[LocalAuth] Loaded ${this.passwordMap.size} users from ${this.config.passwordFile}`);
+      Logger.debug(
+        `[LocalAuth] Loaded ${this.passwordMap.size} users from ${this.config.passwordFile}`,
+      );
     } catch (err) {
-      Logger.error('[LocalAuth] Failed to load password file:', err);
+      Logger.error("[LocalAuth] Failed to load password file:", err);
       throw new Error(`Failed to load password file: ${this.config.passwordFile}`);
     }
   }
@@ -71,12 +73,12 @@ export class LocalAuthProvider implements AuthProvider {
     const error = context.query.error as string | undefined;
 
     return {
-      type: 'html',
+      type: "html",
       html: `
         <form class="login-form" method="POST" action="/interaction/${context.interactionUid}/login">
           <input type="hidden" name="authMethod" value="local" />
           
-          ${error ? `<div class="error">${this.escapeHtml(error)}</div>` : ''}
+          ${error ? `<div class="error">${this.escapeHtml(error)}</div>` : ""}
           
           <div class="form-group">
             <label for="username">用户名</label>
@@ -115,8 +117,8 @@ export class LocalAuthProvider implements AuthProvider {
 
     if (!username || !password) {
       const missing = [];
-      if (!username) missing.push('username');
-      if (!password) missing.push('password');
+      if (!username) missing.push("username");
+      if (!password) missing.push("password");
       return {
         success: false,
         error: AuthErrors.missingParameter(missing),
@@ -142,16 +144,12 @@ export class LocalAuthProvider implements AuthProvider {
     }
 
     // 查找或创建用户
-    const user = await this.userRepository.findOrCreate(
-      this.name,
+    const user = await this.userRepository.findOrCreate(this.name, username, {
       username,
-      {
-        username,
-        name: username,
-        email: `${username}@local`,
-        emailVerified: false,
-      }
-    );
+      name: username,
+      email: `${username}@local`,
+      emailVerified: false,
+    });
 
     return {
       success: true,
@@ -171,20 +169,20 @@ export class LocalAuthProvider implements AuthProvider {
     const format = this.detectPasswordFormat(hash);
 
     switch (format) {
-      case 'bcrypt':
+      case "bcrypt":
         return this.verifyBcrypt(password, hash);
-      
-      case 'md5':
+
+      case "md5":
         return this.verifyMD5(password, hash);
-      
-      case 'sha':
+
+      case "sha":
         return this.verifySHA(password, hash);
-      
-      case 'plain':
+
+      case "plain":
         return password === hash;
-      
+
       default:
-        Logger.error('[LocalAuth] Unknown password format:', hash);
+        Logger.error("[LocalAuth] Unknown password format:", hash);
         return false;
     }
   }
@@ -192,26 +190,26 @@ export class LocalAuthProvider implements AuthProvider {
   /**
    * 检测密码格式
    */
-  private detectPasswordFormat(hash: string): 'bcrypt' | 'md5' | 'sha' | 'plain' | 'unknown' {
-    if (hash.startsWith('$2y$') || hash.startsWith('$2a$') || hash.startsWith('$2b$')) {
-      return 'bcrypt';
+  private detectPasswordFormat(hash: string): "bcrypt" | "md5" | "sha" | "plain" | "unknown" {
+    if (hash.startsWith("$2y$") || hash.startsWith("$2a$") || hash.startsWith("$2b$")) {
+      return "bcrypt";
     }
-    
-    if (hash.startsWith('$apr1$')) {
-      return 'md5';
+
+    if (hash.startsWith("$apr1$")) {
+      return "md5";
     }
-    
-    if (hash.startsWith('{SHA}')) {
-      return 'sha';
+
+    if (hash.startsWith("{SHA}")) {
+      return "sha";
     }
-    
+
     // 如果配置指定了格式
-    if (this.config.passwordFormat && this.config.passwordFormat !== 'auto') {
+    if (this.config.passwordFormat && this.config.passwordFormat !== "auto") {
       return this.config.passwordFormat;
     }
-    
+
     // 默认当作明文
-    return 'plain';
+    return "plain";
   }
 
   /**
@@ -221,7 +219,7 @@ export class LocalAuthProvider implements AuthProvider {
     try {
       return await compare(password, hash);
     } catch (err) {
-      Logger.error('[LocalAuth] Bcrypt verification error:', err);
+      Logger.error("[LocalAuth] Bcrypt verification error:", err);
       return false;
     }
   }
@@ -231,8 +229,8 @@ export class LocalAuthProvider implements AuthProvider {
    */
   private verifyMD5(password: string, hash: string): boolean {
     // APR1 格式: $apr1$salt$hash
-    const parts = hash.split('$');
-    if (parts.length !== 4 || parts[1] !== 'apr1') {
+    const parts = hash.split("$");
+    if (parts.length !== 4 || parts[1] !== "apr1") {
       return false;
     }
 
@@ -250,7 +248,7 @@ export class LocalAuthProvider implements AuthProvider {
   private verifySHA(password: string, hash: string): boolean {
     // {SHA}base64hash
     const expectedHash = hash.substring(5); // 去掉 {SHA} 前缀
-    const computed = createHash('sha1').update(password).digest('base64');
+    const computed = createHash("sha1").update(password).digest("base64");
     return computed === expectedHash;
   }
 
@@ -259,16 +257,16 @@ export class LocalAuthProvider implements AuthProvider {
    */
   private apr1Crypt(password: string, salt: string): string {
     // 这是一个简化实现，生产环境建议使用 apache-md5 或 apache-crypt 库
-    const md5 = (data: string | Buffer) => createHash('md5').update(data).digest();
-    
-    let ctx = md5(password + '$apr1$' + salt);
-    let final = md5(password + salt + password);
-    
+    const md5 = (data: string | Buffer) => createHash("md5").update(data).digest();
+
+    let ctx = md5(`${password}$apr1$${salt}`);
+    let final = md5(`${password}${salt}${password}`);
+
     for (let i = password.length; i > 0; i -= 16) {
       ctx = md5(Buffer.concat([ctx, final.slice(0, Math.min(i, 16))]));
     }
-    
-    return ctx.toString('base64').substring(0, 22);
+
+    return ctx.toString("base64").substring(0, 22);
   }
 
   /**
@@ -276,26 +274,23 @@ export class LocalAuthProvider implements AuthProvider {
    */
   private escapeHtml(text: string): string {
     const map: Record<string, string> = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#039;',
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
     };
-    return text.replace(/[&<>"']/g, m => map[m]);
+    return text.replace(/[&<>"']/g, (m) => map[m]);
   }
 
   getMetadata(): PluginMetadata {
     return {
       name: this.name,
       displayName: this.displayName,
-      version: '1.0.0',
-      description: '本地密码认证，支持 htpasswd 文件',
-      author: 'Gitea OIDC Team',
-      permissions: [
-        PluginPermission.READ_USER,
-        PluginPermission.CREATE_USER,
-      ],
+      version: "1.0.0",
+      description: "本地密码认证，支持 htpasswd 文件",
+      author: "Gitea OIDC Team",
+      permissions: [PluginPermission.READ_USER, PluginPermission.CREATE_USER],
     };
   }
 

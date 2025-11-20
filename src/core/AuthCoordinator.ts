@@ -3,39 +3,39 @@
  * 管理所有认证插件，协调认证流程
  */
 
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { randomBytes } from 'crypto';
-import type { Provider } from 'oidc-provider';
+import { randomBytes } from "crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { Provider } from "oidc-provider";
 import type {
-  IAuthCoordinator,
-  AuthProvider,
   AuthContext,
-  AuthResult,
-  UserInfo,
-  StateStore,
-  UserRepository,
-  OAuthStateData,
-  PluginMiddlewareContext,
-  PluginHookName,
+  AuthProvider,
   AuthProviderConfig,
-} from '../types/auth';
-import { PluginPermission } from '../types/auth';
-import { AuthErrors } from '../utils/authErrors';
-import { PermissionChecker } from './PermissionChecker';
+  AuthResult,
+  IAuthCoordinator,
+  OAuthStateData,
+  PluginHookName,
+  PluginMiddlewareContext,
+  StateStore,
+  UserInfo,
+  UserRepository,
+} from "../types/auth";
+import { PluginPermission } from "../types/auth";
+import { AuthErrors } from "../utils/authErrors";
+import { PermissionChecker } from "./PermissionChecker";
 
 export interface AuthCoordinatorConfig {
   /** Fastify 实例 */
   app: FastifyInstance;
-  
+
   /** State 存储 */
   stateStore: StateStore;
-  
+
   /** 用户仓储 */
   userRepository: UserRepository;
-  
+
   /** 插件配置 */
   providersConfig: Record<string, AuthProviderConfig>;
-  
+
   /** OIDC Provider 实例（可选，用于插件完成交互） */
   oidcProvider?: Provider;
 }
@@ -57,7 +57,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     this.providersConfig = config.providersConfig;
     this.oidcProvider = config.oidcProvider;
   }
-  
+
   /**
    * 设置 OIDC Provider 实例
    * 在 OIDC Provider 创建后调用
@@ -79,7 +79,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     if (metadata) {
       this.permissionChecker.registerPlugin(metadata.name, metadata.permissions);
       this.app.log.info(
-        `Registered permissions for ${metadata.name}: ${metadata.permissions.join(', ')}`
+        `Registered permissions for ${metadata.name}: ${metadata.permissions.join(", ")}`,
       );
     }
 
@@ -88,37 +88,25 @@ export class AuthCoordinator implements IAuthCoordinator {
 
     // 注册插件路由（需要权限）
     if (provider.registerRoutes) {
-      this.permissionChecker.requirePermission(
-        provider.name,
-        PluginPermission.REGISTER_ROUTES
-      );
+      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_ROUTES);
       this.registerProviderRoutes(provider);
     }
 
     // 注册插件静态资源（需要权限）
     if (provider.registerStaticAssets) {
-      this.permissionChecker.requirePermission(
-        provider.name,
-        PluginPermission.REGISTER_STATIC
-      );
+      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_STATIC);
       this.registerProviderStaticAssets(provider);
     }
 
     // 注册插件 Webhook（需要权限）
     if (provider.registerWebhooks) {
-      this.permissionChecker.requirePermission(
-        provider.name,
-        PluginPermission.REGISTER_WEBHOOK
-      );
+      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_WEBHOOK);
       this.registerProviderWebhooks(provider);
     }
 
     // 注册插件中间件（需要权限，受限）
     if (provider.registerMiddleware) {
-      this.permissionChecker.requirePermission(
-        provider.name,
-        PluginPermission.REGISTER_MIDDLEWARE
-      );
+      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_MIDDLEWARE);
       this.registerProviderMiddleware(provider);
     }
   }
@@ -136,7 +124,7 @@ export class AuthCoordinator implements IAuthCoordinator {
 
     for (const route of routes) {
       const fullPath = `${basePath}${route.path}`;
-      
+
       this.app.route({
         method: route.method,
         url: fullPath,
@@ -147,7 +135,7 @@ export class AuthCoordinator implements IAuthCoordinator {
 
       this.app.log.info(
         `Registered route: ${route.method} ${fullPath}` +
-        (route.options?.description ? ` - ${route.options.description}` : '')
+          (route.options?.description ? ` - ${route.options.description}` : ""),
       );
     }
   }
@@ -165,15 +153,15 @@ export class AuthCoordinator implements IAuthCoordinator {
 
     for (const asset of assets) {
       const fullPath = `${basePath}${asset.path}`;
-      
+
       this.app.get(fullPath, async (request, reply) => {
         if (asset.contentType) {
           reply.type(asset.contentType);
         }
-        
+
         // 添加缓存控制
-        reply.header('Cache-Control', 'public, max-age=3600');
-        
+        reply.header("Cache-Control", "public, max-age=3600");
+
         return asset.content;
       });
 
@@ -194,13 +182,13 @@ export class AuthCoordinator implements IAuthCoordinator {
 
     for (const webhook of webhooks) {
       const fullPath = `${basePath}${webhook.path}`;
-      
+
       this.app.post(fullPath, async (request, reply) => {
         // 验证签名（如果提供）
         if (webhook.verifySignature) {
           const isValid = await webhook.verifySignature(request);
           if (!isValid) {
-            return reply.code(401).send({ error: 'Invalid signature' });
+            return reply.code(401).send({ error: "Invalid signature" });
           }
         }
 
@@ -220,7 +208,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     }
 
     const basePath = `/auth/${provider.name}`;
-    
+
     // 创建受限上下文
     const context: PluginMiddlewareContext = {
       basePath,
@@ -237,7 +225,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     };
 
     provider.registerMiddleware(context).catch((err: unknown) => {
-      this.app.log.error({ err, provider: provider.name }, 'Failed to register middleware');
+      this.app.log.error({ err, provider: provider.name }, "Failed to register middleware");
     });
 
     this.app.log.info(`Registered middleware for provider: ${provider.name}`);
@@ -270,7 +258,7 @@ export class AuthCoordinator implements IAuthCoordinator {
         const ui = await provider.renderLoginUI(context);
         loginOptions.push({ provider, ui });
       } catch (err) {
-        this.app.log.error({ err, provider: provider.name }, 'Failed to render login UI');
+        this.app.log.error({ err, provider: provider.name }, "Failed to render login UI");
       }
     }
 
@@ -290,18 +278,18 @@ export class AuthCoordinator implements IAuthCoordinator {
    */
   private generateLoginPageHTML(
     context: AuthContext,
-    loginOptions: Array<{ provider: AuthProvider; ui: any }>
+    loginOptions: Array<{ provider: AuthProvider; ui: any }>,
   ): string {
     const forms: string[] = [];
     const buttons: string[] = [];
 
     for (const { provider, ui } of loginOptions) {
-      if (ui.type === 'html') {
+      if (ui.type === "html") {
         forms.push(ui.html);
-      } else if (ui.type === 'redirect' && ui.button) {
+      } else if (ui.type === "redirect" && ui.button) {
         buttons.push(`
-          <a href="${ui.redirectUrl}" class="oauth-button" style="${ui.button.style || ''}">
-            ${ui.button.icon ? `<img src="${ui.button.icon}" alt="${provider.displayName}" />` : ''}
+          <a href="${ui.redirectUrl}" class="oauth-button" style="${ui.button.style || ""}">
+            ${ui.button.icon ? `<img src="${ui.button.icon}" alt="${provider.displayName}" />` : ""}
             <span>${ui.button.text}</span>
           </a>
         `);
@@ -453,15 +441,19 @@ export class AuthCoordinator implements IAuthCoordinator {
       <p>统一身份认证平台</p>
     </div>
     
-    ${forms.join('\n')}
+    ${forms.join("\n")}
     
-    ${forms.length > 0 && buttons.length > 0 ? '<div class="divider"><span>或</span></div>' : ''}
+    ${forms.length > 0 && buttons.length > 0 ? '<div class="divider"><span>或</span></div>' : ""}
     
-    ${buttons.length > 0 ? `
+    ${
+      buttons.length > 0
+        ? `
       <div class="oauth-buttons">
-        ${buttons.join('\n')}
+        ${buttons.join("\n")}
       </div>
-    ` : ''}
+    `
+        : ""
+    }
   </div>
 </body>
 </html>
@@ -477,7 +469,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     if (!authMethod) {
       return {
         success: false,
-        error: AuthErrors.missingParameter(['authMethod']),
+        error: AuthErrors.missingParameter(["authMethod"]),
       };
     }
 
@@ -504,21 +496,18 @@ export class AuthCoordinator implements IAuthCoordinator {
 
       // 如果认证成功，记录日志
       if (result.success && result.userId) {
-        this.app.log.info(
-          `User ${result.userId} authenticated successfully via ${authMethod}`
-        );
+        this.app.log.info(`User ${result.userId} authenticated successfully via ${authMethod}`);
       }
 
       return result;
     } catch (err) {
-      this.app.log.error({ err, provider: authMethod }, 'Authentication error');
-      
+      this.app.log.error({ err, provider: authMethod }, "Authentication error");
+
       return {
         success: false,
-        error: AuthErrors.internalError(
-          err instanceof Error ? err : undefined,
-          { provider: authMethod }
-        ),
+        error: AuthErrors.internalError(err instanceof Error ? err : undefined, {
+          provider: authMethod,
+        }),
       };
     }
   }
@@ -530,7 +519,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     try {
       return await this.userRepository.findById(userId);
     } catch (err) {
-      this.app.log.error({ err, userId }, 'Failed to find account');
+      this.app.log.error({ err, userId }, "Failed to find account");
       return null;
     }
   }
@@ -541,11 +530,11 @@ export class AuthCoordinator implements IAuthCoordinator {
   async generateOAuthState(
     interactionUid: string,
     provider: string,
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
   ): Promise<string> {
     // 生成随机 state（32 字节 = 64 个十六进制字符）
-    const state = randomBytes(32).toString('hex');
-    
+    const state = randomBytes(32).toString("hex");
+
     const data: OAuthStateData = {
       interactionUid,
       provider,
@@ -556,7 +545,9 @@ export class AuthCoordinator implements IAuthCoordinator {
     // 存储 state，10 分钟过期
     await this.stateStore.set(state, data, 600);
 
-    this.app.log.info(`[OAuth State] Generated for ${provider}: ${state.substring(0, 8)}..., interactionUid: ${interactionUid}`);
+    this.app.log.info(
+      `[OAuth State] Generated for ${provider}: ${state.substring(0, 8)}..., interactionUid: ${interactionUid}`,
+    );
 
     return state;
   }
@@ -567,26 +558,29 @@ export class AuthCoordinator implements IAuthCoordinator {
   async verifyOAuthState(state: string): Promise<OAuthStateData | null> {
     try {
       this.app.log.info(`[OAuth State] Verifying state: ${state.substring(0, 8)}...`);
-      
+
       // 列出所有存储的 state（调试用）
-      if ('listAll' in this.stateStore && typeof (this.stateStore as any).listAll === 'function') {
+      if ("listAll" in this.stateStore && typeof (this.stateStore as any).listAll === "function") {
         const allStates = (this.stateStore as any).listAll();
         this.app.log.info(`[OAuth State] Current stored states: ${JSON.stringify(allStates)}`);
       }
-      
+
       // 获取 state 数据
       const data = await this.stateStore.get(state);
-      
+
       if (!data) {
         this.app.log.warn(`[OAuth State] Invalid or expired state: ${state.substring(0, 8)}...`);
         return null;
       }
 
-      this.app.log.info(`[OAuth State] Found state data: provider=${data.provider}, interactionUid=${data.interactionUid}, age=${Date.now() - data.createdAt}ms`);
+      this.app.log.info(
+        `[OAuth State] Found state data: provider=${data.provider}, interactionUid=${data.interactionUid}, age=${Date.now() - data.createdAt}ms`,
+      );
 
       // 验证 state 未过期（额外检查）
       const age = Date.now() - data.createdAt;
-      if (age > 600000) { // 10 分钟
+      if (age > 600000) {
+        // 10 分钟
         this.app.log.warn(`[OAuth State] Expired state: ${state.substring(0, 8)}..., age=${age}ms`);
         await this.stateStore.delete(state);
         return null;
@@ -599,7 +593,7 @@ export class AuthCoordinator implements IAuthCoordinator {
 
       return data;
     } catch (err) {
-      this.app.log.error({ err }, 'Failed to verify OAuth state');
+      this.app.log.error({ err }, "Failed to verify OAuth state");
       return null;
     }
   }
@@ -611,24 +605,28 @@ export class AuthCoordinator implements IAuthCoordinator {
     const authResult = {
       userId,
       timestamp: Date.now(),
-      type: 'auth_result', // 标记为认证结果
+      type: "auth_result", // 标记为认证结果
     };
 
     await this.stateStore.set(`auth_result_${interactionUid}`, authResult, 300); // 5分钟过期
-    
+
     this.app.log.info(`Stored auth result for interaction: ${interactionUid}, user: ${userId}`);
   }
 
   async getAuthResult(interactionUid: string): Promise<string | null> {
     const key = `auth_result_${interactionUid}`;
     const result = await this.stateStore.get(key);
-    
+
     if (!result) {
       return null;
     }
 
     // 验证这是认证结果而不是普通的 OAuth state
-    if ((result as any).type !== 'auth_result' || !('userId' in result) || !('timestamp' in result)) {
+    if (
+      (result as any).type !== "auth_result" ||
+      !("userId" in result) ||
+      !("timestamp" in result)
+    ) {
       return null;
     }
 
@@ -639,10 +637,10 @@ export class AuthCoordinator implements IAuthCoordinator {
       await this.stateStore.delete(key);
       return null;
     }
-    
+
     // 消费后删除
     await this.stateStore.delete(key);
-    
+
     return authResult.userId;
   }
 
@@ -654,10 +652,10 @@ export class AuthCoordinator implements IAuthCoordinator {
     request: FastifyRequest,
     reply: FastifyReply,
     interactionUid: string,
-    userId: string
+    userId: string,
   ): Promise<void> {
     if (!this.oidcProvider) {
-      throw new Error('OIDC Provider not initialized');
+      throw new Error("OIDC Provider not initialized");
     }
 
     try {
@@ -669,12 +667,12 @@ export class AuthCoordinator implements IAuthCoordinator {
             accountId: userId,
           },
         },
-        { mergeWithLastSubmission: false }
+        { mergeWithLastSubmission: false },
       );
-      
+
       this.app.log.info(`OIDC interaction finished for user: ${userId}, uid: ${interactionUid}`);
     } catch (err) {
-      this.app.log.error({ err, userId, interactionUid }, 'Failed to finish OIDC interaction');
+      this.app.log.error({ err, userId, interactionUid }, "Failed to finish OIDC interaction");
       throw err;
     }
   }
@@ -684,14 +682,14 @@ export class AuthCoordinator implements IAuthCoordinator {
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
-      throw new Error('AuthCoordinator already initialized');
+      throw new Error("AuthCoordinator already initialized");
     }
 
-    this.app.log.info('Initializing auth providers...');
+    this.app.log.info("Initializing auth providers...");
 
     for (const [name, provider] of this.providers.entries()) {
       const config = this.providersConfig[name];
-      
+
       if (!config || !config.enabled) {
         this.app.log.info(`Skipping disabled provider: ${name}`);
         continue;
@@ -701,20 +699,20 @@ export class AuthCoordinator implements IAuthCoordinator {
         await provider.initialize(config);
         this.app.log.info(`Initialized provider: ${name}`);
       } catch (err) {
-        this.app.log.error({ err, provider: name }, 'Failed to initialize provider');
+        this.app.log.error({ err, provider: name }, "Failed to initialize provider");
         throw err;
       }
     }
 
     this.initialized = true;
-    this.app.log.info('All auth providers initialized successfully');
+    this.app.log.info("All auth providers initialized successfully");
   }
 
   /**
    * 销毁所有插件
    */
   async destroy(): Promise<void> {
-    this.app.log.info('Destroying auth providers...');
+    this.app.log.info("Destroying auth providers...");
 
     for (const [name, provider] of this.providers.entries()) {
       if (provider.destroy) {
@@ -722,7 +720,7 @@ export class AuthCoordinator implements IAuthCoordinator {
           await provider.destroy();
           this.app.log.info(`Destroyed provider: ${name}`);
         } catch (err) {
-          this.app.log.error({ err, provider: name }, 'Failed to destroy provider');
+          this.app.log.error({ err, provider: name }, "Failed to destroy provider");
         }
       }
     }

@@ -1,23 +1,22 @@
-import fastify from "fastify";
-import staticFiles from "@fastify/static";
 import cors from "@fastify/cors";
-import middie from "@fastify/middie";
 import formBody from "@fastify/formbody";
+import middie from "@fastify/middie";
+import staticFiles from "@fastify/static";
+import fastify from "fastify";
+import { type Configuration, Provider } from "oidc-provider";
 import path, { join } from "path";
-import { Provider, type Configuration } from "oidc-provider";
-import { loadConfig, type GiteaOidcConfig } from "./config";
-
+import { OidcAdapterFactory } from "./adapters/OidcAdapterFactory";
+import { type GiteaOidcConfig, loadConfig } from "./config";
 // 认证系统导入
 import { AuthCoordinator } from "./core/AuthCoordinator";
-import { MemoryStateStore } from "./stores/MemoryStateStore";
-import { OidcAdapterFactory } from "./adapters/OidcAdapterFactory";
-import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory";
-import { LocalAuthProvider } from "./providers/LocalAuthProvider";
 import { FeishuAuthProvider } from "./providers/FeishuAuthProvider";
+import { LocalAuthProvider } from "./providers/LocalAuthProvider";
+import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory";
+import { MemoryStateStore } from "./stores/MemoryStateStore";
 import type { AuthContext, AuthProvider } from "./types/auth";
-import { getUserErrorMessage, formatAuthError } from "./utils/authErrors";
-import { Logger, LogLevel } from "./utils/Logger";
+import { formatAuthError, getUserErrorMessage } from "./utils/authErrors";
 import { getOrGenerateJWKS } from "./utils/jwksManager";
+import { Logger, LogLevel } from "./utils/Logger";
 
 /**
  * 启动 OIDC 服务器
@@ -26,7 +25,7 @@ import { getOrGenerateJWKS } from "./utils/jwksManager";
  */
 export async function start(customConfig?: GiteaOidcConfig) {
   // 如果传入了自定义配置则使用，否则从文件加载
-  const config = customConfig ?? await loadConfig();
+  const config = customConfig ?? (await loadConfig());
 
   const app = fastify({
     logger: true,
@@ -55,9 +54,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
     maxSize: 10000, // 最大存储10000个state
     cleanupIntervalMs: 30000, // 每30秒清理一次
   });
-  const userRepository = UserRepositoryFactory.create(
-    config.auth.userRepository
-  );
+  const userRepository = UserRepositoryFactory.create(config.auth.userRepository);
 
   // 创建认证协调器
   const authCoordinator = new AuthCoordinator({
@@ -75,10 +72,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
   }
 
   if (config.auth.providers.feishu?.enabled) {
-    const feishuProvider = new FeishuAuthProvider(
-      userRepository,
-      authCoordinator
-    );
+    const feishuProvider = new FeishuAuthProvider(userRepository, authCoordinator);
     authCoordinator.registerProvider(feishuProvider);
     Logger.info("[认证系统] 已注册 FeishuAuthProvider");
   }
@@ -98,8 +92,8 @@ export async function start(customConfig?: GiteaOidcConfig) {
 
   // 加载或生成 JWKS
   Logger.info("[JWKS] 正在加载密钥...");
-  const jwksFilePath = config.jwks?.filePath || join(process.cwd(), 'jwks.json');
-  const jwksKeyId = config.jwks?.keyId || 'default-key';
+  const jwksFilePath = config.jwks?.filePath || join(process.cwd(), "jwks.json");
+  const jwksKeyId = config.jwks?.keyId || "default-key";
   const jwks = await getOrGenerateJWKS(jwksFilePath, jwksKeyId);
   Logger.info(`[JWKS] 密钥加载完成 (文件: ${jwksFilePath}, keyId: ${jwksKeyId})`);
 
@@ -124,7 +118,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
       Logger.debug(
         `[查找账户] sub: ${sub}, token类型: ${
           token?.constructor?.name || "unknown"
-        } ctx: ${JSON.stringify(ctx)}`
+        } ctx: ${JSON.stringify(ctx)}`,
       );
 
       // 使用 AuthCoordinator 查找用户
@@ -135,20 +129,15 @@ export async function start(customConfig?: GiteaOidcConfig) {
         return undefined;
       }
 
-      Logger.debug(
-        `[账户查找结果] ${sub}: 找到 (${user.username}) JSON: ` +
-          JSON.stringify(user)
-      );
+      Logger.debug(`[账户查找结果] ${sub}: 找到 (${user.username}) JSON: ${JSON.stringify(user)}`);
 
       return {
         accountId: user.sub,
         async claims(use: string, scope: string, claims: any, rejected: any) {
           Logger.debug(
-            `[声明生成] 用户: ${
-              user.username
-            }, scope: ${scope} claims: ${JSON.stringify(
-              claims
-            )} rejected: ${JSON.stringify(rejected)} use: ${use}`
+            `[声明生成] 用户: ${user.username}, scope: ${scope} claims: ${JSON.stringify(
+              claims,
+            )} rejected: ${JSON.stringify(rejected)} use: ${use}`,
           );
 
           // 直接使用 UserInfo 的 OIDC 标准字段
@@ -161,9 +150,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
             phone: user.phone,
             phone_verified: user.phoneVerified ?? false,
             groups: user.groups ?? [],
-            updated_at: user.updatedAt
-              ? Math.floor(user.updatedAt.getTime() / 1000)
-              : undefined,
+            updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
           };
 
           Logger.debug(`[返回声明]`, userClaims);
@@ -186,9 +173,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
       req.headers["x-forwarded-proto"] = "https";
       next();
     });
-    Logger.info(
-      "[代理配置] oidc-provider 已启用 proxy 模式，将信任 X-Forwarded-* 头"
-    );
+    Logger.info("[代理配置] oidc-provider 已启用 proxy 模式，将信任 X-Forwarded-* 头");
   }
 
   // 将 OIDC Provider 实例传递给 AuthCoordinator
@@ -232,7 +217,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
             prompt: details.prompt,
             params: details.params,
             grantId: details.grantId,
-          })
+          }),
       );
 
       // 如果是 consent prompt，说明用户已经登录，直接自动授予同意
@@ -240,9 +225,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
         Logger.info(`[自动授予同意] 用户已登录，自动处理 consent`);
 
         // 获取或创建 grant
-        let grant = details.grantId
-          ? await oidc.Grant.find(details.grantId)
-          : undefined;
+        let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
         if (!grant) {
           grant = new oidc.Grant({
             accountId: details.session?.accountId,
@@ -251,24 +234,25 @@ export async function start(customConfig?: GiteaOidcConfig) {
         }
 
         // 添加缺失的 scope/claims
-        const missingScope = (details.prompt as any)?.details
-          ?.missingOIDCScope as string[] | undefined;
+        const missingScope = (details.prompt as any)?.details?.missingOIDCScope as
+          | string[]
+          | undefined;
         if (missingScope && missingScope.length > 0) {
           grant.addOIDCScope(missingScope.join(" "));
         }
 
-        const missingClaims = (details.prompt as any)?.details
-          ?.missingOIDCClaims as string[] | undefined;
+        const missingClaims = (details.prompt as any)?.details?.missingOIDCClaims as
+          | string[]
+          | undefined;
         if (missingClaims && missingClaims.length > 0) {
           grant.addOIDCClaims(missingClaims);
         }
 
-        const missingResourceScopes = (details.prompt as any)?.details
-          ?.missingResourceScopes as Record<string, string[]> | undefined;
+        const missingResourceScopes = (details.prompt as any)?.details?.missingResourceScopes as
+          | Record<string, string[]>
+          | undefined;
         if (missingResourceScopes) {
-          for (const [indicator, scopes] of Object.entries(
-            missingResourceScopes
-          )) {
+          for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
             if (scopes && scopes.length > 0) {
               grant.addResourceScope(indicator, scopes.join(" "));
             }
@@ -284,7 +268,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
           {
             consent: { grantId },
           },
-          { mergeWithLastSubmission: true }
+          { mergeWithLastSubmission: true },
         );
 
         Logger.info(`[自动授予完成] grantId: ${grantId}`);
@@ -335,9 +319,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
 
       if (!userId) {
         Logger.warn(`[OAuth 完成] 未找到认证结果: ${uid}`);
-        return reply.redirect(
-          `/interaction/${uid}?error=${encodeURIComponent("认证会话已过期")}`
-        );
+        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent("认证会话已过期")}`);
       }
 
       Logger.info(`[OAuth 完成] 用户 ${userId} 认证通过，完成 login 交互`);
@@ -349,15 +331,13 @@ export async function start(customConfig?: GiteaOidcConfig) {
         {
           login: { accountId: userId },
         },
-        { mergeWithLastSubmission: false }
+        { mergeWithLastSubmission: false },
       );
 
       Logger.info(`[OAuth Login 完成] 用户 ${userId}`);
     } catch (err) {
       Logger.error("[OAuth 完成] 错误:", err);
-      return reply.redirect(
-        `/interaction/${uid}?error=${encodeURIComponent("登录失败")}`
-      );
+      return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent("登录失败")}`);
     }
   });
 
@@ -384,9 +364,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
       const result = await authCoordinator.handleAuthentication(context);
 
       if (result.success && result.userId) {
-        Logger.info(
-          `[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`
-        );
+        Logger.info(`[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`);
 
         // 只完成 login，consent 会在后续的 GET 请求中自动处理
         await oidc.interactionFinished(
@@ -395,7 +373,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
           {
             login: { accountId: result.userId },
           },
-          { mergeWithLastSubmission: false }
+          { mergeWithLastSubmission: false },
         );
 
         Logger.info(`[Login 完成] 用户 ${result.userId}`);
@@ -408,19 +386,13 @@ export async function start(customConfig?: GiteaOidcConfig) {
         }
 
         // 认证失败，重定向回登录页面并显示用户友好的错误消息
-        const errorMessage = result.error
-          ? getUserErrorMessage(result.error)
-          : "认证失败";
-        return reply.redirect(
-          `/interaction/${uid}?error=${encodeURIComponent(errorMessage)}`
-        );
+        const errorMessage = result.error ? getUserErrorMessage(result.error) : "认证失败";
+        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent(errorMessage)}`);
       }
     } catch (err) {
       Logger.error("[登录处理] 错误:", err);
       return reply.redirect(
-        `/interaction/${uid}?error=${encodeURIComponent(
-          "系统错误，请稍后重试"
-        )}`
+        `/interaction/${uid}?error=${encodeURIComponent("系统错误，请稍后重试")}`,
       );
     }
   });
@@ -435,7 +407,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
       `认证插件已启用: ${authCoordinator
         .getProviders()
         .map((p: AuthProvider) => p.name)
-        .join(", ")}`
+        .join(", ")}`,
     );
   } catch (err) {
     Logger.error("服务器启动失败:", err);
@@ -468,7 +440,8 @@ export async function start(customConfig?: GiteaOidcConfig) {
 
 // 仅在直接执行时启动服务器
 // 通过检查当前模块是否为主模块来判断
-const isMainModule = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
+const isMainModule =
+  process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"));
 if (isMainModule) {
   start().catch((err) => {
     Logger.error("服务器启动失败:", err);

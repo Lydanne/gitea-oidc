@@ -3,15 +3,15 @@
  * 使用 Zod 进行配置验证
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * 服务器配置 Schema
  */
 export const ServerConfigSchema = z.object({
-  host: z.string().default('0.0.0.0'),
+  host: z.string().default("0.0.0.0"),
   port: z.number().int().min(1).max(65535).default(3000),
-  url: z.url({ message: '服务器 URL 必须是有效的 URL' }),
+  url: z.url({ message: "服务器 URL 必须是有效的 URL" }),
   trustProxy: z.boolean().default(false),
 });
 
@@ -20,7 +20,7 @@ export const ServerConfigSchema = z.object({
  */
 export const LoggingConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  level: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
 /**
@@ -46,10 +46,10 @@ export const OidcFeaturesSchema = z.object({
  * OIDC 配置 Schema
  */
 export const OidcConfigSchema = z.object({
-  issuer: z.url({ message: 'OIDC issuer 必须是有效的 URL' }),
+  issuer: z.url({ message: "OIDC issuer 必须是有效的 URL" }),
   cookieKeys: z
-    .array(z.string().min(32, 'Cookie 密钥长度至少 32 个字符'))
-    .min(1, '至少需要一个 Cookie 密钥'),
+    .array(z.string().min(32, "Cookie 密钥长度至少 32 个字符"))
+    .min(1, "至少需要一个 Cookie 密钥"),
   ttl: OidcTTLSchema,
   claims: z.record(z.string(), z.array(z.string())),
   features: OidcFeaturesSchema,
@@ -59,11 +59,11 @@ export const OidcConfigSchema = z.object({
  * 客户端配置 Schema
  */
 export const ClientConfigSchema = z.object({
-  client_id: z.string().min(1, '客户端 ID 不能为空'),
-  client_secret: z.string().min(8, '客户端密钥长度至少 8 个字符'),
+  client_id: z.string().min(1, "客户端 ID 不能为空"),
+  client_secret: z.string().min(8, "客户端密钥长度至少 8 个字符"),
   redirect_uris: z
-    .array(z.url({ message: '重定向 URI 必须是有效的 URL' }))
-    .min(1, '至少需要一个重定向 URI'),
+    .array(z.url({ message: "重定向 URI 必须是有效的 URL" }))
+    .min(1, "至少需要一个重定向 URI"),
   response_types: z.array(z.string()).min(1),
   grant_types: z.array(z.string()).min(1),
   token_endpoint_auth_method: z.string(),
@@ -83,58 +83,62 @@ export const AuthProviderConfigSchema = z.object({
  * SQLite 仓储配置 Schema
  */
 export const SqliteRepositoryConfigSchema = z.object({
-  dbPath: z.string().optional().default('./users.db'),
+  dbPath: z.string().optional().default("./users.db"),
 });
 
 /**
  * PostgreSQL 仓储配置 Schema
  */
-export const PgsqlRepositoryConfigSchema = z.object({
-  connectionString: z.string().optional(),
-  host: z.string().optional(),
-  port: z.number().int().min(1).max(65535).optional().default(5432),
-  database: z.string().optional(),
-  user: z.string().optional(),
-  password: z.string().optional(),
-}).refine(
-  (data) => {
-    // 必须提供 connectionString 或 host
-    return data.connectionString || data.host;
-  },
-  {
-    message: 'PostgreSQL 配置必须提供 connectionString 或 host',
-  }
-);
+export const PgsqlRepositoryConfigSchema = z
+  .object({
+    connectionString: z.string().optional(),
+    host: z.string().optional(),
+    port: z.number().int().min(1).max(65535).optional().default(5432),
+    database: z.string().optional(),
+    user: z.string().optional(),
+    password: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      // 必须提供 connectionString 或 host
+      return data.connectionString || data.host;
+    },
+    {
+      message: "PostgreSQL 配置必须提供 connectionString 或 host",
+    },
+  );
 
 /**
  * 用户仓储配置 Schema
  */
-export const UserRepositoryConfigSchema = z.object({
-  type: z.enum(['memory', 'sqlite', 'pgsql'], {
-    message: '用户仓储类型必须是 memory、sqlite 或 pgsql',
-  }),
-  sqlite: SqliteRepositoryConfigSchema.optional(),
-  pgsql: PgsqlRepositoryConfigSchema.optional(),
-  memory: z.object({}).optional(),
-}).refine(
-  (data) => {
-    // 如果类型是 sqlite，建议提供 sqlite 配置
-    if (data.type === 'sqlite' && !data.sqlite) {
-      // 允许没有配置,使用默认值
-      return true;
-    }
-    // 如果类型是 pgsql，必须提供 pgsql 配置
-    if (data.type === 'pgsql') {
-      if (!data.pgsql) {
-        return false;
+export const UserRepositoryConfigSchema = z
+  .object({
+    type: z.enum(["memory", "sqlite", "pgsql"], {
+      message: "用户仓储类型必须是 memory、sqlite 或 pgsql",
+    }),
+    sqlite: SqliteRepositoryConfigSchema.optional(),
+    pgsql: PgsqlRepositoryConfigSchema.optional(),
+    memory: z.object({}).optional(),
+  })
+  .refine(
+    (data) => {
+      // 如果类型是 sqlite，建议提供 sqlite 配置
+      if (data.type === "sqlite" && !data.sqlite) {
+        // 允许没有配置,使用默认值
+        return true;
       }
-    }
-    return true;
-  },
-  {
-    message: 'PostgreSQL 仓储必须提供 pgsql 配置',
-  }
-);
+      // 如果类型是 pgsql，必须提供 pgsql 配置
+      if (data.type === "pgsql") {
+        if (!data.pgsql) {
+          return false;
+        }
+      }
+      return true;
+    },
+    {
+      message: "PostgreSQL 仓储必须提供 pgsql 配置",
+    },
+  );
 
 /**
  * 认证配置 Schema
@@ -148,7 +152,7 @@ export const AuthConfigSchema = z.object({
  * SQLite 适配器配置 Schema
  */
 export const SqliteAdapterConfigSchema = z.object({
-  dbPath: z.string().optional().default('./oidc.db'),
+  dbPath: z.string().optional().default("./oidc.db"),
 });
 
 /**
@@ -160,43 +164,45 @@ export const RedisAdapterConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).optional(),
   password: z.string().optional(),
   database: z.number().int().min(0).max(15).optional().default(0),
-  keyPrefix: z.string().optional().default('oidc:'),
+  keyPrefix: z.string().optional().default("oidc:"),
 });
 
 /**
  * OIDC 适配器配置 Schema
  */
-export const OidcAdapterConfigSchema = z.object({
-  type: z.enum(['sqlite', 'redis', 'memory'], {
-    message: '适配器类型必须是 sqlite、redis 或 memory',
-  }),
-  sqlite: SqliteAdapterConfigSchema.optional(),
-  redis: RedisAdapterConfigSchema.optional(),
-}).refine(
-  (data) => {
-    // 如果类型是 redis，必须提供 redis 配置
-    if (data.type === 'redis') {
-      if (!data.redis) {
-        return false;
+export const OidcAdapterConfigSchema = z
+  .object({
+    type: z.enum(["sqlite", "redis", "memory"], {
+      message: "适配器类型必须是 sqlite、redis 或 memory",
+    }),
+    sqlite: SqliteAdapterConfigSchema.optional(),
+    redis: RedisAdapterConfigSchema.optional(),
+  })
+  .refine(
+    (data) => {
+      // 如果类型是 redis，必须提供 redis 配置
+      if (data.type === "redis") {
+        if (!data.redis) {
+          return false;
+        }
+        // 必须提供 url 或 host
+        if (!data.redis.url && !data.redis.host) {
+          return false;
+        }
       }
-      // 必须提供 url 或 host
-      if (!data.redis.url && !data.redis.host) {
-        return false;
-      }
-    }
-    return true;
-  },
-  {
-    message: 'Redis 适配器必须提供 redis 配置，且必须包含 url 或 host',
-  }
-);
+      return true;
+    },
+    {
+      message: "Redis 适配器必须提供 redis 配置，且必须包含 url 或 host",
+    },
+  );
 
 /**
  * JWKS 配置 Schema
  */
 export const JwksConfigSchema = z.object({
-  filePath: z.string().optional().default('./jwks.json'),
-  keyId: z.string().optional().default('default-key'),
+  filePath: z.string().optional().default("./jwks.json"),
+  keyId: z.string().optional().default("default-key"),
 });
 
 /**
@@ -206,17 +212,17 @@ export const GiteaOidcConfigSchema = z.object({
   server: ServerConfigSchema,
   logging: LoggingConfigSchema,
   oidc: OidcConfigSchema,
-  clients: z.array(ClientConfigSchema).min(1, '至少需要配置一个客户端'),
+  clients: z.array(ClientConfigSchema).min(1, "至少需要配置一个客户端"),
   auth: AuthConfigSchema,
   adapter: OidcAdapterConfigSchema.optional().default({
-    type: 'sqlite',
+    type: "sqlite",
     sqlite: {
-      dbPath: './oidc.db',
+      dbPath: "./oidc.db",
     },
   }),
   jwks: JwksConfigSchema.optional().default({
-    filePath: './jwks.json',
-    keyId: 'default-key',
+    filePath: "./jwks.json",
+    keyId: "default-key",
   }),
 });
 

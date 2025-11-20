@@ -1,5 +1,7 @@
 {
-  "cSpell.words": [
-    "Gitea"
-  ]
+  "cSpell.words": ["Gitea"],
+  "editor.codeActionsOnSave": {
+    "source.organizeImports.biome": "explicit",
+    "source.fixAll.biome": "explicit"
+  }
 }

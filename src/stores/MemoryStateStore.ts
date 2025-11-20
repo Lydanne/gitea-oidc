@@ -3,8 +3,8 @@
  * 用于开发和测试环境
  */
 
-import type { StateStore } from '../types/auth';
-import { Logger } from '../utils/Logger';
+import type { StateStore } from "../types/auth";
+import { Logger } from "../utils/Logger";
 
 interface StateEntry {
   data: any;
@@ -14,11 +14,11 @@ interface StateEntry {
 export class MemoryStateStore implements StateStore {
   private states = new Map<string, StateEntry>();
   private cleanupInterval?: NodeJS.Timeout;
-  
+
   // 配置参数
   private readonly maxSize: number;
   private readonly cleanupIntervalMs: number;
-  
+
   // 统计信息
   private stats = {
     hits: 0,
@@ -27,13 +27,15 @@ export class MemoryStateStore implements StateStore {
     evicted: 0,
   };
 
-  constructor(options: {
-    maxSize?: number;           // 最大存储数量，默认10000
-    cleanupIntervalMs?: number; // 清理间隔，默认60000ms
-  } = {}) {
+  constructor(
+    options: {
+      maxSize?: number; // 最大存储数量，默认10000
+      cleanupIntervalMs?: number; // 清理间隔，默认60000ms
+    } = {},
+  ) {
     this.maxSize = options.maxSize || 10000;
     this.cleanupIntervalMs = options.cleanupIntervalMs || 60000;
-    
+
     // 定期清理过期的 state
     this.cleanupInterval = setInterval(() => {
       this.cleanup();
@@ -44,31 +46,35 @@ export class MemoryStateStore implements StateStore {
     // 检查内存限制，必要时清理过期数据
     if (this.states.size >= this.maxSize) {
       await this.cleanup();
-      
+
       // 如果仍然超过限制，使用LRU策略清理
       if (this.states.size >= this.maxSize) {
         await this.evictOldest();
       }
     }
-    
+
     const expiresAt = Date.now() + ttl * 1000;
     this.states.set(state, { data, expiresAt });
-    
-    if (process.env.NODE_ENV === 'development') {
-      Logger.debug(`[MemoryStateStore] Stored state: ${state.substring(0, 8)}..., type: ${this.getDataType(data)}, total: ${this.states.size}/${this.maxSize}`);
+
+    if (process.env.NODE_ENV === "development") {
+      Logger.debug(
+        `[MemoryStateStore] Stored state: ${state.substring(0, 8)}..., type: ${this.getDataType(data)}, total: ${this.states.size}/${this.maxSize}`,
+      );
     }
   }
 
   async get(state: string): Promise<any> {
-    if (process.env.NODE_ENV === 'development') {
-      Logger.debug(`[MemoryStateStore] Getting state: ${state.substring(0, 8)}..., total: ${this.states.size}`);
+    if (process.env.NODE_ENV === "development") {
+      Logger.debug(
+        `[MemoryStateStore] Getting state: ${state.substring(0, 8)}..., total: ${this.states.size}`,
+      );
     }
-    
+
     const entry = this.states.get(state);
-    
+
     if (!entry) {
       this.stats.misses++;
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV === "development") {
         Logger.debug(`[MemoryStateStore] State not found: ${state.substring(0, 8)}...`);
       }
       return null;
@@ -78,15 +84,17 @@ export class MemoryStateStore implements StateStore {
     if (Date.now() > entry.expiresAt) {
       this.stats.expired++;
       this.states.delete(state);
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV === "development") {
         Logger.debug(`[MemoryStateStore] State expired: ${state.substring(0, 8)}...`);
       }
       return null;
     }
 
     this.stats.hits++;
-    if (process.env.NODE_ENV === 'development') {
-      Logger.debug(`[MemoryStateStore] State found: ${state.substring(0, 8)}..., type: ${this.getDataType(entry.data)}`);
+    if (process.env.NODE_ENV === "development") {
+      Logger.debug(
+        `[MemoryStateStore] State found: ${state.substring(0, 8)}..., type: ${this.getDataType(entry.data)}`,
+      );
     }
     return entry.data;
   }
@@ -94,9 +102,11 @@ export class MemoryStateStore implements StateStore {
   async delete(state: string): Promise<void> {
     const existed = this.states.has(state);
     this.states.delete(state);
-    
-    if (process.env.NODE_ENV === 'development') {
-      Logger.debug(`[MemoryStateStore] Deleted state: ${state.substring(0, 8)}..., existed: ${existed}, remaining: ${this.states.size}`);
+
+    if (process.env.NODE_ENV === "development") {
+      Logger.debug(
+        `[MemoryStateStore] Deleted state: ${state.substring(0, 8)}..., existed: ${existed}, remaining: ${this.states.size}`,
+      );
     }
   }
 
@@ -196,7 +206,7 @@ export class MemoryStateStore implements StateStore {
 
     for (const [state, entry] of this.states.entries()) {
       result.push({
-        state: state.substring(0, 16) + '...',
+        state: `${state.substring(0, 16)}...`,
         type: this.getDataType(entry.data),
         age: now - (entry.data.createdAt || entry.data.timestamp || 0),
         data: entry.data,
@@ -210,19 +220,19 @@ export class MemoryStateStore implements StateStore {
    * 获取数据的类型描述
    */
   private getDataType(data: any): string {
-    if (!data) return 'null';
+    if (!data) return "null";
 
-    if (typeof data === 'object') {
-      if ('type' in data) {
+    if (typeof data === "object") {
+      if ("type" in data) {
         return data.type;
       }
-      if ('provider' in data) {
-        return 'oauth_state';
+      if ("provider" in data) {
+        return "oauth_state";
       }
-      if ('userId' in data) {
-        return 'auth_result';
+      if ("userId" in data) {
+        return "auth_result";
       }
-      return 'object';
+      return "object";
     }
 
     return typeof data;

@@ -1,13 +1,12 @@
 /**
  * Redis OIDC 适配器
- * 
+ *
  * 使用 Redis 作为 OIDC Provider 的持久化存储
  * 适合高并发和分布式部署场景
  */
 
-import { createClient } from 'redis';
-import type { RedisClientType } from 'redis';
-import { Adapter } from 'oidc-provider';
+import type { Adapter } from "oidc-provider";
+import { createClient } from "redis";
 
 export interface RedisOidcAdapterOptions {
   /**
@@ -16,30 +15,30 @@ export interface RedisOidcAdapterOptions {
    * 示例: redis://localhost:6379
    */
   url?: string;
-  
+
   /**
    * Redis 主机地址
    * @default 'localhost'
    */
   host?: string;
-  
+
   /**
    * Redis 端口
    * @default 6379
    */
   port?: number;
-  
+
   /**
    * Redis 密码
    */
   password?: string;
-  
+
   /**
    * Redis 数据库编号
    * @default 0
    */
   database?: number;
-  
+
   /**
    * 键前缀
    * @default 'oidc:'
@@ -55,8 +54,8 @@ export class RedisOidcAdapter implements Adapter {
 
   constructor(name: string, options: RedisOidcAdapterOptions = {}) {
     this.name = name;
-    this.keyPrefix = options.keyPrefix || 'oidc:';
-    
+    this.keyPrefix = options.keyPrefix || "oidc:";
+
     // 确保 Redis 客户端已初始化
     if (!RedisOidcAdapter.client && !RedisOidcAdapter.clientPromise) {
       RedisOidcAdapter.clientPromise = this.initializeClient(options);
@@ -70,19 +69,19 @@ export class RedisOidcAdapter implements Adapter {
     const client = createClient({
       url: options.url,
       socket: {
-        host: options.host || 'localhost',
+        host: options.host || "localhost",
         port: options.port || 6379,
       },
       password: options.password,
       database: options.database || 0,
     });
 
-    client.on('error', (err: Error) => {
-      console.error('[RedisOidcAdapter] Redis Client Error:', err);
+    client.on("error", (err: Error) => {
+      console.error("[RedisOidcAdapter] Redis Client Error:", err);
     });
 
-    client.on('connect', () => {
-      console.log('[RedisOidcAdapter] Redis Client Connected');
+    client.on("connect", () => {
+      console.log("[RedisOidcAdapter] Redis Client Connected");
     });
 
     await client.connect();
@@ -97,12 +96,12 @@ export class RedisOidcAdapter implements Adapter {
     if (RedisOidcAdapter.client) {
       return RedisOidcAdapter.client;
     }
-    
+
     if (RedisOidcAdapter.clientPromise) {
       return await RedisOidcAdapter.clientPromise;
     }
-    
-    throw new Error('Redis client not initialized');
+
+    throw new Error("Redis client not initialized");
   }
 
   /**
@@ -191,7 +190,7 @@ export class RedisOidcAdapter implements Adapter {
     try {
       return JSON.parse(value);
     } catch (err) {
-      console.error('[RedisOidcAdapter] JSON parse error:', err);
+      console.error("[RedisOidcAdapter] JSON parse error:", err);
       return undefined;
     }
   }
@@ -232,7 +231,7 @@ export class RedisOidcAdapter implements Adapter {
   async consume(id: string): Promise<any> {
     const client = await this.getClient();
     const key = this.key(id);
-    
+
     // 获取当前值
     const value = await client.get(key);
     if (!value) {
@@ -243,7 +242,7 @@ export class RedisOidcAdapter implements Adapter {
     try {
       payload = JSON.parse(value);
     } catch (err) {
-      console.error('[RedisOidcAdapter] JSON parse error:', err);
+      console.error("[RedisOidcAdapter] JSON parse error:", err);
       return undefined;
     }
 
@@ -254,10 +253,10 @@ export class RedisOidcAdapter implements Adapter {
 
     // 标记为已消费
     payload.consumed = Math.floor(Date.now() / 1000);
-    
+
     // 获取剩余 TTL
     const ttl = await client.ttl(key);
-    
+
     // 更新值
     const newValue = JSON.stringify(payload);
     if (ttl > 0) {
@@ -274,10 +273,10 @@ export class RedisOidcAdapter implements Adapter {
    */
   async destroy(id: string): Promise<void> {
     const client = await this.getClient();
-    
+
     // 获取 payload 以清理索引
     const payload = await this.find(id);
-    
+
     // 删除主键
     const key = this.key(id);
     await client.del(key);
@@ -303,24 +302,24 @@ export class RedisOidcAdapter implements Adapter {
   async revokeByGrantId(grantId: string): Promise<void> {
     const client = await this.getClient();
     const grantIdKey = this.grantIdKey(grantId);
-    
+
     // 获取所有关联的 ID
     const ids = await client.sMembers(grantIdKey);
-    
+
     if (ids.length === 0) {
       return;
     }
 
     // 删除所有关联的记录
     const pipeline = client.multi();
-    
+
     for (const id of ids) {
       pipeline.del(this.key(id));
     }
-    
+
     // 删除 grantId 索引
     pipeline.del(grantIdKey);
-    
+
     await pipeline.exec();
   }
 
@@ -333,7 +332,7 @@ export class RedisOidcAdapter implements Adapter {
       await RedisOidcAdapter.client.quit();
       RedisOidcAdapter.client = null;
       RedisOidcAdapter.clientPromise = null;
-      console.log('[RedisOidcAdapter] Redis Client Disconnected');
+      console.log("[RedisOidcAdapter] Redis Client Disconnected");
     }
   }
 }

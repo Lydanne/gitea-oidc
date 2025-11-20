@@ -1,7 +1,7 @@
-import { Pool } from 'pg';
-import { randomUUID } from 'crypto';
-import { generateUserId } from '../utils/userIdGenerator';
-import type { UserRepository, UserInfo, ListOptions } from '../types/auth';
+import { randomUUID } from "crypto";
+import { Pool } from "pg";
+import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
+import { generateUserId } from "../utils/userIdGenerator";
 
 export class PgsqlUserRepository implements UserRepository {
   private pool: Pool;
@@ -11,7 +11,7 @@ export class PgsqlUserRepository implements UserRepository {
       connectionString: uri,
       // 连接池配置
       max: 20, // 最大连接数
-      min: 2,  // 最小连接数
+      min: 2, // 最小连接数
       idleTimeoutMillis: 30000, // 空闲连接超时
       connectionTimeoutMillis: 2000, // 连接超时
     });
@@ -97,7 +97,7 @@ export class PgsqlUserRepository implements UserRepository {
   async findById(sub: string): Promise<UserInfo | null> {
     const client = await this.pool.connect();
     try {
-      const result = await client.query('SELECT * FROM users WHERE sub = $1', [sub]);
+      const result = await client.query("SELECT * FROM users WHERE sub = $1", [sub]);
       return result.rows.length > 0 ? this.userFromRow(result.rows[0]) : null;
     } finally {
       client.release();
@@ -107,7 +107,7 @@ export class PgsqlUserRepository implements UserRepository {
   async findByUsername(username: string): Promise<UserInfo | null> {
     const client = await this.pool.connect();
     try {
-      const result = await client.query('SELECT * FROM users WHERE username = $1', [username]);
+      const result = await client.query("SELECT * FROM users WHERE username = $1", [username]);
       return result.rows.length > 0 ? this.userFromRow(result.rows[0]) : null;
     } finally {
       client.release();
@@ -117,7 +117,7 @@ export class PgsqlUserRepository implements UserRepository {
   async findByEmail(email: string): Promise<UserInfo | null> {
     const client = await this.pool.connect();
     try {
-      const result = await client.query('SELECT * FROM users WHERE email = $1', [email]);
+      const result = await client.query("SELECT * FROM users WHERE email = $1", [email]);
       return result.rows.length > 0 ? this.userFromRow(result.rows[0]) : null;
     } finally {
       client.release();
@@ -126,7 +126,7 @@ export class PgsqlUserRepository implements UserRepository {
 
   async findByProviderAndExternalId(
     provider: string,
-    externalId: string
+    externalId: string,
   ): Promise<UserInfo | null> {
     const client = await this.pool.connect();
     try {
@@ -145,7 +145,7 @@ export class PgsqlUserRepository implements UserRepository {
   async findOrCreate(
     provider: string,
     externalId: string,
-    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'>
+    userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider">,
   ): Promise<UserInfo> {
     const existingUser = await this.findByProviderAndExternalId(provider, externalId);
 
@@ -159,7 +159,7 @@ export class PgsqlUserRepository implements UserRepository {
     }
 
     // 创建新用户
-    const userToCreate: Omit<UserInfo, 'sub'> = {
+    const userToCreate: Omit<UserInfo, "sub"> = {
       ...userData,
       authProvider: provider,
       externalId: externalId,
@@ -170,13 +170,14 @@ export class PgsqlUserRepository implements UserRepository {
     return await this.create(userToCreate);
   }
 
-  async create(userData: Omit<UserInfo, 'sub'>): Promise<UserInfo> {
+  async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
     const now = new Date();
 
     // 如果提供了 authProvider 和 externalId，使用哈希生成确定性的 sub
-    const sub = userData.authProvider && userData.externalId
-      ? generateUserId(userData.authProvider, userData.externalId)
-      : randomUUID();
+    const sub =
+      userData.authProvider && userData.externalId
+        ? generateUserId(userData.authProvider, userData.externalId)
+        : randomUUID();
 
     const user: UserInfo = {
       ...userData,
@@ -197,9 +198,20 @@ export class PgsqlUserRepository implements UserRepository {
     const client = await this.pool.connect();
     try {
       await client.query(sql, [
-        row.sub, row.username, row.name, row.email, row.picture, row.phone, row.authProvider,
-        row.externalId, row.emailVerified, row.phoneVerified, row.groups,
-        row.createdAt, row.updatedAt, row.metadata
+        row.sub,
+        row.username,
+        row.name,
+        row.email,
+        row.picture,
+        row.phone,
+        row.authProvider,
+        row.externalId,
+        row.emailVerified,
+        row.phoneVerified,
+        row.groups,
+        row.createdAt,
+        row.updatedAt,
+        row.metadata,
       ]);
       return user;
     } finally {
@@ -233,10 +245,19 @@ export class PgsqlUserRepository implements UserRepository {
     const client = await this.pool.connect();
     try {
       await client.query(sql, [
-        row.username, row.name, row.email, row.picture, row.phone, row.authProvider,
+        row.username,
+        row.name,
+        row.email,
+        row.picture,
+        row.phone,
+        row.authProvider,
         row.externalId,
-        row.emailVerified, row.phoneVerified, row.groups, row.updatedAt, row.metadata,
-        sub
+        row.emailVerified,
+        row.phoneVerified,
+        row.groups,
+        row.updatedAt,
+        row.metadata,
+        sub,
       ]);
       return updatedUser;
     } finally {
@@ -247,14 +268,14 @@ export class PgsqlUserRepository implements UserRepository {
   async delete(sub: string): Promise<void> {
     const client = await this.pool.connect();
     try {
-      await client.query('DELETE FROM users WHERE sub = $1', [sub]);
+      await client.query("DELETE FROM users WHERE sub = $1", [sub]);
     } finally {
       client.release();
     }
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
-    let sql = 'SELECT * FROM users';
+    let sql = "SELECT * FROM users";
     const params: any[] = [];
     let paramIndex = 1;
 
@@ -262,8 +283,8 @@ export class PgsqlUserRepository implements UserRepository {
     const conditions: string[] = [];
     if (options?.filter) {
       for (const [key, value] of Object.entries(options.filter)) {
-        if (['username', 'name', 'email', 'authProvider'].includes(key)) {
-          const columnName = key === 'authProvider' ? '"authProvider"' : key;
+        if (["username", "name", "email", "authProvider"].includes(key)) {
+          const columnName = key === "authProvider" ? '"authProvider"' : key;
           conditions.push(`${columnName} = $${paramIndex++}`);
           params.push(value);
         }
@@ -271,13 +292,13 @@ export class PgsqlUserRepository implements UserRepository {
     }
 
     if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ');
+      sql += ` WHERE ${conditions.join(" AND ")}`;
     }
 
     // 排序
     if (options?.sortBy) {
-      const sortBy = options.sortBy === 'authProvider' ? '"authProvider"' : options.sortBy;
-      const sortOrder = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
+      const sortBy = options.sortBy === "authProvider" ? '"authProvider"' : options.sortBy;
+      const sortOrder = options.sortOrder === "desc" ? "DESC" : "ASC";
       sql += ` ORDER BY ${sortBy} ${sortOrder}`;
     }
 
@@ -294,7 +315,7 @@ export class PgsqlUserRepository implements UserRepository {
     const client = await this.pool.connect();
     try {
       const result = await client.query(sql, params);
-      return result.rows.map(row => this.userFromRow(row));
+      return result.rows.map((row) => this.userFromRow(row));
     } finally {
       client.release();
     }
@@ -303,7 +324,7 @@ export class PgsqlUserRepository implements UserRepository {
   async clear(): Promise<void> {
     const client = await this.pool.connect();
     try {
-      await client.query('DELETE FROM users');
+      await client.query("DELETE FROM users");
     } finally {
       client.release();
     }
@@ -315,7 +336,7 @@ export class PgsqlUserRepository implements UserRepository {
   async size(): Promise<number> {
     const client = await this.pool.connect();
     try {
-      const result = await client.query('SELECT COUNT(*) as count FROM users');
+      const result = await client.query("SELECT COUNT(*) as count FROM users");
       return parseInt(result.rows[0].count, 10);
     } finally {
       client.release();

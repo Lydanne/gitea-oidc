@@ -3,9 +3,9 @@
  * 用于开发和测试环境
  */
 
-import type { UserRepository, UserInfo, ListOptions } from '../types/auth';
-import { randomUUID } from 'crypto';
-import { generateUserId } from '../utils/userIdGenerator';
+import { randomUUID } from "crypto";
+import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
+import { generateUserId } from "../utils/userIdGenerator";
 
 export class MemoryUserRepository implements UserRepository {
   private users = new Map<string, UserInfo>();
@@ -35,11 +35,11 @@ export class MemoryUserRepository implements UserRepository {
 
   async findByProviderAndExternalId(
     provider: string,
-    externalId: string
+    externalId: string,
   ): Promise<UserInfo | null> {
     const key = `${provider}:${externalId}`;
     const userId = this.providerIndex.get(key);
-    
+
     if (!userId) {
       return null;
     }
@@ -54,10 +54,10 @@ export class MemoryUserRepository implements UserRepository {
   async findOrCreate(
     provider: string,
     externalId: string,
-    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'>
+    userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider">,
   ): Promise<UserInfo> {
     const key = `${provider}:${externalId}`;
-    
+
     // 先尝试查找
     const existingUserId = this.providerIndex.get(key);
     if (existingUserId) {
@@ -89,14 +89,15 @@ export class MemoryUserRepository implements UserRepository {
     return user;
   }
 
-  async create(userData: Omit<UserInfo, 'sub'>): Promise<UserInfo> {
+  async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
     const now = new Date();
-    
+
     // 如果提供了 authProvider 和 externalId，使用哈希生成确定性的 sub
-    const sub = userData.authProvider && userData.externalId
-      ? generateUserId(userData.authProvider, userData.externalId)
-      : randomUUID();
-    
+    const sub =
+      userData.authProvider && userData.externalId
+        ? generateUserId(userData.authProvider, userData.externalId)
+        : randomUUID();
+
     const user: UserInfo = {
       ...userData,
       sub,
@@ -118,7 +119,7 @@ export class MemoryUserRepository implements UserRepository {
 
   async update(userId: string, updates: Partial<UserInfo>): Promise<UserInfo> {
     const user = this.users.get(userId);
-    
+
     if (!user) {
       throw new Error(`User not found: ${userId}`);
     }
@@ -145,7 +146,7 @@ export class MemoryUserRepository implements UserRepository {
 
   async delete(userId: string): Promise<void> {
     const user = this.users.get(userId);
-    
+
     if (user) {
       // 清理索引
       if (user.externalId) {
@@ -162,7 +163,7 @@ export class MemoryUserRepository implements UserRepository {
 
     // 过滤
     if (options?.filter) {
-      users = users.filter(user => {
+      users = users.filter((user) => {
         for (const [key, value] of Object.entries(options.filter!)) {
           if ((user as any)[key] !== value) {
             return false;
@@ -175,14 +176,14 @@ export class MemoryUserRepository implements UserRepository {
     // 排序
     if (options?.sortBy) {
       const sortBy = options.sortBy;
-      const sortOrder = options.sortOrder || 'asc';
-      
+      const sortOrder = options.sortOrder || "asc";
+
       users.sort((a, b) => {
         const aVal = (a as any)[sortBy];
         const bVal = (b as any)[sortBy];
-        
-        if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
-        if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+
+        if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
         return 0;
       });
     }

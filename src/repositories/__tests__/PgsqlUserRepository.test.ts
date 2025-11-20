@@ -2,9 +2,9 @@
  * PgsqlUserRepository 单元测试
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ListOptions, UserInfo } from '../../types/auth';
-import { PgsqlUserRepository } from '../PgsqlUserRepository';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ListOptions, UserInfo } from "../../types/auth";
+import { PgsqlUserRepository } from "../PgsqlUserRepository";
 
 type QueryResponder = (sql: string, params: any[]) => Promise<any> | any;
 
@@ -18,11 +18,7 @@ const mockPool = {
   end: vi.fn(async () => {}),
 };
 
-const mockPoolConstructor = vi.fn(function () {
-  return mockPool;
-});
-
-vi.mock('pg', () => ({
+vi.mock("pg", () => ({
   Pool: class {
     constructor() {
       return mockPool;
@@ -44,29 +40,29 @@ const setupNextClient = (responder?: QueryResponder): MockClient => {
   return client;
 };
 
-const baseUserData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'> = {
-  username: 'pgsql-user',
-  name: 'Pgsql User',
-  email: 'pg@example.com',
-  picture: 'https://example.com/avatar.png',
-  phone: '+19876543210',
-  authProvider: 'local',
+const baseUserData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt"> = {
+  username: "pgsql-user",
+  name: "Pgsql User",
+  email: "pg@example.com",
+  picture: "https://example.com/avatar.png",
+  phone: "+19876543210",
+  authProvider: "local",
   emailVerified: true,
   phoneVerified: false,
-  groups: ['users'],
-  externalId: 'ext123',
-  metadata: { role: 'user' },
+  groups: ["users"],
+  externalId: "ext123",
+  metadata: { role: "user" },
 };
 
 const stripUserData = (
-  user: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt'>
-): Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'> => {
+  user: Omit<UserInfo, "sub" | "createdAt" | "updatedAt">,
+): Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"> => {
   const { authProvider: _provider, externalId: _externalId, ...rest } = user;
   return rest;
 };
 
 const createRow = (override: Partial<Record<string, any>> = {}) => ({
-  sub: 'existing-user',
+  sub: "existing-user",
   username: baseUserData.username,
   name: baseUserData.name,
   email: baseUserData.email,
@@ -77,8 +73,8 @@ const createRow = (override: Partial<Record<string, any>> = {}) => ({
   emailVerified: 1,
   phoneVerified: 0,
   groups: baseUserData.groups,
-  createdAt: new Date('2025-01-01T00:00:00Z'),
-  updatedAt: new Date('2025-01-02T00:00:00Z'),
+  createdAt: new Date("2025-01-01T00:00:00Z"),
+  updatedAt: new Date("2025-01-02T00:00:00Z"),
   metadata: baseUserData.metadata,
   ...override,
 });
@@ -100,14 +96,14 @@ const expectedUserFromRow = (row: ReturnType<typeof createRow>): UserInfo => ({
   updatedAt: row.updatedAt,
 });
 
-describe('PgsqlUserRepository', () => {
+describe("PgsqlUserRepository", () => {
   let repository: PgsqlUserRepository;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     const initClient = setupNextClient();
-    repository = new PgsqlUserRepository('postgresql://localhost/test');
-    await new Promise(resolve => setImmediate(resolve));
+    repository = new PgsqlUserRepository("postgresql://localhost/test");
+    await new Promise((resolve) => setImmediate(resolve));
     expect(initClient.query).toHaveBeenCalled();
     expect(initClient.release).toHaveBeenCalled();
   });
@@ -119,7 +115,7 @@ describe('PgsqlUserRepository', () => {
     expect(mockPool.end).toHaveBeenCalled();
   });
 
-  it('should create a user and send expected parameters', async () => {
+  it("should create a user and send expected parameters", async () => {
     const insertClient = setupNextClient();
 
     const created = await repository.create(baseUserData);
@@ -127,32 +123,32 @@ describe('PgsqlUserRepository', () => {
     expect(created).toMatchObject(baseUserData);
     expect(created.sub).toBeDefined();
     const [sql, params] = insertClient.query.mock.calls[0];
-    expect(sql).toContain('INSERT INTO users');
+    expect(sql).toContain("INSERT INTO users");
     expect(params[1]).toBe(baseUserData.username);
     expect(params[7]).toEqual(baseUserData.externalId);
     expect(params[13]).toEqual(baseUserData.metadata);
     expect(insertClient.release).toHaveBeenCalled();
   });
 
-  describe('findBy* methods', () => {
+  describe("findBy* methods", () => {
     const findCases = [
       {
-        name: 'findById',
+        name: "findById",
         method: (repo: PgsqlUserRepository, value: string) => repo.findById(value),
-        field: 'sub',
-        sqlSnippet: 'WHERE sub = $1',
+        field: "sub",
+        sqlSnippet: "WHERE sub = $1",
       },
       {
-        name: 'findByUsername',
+        name: "findByUsername",
         method: (repo: PgsqlUserRepository, value: string) => repo.findByUsername(value),
-        field: 'username',
-        sqlSnippet: 'WHERE username = $1',
+        field: "username",
+        sqlSnippet: "WHERE username = $1",
       },
       {
-        name: 'findByEmail',
+        name: "findByEmail",
         method: (repo: PgsqlUserRepository, value: string) => repo.findByEmail(value),
-        field: 'email',
-        sqlSnippet: 'WHERE email = $1',
+        field: "email",
+        sqlSnippet: "WHERE email = $1",
       },
     ] as const;
 
@@ -164,7 +160,7 @@ describe('PgsqlUserRepository', () => {
         const result = await method(repository, row[field]);
 
         expect(result).toEqual(expectedUserFromRow(row));
-        expect(client.query.mock.calls[0][0].replace(/\s+/g, ' ')).toContain(sqlSnippet);
+        expect(client.query.mock.calls[0][0].replace(/\s+/g, " ")).toContain(sqlSnippet);
         expect(client.query.mock.calls[0][1]).toEqual([row[field]]);
         expect(client.release).toHaveBeenCalled();
       });
@@ -172,7 +168,7 @@ describe('PgsqlUserRepository', () => {
       it(`should return null when ${name} misses`, async () => {
         const client = setupNextClient(() => ({ rows: [] }));
 
-        const result = await method(repository, 'missing-value');
+        const result = await method(repository, "missing-value");
 
         expect(result).toBeNull();
         expect(client.release).toHaveBeenCalled();
@@ -180,45 +176,45 @@ describe('PgsqlUserRepository', () => {
     });
   });
 
-  it('should find user by provider and external sub', async () => {
+  it("should find user by provider and external sub", async () => {
     const row = createRow();
     const client = setupNextClient(() => ({ rows: [row] }));
 
-    const result = await repository.findByProviderAndExternalId('local', 'ext123');
+    const result = await repository.findByProviderAndExternalId("local", "ext123");
 
     expect(result).toEqual(expectedUserFromRow(row));
     expect(client.query.mock.calls[0][0]).toContain('"externalId" = $2');
-    expect(client.query.mock.calls[0][1]).toEqual(['local', 'ext123']);
+    expect(client.query.mock.calls[0][1]).toEqual(["local", "ext123"]);
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('should return null when provider external sub misses', async () => {
+  it("should return null when provider external sub misses", async () => {
     const client = setupNextClient(() => ({ rows: [] }));
 
-    const result = await repository.findByProviderAndExternalId('local', 'missing');
+    const result = await repository.findByProviderAndExternalId("local", "missing");
 
     expect(result).toBeNull();
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('should create a user via findOrCreate when missing and attach externalId', async () => {
+  it("should create a user via findOrCreate when missing and attach externalId", async () => {
     const finderClient = setupNextClient(() => ({ rows: [] }));
     const insertClient = setupNextClient();
 
     const created = await repository.findOrCreate(
-      'local',
-      'new-external',
-      stripUserData(baseUserData)
+      "local",
+      "new-external",
+      stripUserData(baseUserData),
     );
 
-    expect(created.externalId).toBe('new-external');
+    expect(created.externalId).toBe("new-external");
     expect(created.metadata).toEqual(baseUserData.metadata);
     expect(finderClient.release).toHaveBeenCalled();
     expect(insertClient.release).toHaveBeenCalled();
     expect(insertClient.query.mock.calls[0][1][13]).toEqual(baseUserData.metadata);
   });
 
-  it('should reuse existing user via findOrCreate when present', async () => {
+  it("should reuse existing user via findOrCreate when present", async () => {
     const row = createRow();
     // findOrCreate 现在会调用 update，update 会先 findById 再执行 UPDATE
     // 1. findByProviderAndExternalId
@@ -228,7 +224,7 @@ describe('PgsqlUserRepository', () => {
     // 3. update -> UPDATE query
     const updateClient = setupNextClient(() => ({ rows: [] }));
 
-    const result = await repository.findOrCreate('local', 'ext123', stripUserData(baseUserData));
+    const result = await repository.findOrCreate("local", "ext123", stripUserData(baseUserData));
 
     expect(result.sub).toEqual(row.sub);
     expect(result.username).toEqual(row.username);
@@ -238,81 +234,92 @@ describe('PgsqlUserRepository', () => {
     expect(updateClient.release).toHaveBeenCalled();
   });
 
-  it('should update an existing user and keep metadata', async () => {
+  it("should update an existing user and keep metadata", async () => {
     const existing = createRow();
     const finderClient = setupNextClient(() => ({ rows: [existing] }));
     const updateClient = setupNextClient();
 
     const updated = await repository.update(existing.sub, {
-      name: 'Updated Name',
-      metadata: { role: 'admin' },
+      name: "Updated Name",
+      metadata: { role: "admin" },
     });
 
-    expect(updated.name).toBe('Updated Name');
-    expect(updated.metadata).toEqual({ role: 'admin' });
-    expect(updateClient.query.mock.calls[0][0]).toContain('UPDATE users SET');
-    expect(updateClient.query.mock.calls[0][1][1]).toBe('Updated Name');
-    expect(updateClient.query.mock.calls[0][1][11]).toEqual({ role: 'admin' });
+    expect(updated.name).toBe("Updated Name");
+    expect(updated.metadata).toEqual({ role: "admin" });
+    expect(updateClient.query.mock.calls[0][0]).toContain("UPDATE users SET");
+    expect(updateClient.query.mock.calls[0][1][1]).toBe("Updated Name");
+    expect(updateClient.query.mock.calls[0][1][11]).toEqual({ role: "admin" });
     expect(updateClient.query.mock.calls[0][1][12]).toBe(existing.sub);
     expect(finderClient.release).toHaveBeenCalled();
     expect(updateClient.release).toHaveBeenCalled();
   });
 
-  it('should throw when updating a missing user', async () => {
+  it("should throw when updating a missing user", async () => {
     const finderClient = setupNextClient(() => ({ rows: [] }));
 
-    await expect(repository.update('missing-sub', { name: 'X' })).rejects.toThrow(
-      'User not found: missing-sub'
+    await expect(repository.update("missing-sub", { name: "X" })).rejects.toThrow(
+      "User not found: missing-sub",
     );
 
     expect(finderClient.release).toHaveBeenCalled();
   });
 
-  it('should list users with filters, sort and pagination', async () => {
+  it("should list users with filters, sort and pagination", async () => {
     const rows = [
-      createRow({ sub: 'a', username: 'alice' }),
-      createRow({ sub: 'b', username: 'bob' }),
+      createRow({ sub: "a", username: "alice" }),
+      createRow({ sub: "b", username: "bob" }),
     ];
     const client = setupNextClient(() => ({ rows }));
     const options: ListOptions = {
-      filter: { username: 'alice', authProvider: 'local' },
-      sortBy: 'username',
-      sortOrder: 'desc',
+      filter: { username: "alice", authProvider: "local" },
+      sortBy: "username",
+      sortOrder: "desc",
       limit: 2,
       offset: 1,
     };
 
     const users = await repository.list(options);
 
-    expect(client.query.mock.calls[0][0].replace(/\s+/g, ' ')).toContain(
-      'WHERE username = $1 AND "authProvider" = $2'
+    expect(client.query.mock.calls[0][0].replace(/\s+/g, " ")).toContain(
+      'WHERE username = $1 AND "authProvider" = $2',
     );
-    expect(client.query.mock.calls[0][0]).toContain('ORDER BY username DESC');
-    expect(client.query.mock.calls[0][1]).toEqual(['alice', 'local', 2, 1]);
+    expect(client.query.mock.calls[0][0]).toContain("ORDER BY username DESC");
+    expect(client.query.mock.calls[0][1]).toEqual(["alice", "local", 2, 1]);
     expect(users).toEqual(rows.map(expectedUserFromRow));
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('should list users using name/email filters并按 provider 排序', async () => {
-    const rows = [createRow({ sub: 'c', username: 'charlie' })];
+  it("should list users using name/email filters并按 provider 排序", async () => {
+    const rows = [createRow({ sub: "c", username: "charlie" })];
     const client = setupNextClient(() => ({ rows }));
     const options: ListOptions = {
-      filter: { name: 'Pgsql User', email: 'pg@example.com', authProvider: 'local' },
-      sortBy: 'authProvider',
-      sortOrder: 'asc',
+      filter: {
+        name: "Pgsql User",
+        email: "pg@example.com",
+        authProvider: "local",
+      },
+      sortBy: "authProvider",
+      sortOrder: "asc",
     };
 
     const users = await repository.list(options);
 
-    const normalizedSql = client.query.mock.calls[0][0].replace(/\s+/g, ' ');
+    const normalizedSql = client.query.mock.calls[0][0].replace(/\s+/g, " ");
     expect(normalizedSql).toContain('WHERE name = $1 AND email = $2 AND "authProvider" = $3');
     expect(normalizedSql).toContain('ORDER BY "authProvider" ASC');
-    expect(client.query.mock.calls[0][1]).toEqual(['Pgsql User', 'pg@example.com', 'local']);
+    expect(client.query.mock.calls[0][1]).toEqual(["Pgsql User", "pg@example.com", "local"]);
     expect(users).toEqual(rows.map(expectedUserFromRow));
   });
 
-  it('should convert rows to user objects without optional flags', () => {
-    const row = createRow({ emailVerified: null, phoneVerified: undefined, picture: null, phone: null, metadata: null, groups: null });
+  it("should convert rows to user objects without optional flags", () => {
+    const row = createRow({
+      emailVerified: null,
+      phoneVerified: undefined,
+      picture: null,
+      phone: null,
+      metadata: null,
+      groups: null,
+    });
     const user = (repository as any).userFromRow(row);
 
     expect(user).toMatchObject({
@@ -321,22 +328,22 @@ describe('PgsqlUserRepository', () => {
       email: row.email,
       authProvider: row.authProvider,
     });
-    expect(user).not.toHaveProperty('emailVerified');
-    expect(user).not.toHaveProperty('phoneVerified');
+    expect(user).not.toHaveProperty("emailVerified");
+    expect(user).not.toHaveProperty("phoneVerified");
     expect(user.picture).toBeUndefined();
     expect(user.metadata).toBeUndefined();
     expect(user.groups).toBeUndefined();
   });
 
-  it('should convert user info to row structure with null fallbacks', () => {
+  it("should convert user info to row structure with null fallbacks", () => {
     const userInfo: UserInfo = {
-      sub: 'user-row',
-      username: 'row-user',
-      name: 'Row User',
-      email: 'row@example.com',
-      authProvider: 'local',
-      createdAt: new Date('2025-01-01T00:00:00Z'),
-      updatedAt: new Date('2025-01-01T00:00:00Z'),
+      sub: "user-row",
+      username: "row-user",
+      name: "Row User",
+      email: "row@example.com",
+      authProvider: "local",
+      createdAt: new Date("2025-01-01T00:00:00Z"),
+      updatedAt: new Date("2025-01-01T00:00:00Z"),
     } as UserInfo;
 
     const row = (repository as any).userToRow(userInfo);
@@ -349,30 +356,30 @@ describe('PgsqlUserRepository', () => {
     expect(row.metadata).toBeNull();
   });
 
-  it('should return parsed value from size()', async () => {
-    const client = setupNextClient(() => ({ rows: [{ count: '42' }] }));
+  it("should return parsed value from size()", async () => {
+    const client = setupNextClient(() => ({ rows: [{ count: "42" }] }));
 
     const count = await repository.size();
 
     expect(count).toBe(42);
-    expect(client.query).toHaveBeenCalledWith('SELECT COUNT(*) as count FROM users');
+    expect(client.query).toHaveBeenCalledWith("SELECT COUNT(*) as count FROM users");
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('should delete a user by sub', async () => {
+  it("should delete a user by sub", async () => {
     const client = setupNextClient();
-    await repository.delete('delete-sub');
+    await repository.delete("delete-sub");
 
-    expect(client.query).toHaveBeenCalledWith('DELETE FROM users WHERE sub = $1', ['delete-sub']);
+    expect(client.query).toHaveBeenCalledWith("DELETE FROM users WHERE sub = $1", ["delete-sub"]);
     expect(client.release).toHaveBeenCalled();
   });
 
-  it('should clear all users via clear()', async () => {
+  it("should clear all users via clear()", async () => {
     const client = setupNextClient();
 
     await repository.clear();
 
-    expect(client.query).toHaveBeenCalledWith('DELETE FROM users');
+    expect(client.query).toHaveBeenCalledWith("DELETE FROM users");
     expect(client.release).toHaveBeenCalled();
   });
 });

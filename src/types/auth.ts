@@ -1,43 +1,43 @@
 /**
  * 认证插件系统类型定义
- * 
+ *
  * 定义了认证插件系统的核心接口和类型
  */
 
-import type { FastifyRequest, FastifyReply, FastifyInstance, RouteOptions } from 'fastify';
+import type { FastifyReply, FastifyRequest, RouteOptions } from "fastify";
 
 /**
  * 认证错误码
  */
 export enum AuthErrorCode {
   // 通用错误 (1xxx)
-  UNKNOWN_ERROR = 'AUTH_1000',
-  INVALID_REQUEST = 'AUTH_1001',
-  MISSING_PARAMETER = 'AUTH_1002',
-  
+  UNKNOWN_ERROR = "AUTH_1000",
+  INVALID_REQUEST = "AUTH_1001",
+  MISSING_PARAMETER = "AUTH_1002",
+
   // 认证失败 (2xxx)
-  INVALID_CREDENTIALS = 'AUTH_2001',
-  USER_NOT_FOUND = 'AUTH_2002',
-  PASSWORD_INCORRECT = 'AUTH_2003',
-  ACCOUNT_LOCKED = 'AUTH_2004',
-  ACCOUNT_DISABLED = 'AUTH_2005',
-  
+  INVALID_CREDENTIALS = "AUTH_2001",
+  USER_NOT_FOUND = "AUTH_2002",
+  PASSWORD_INCORRECT = "AUTH_2003",
+  ACCOUNT_LOCKED = "AUTH_2004",
+  ACCOUNT_DISABLED = "AUTH_2005",
+
   // OAuth 错误 (3xxx)
-  INVALID_STATE = 'AUTH_3001',
-  STATE_EXPIRED = 'AUTH_3002',
-  OAUTH_CALLBACK_FAILED = 'AUTH_3003',
-  TOKEN_EXCHANGE_FAILED = 'AUTH_3004',
-  USERINFO_FETCH_FAILED = 'AUTH_3005',
-  
+  INVALID_STATE = "AUTH_3001",
+  STATE_EXPIRED = "AUTH_3002",
+  OAUTH_CALLBACK_FAILED = "AUTH_3003",
+  TOKEN_EXCHANGE_FAILED = "AUTH_3004",
+  USERINFO_FETCH_FAILED = "AUTH_3005",
+
   // 配置错误 (4xxx)
-  PROVIDER_NOT_FOUND = 'AUTH_4001',
-  PROVIDER_DISABLED = 'AUTH_4002',
-  INVALID_CONFIGURATION = 'AUTH_4003',
-  
+  PROVIDER_NOT_FOUND = "AUTH_4001",
+  PROVIDER_DISABLED = "AUTH_4002",
+  INVALID_CONFIGURATION = "AUTH_4003",
+
   // 系统错误 (5xxx)
-  INTERNAL_ERROR = 'AUTH_5001',
-  DATABASE_ERROR = 'AUTH_5002',
-  NETWORK_ERROR = 'AUTH_5003',
+  INTERNAL_ERROR = "AUTH_5001",
+  DATABASE_ERROR = "AUTH_5002",
+  NETWORK_ERROR = "AUTH_5003",
 }
 
 /**
@@ -46,22 +46,22 @@ export enum AuthErrorCode {
 export interface AuthError {
   /** 错误码 */
   code: AuthErrorCode;
-  
+
   /** 错误消息（英文，用于日志） */
   message: string;
-  
+
   /** 用户友好的错误消息（可本地化） */
   userMessage?: string;
-  
+
   /** 错误详情和上下文 */
   details?: Record<string, any>;
-  
+
   /** 原始错误（用于调试） */
   cause?: Error;
-  
+
   /** 是否可重试 */
   retryable?: boolean;
-  
+
   /** 建议的操作 */
   suggestedAction?: string;
 }
@@ -72,25 +72,25 @@ export interface AuthError {
  */
 export interface PluginRoute {
   /** HTTP 方法 */
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
-  
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD";
+
   /** 路由路径（相对于插件根路径） */
   path: string;
-  
+
   /** 路由处理器 */
   handler: (request: FastifyRequest, reply: FastifyReply) => Promise<any> | any;
-  
+
   /** 路由配置（可选） */
   options?: {
     /** 路由描述 */
     description?: string;
-    
+
     /** 是否需要认证 */
     requireAuth?: boolean;
-    
+
     /** 请求体 schema */
-    schema?: RouteOptions['schema'];
-    
+    schema?: RouteOptions["schema"];
+
     /** 其他 Fastify 路由选项 */
     [key: string]: any;
   };
@@ -102,10 +102,10 @@ export interface PluginRoute {
 export interface PluginStaticAsset {
   /** 资源路径（URL 路径） */
   path: string;
-  
+
   /** 资源内容或文件路径 */
   content: string | Buffer;
-  
+
   /** 内容类型 */
   contentType?: string;
 }
@@ -117,10 +117,10 @@ export interface PluginStaticAsset {
 export interface PluginWebhook {
   /** Webhook 路径 */
   path: string;
-  
+
   /** Webhook 处理器 */
   handler: (request: FastifyRequest, reply: FastifyReply) => Promise<any> | any;
-  
+
   /** 验证签名的方法（可选） */
   verifySignature?: (request: FastifyRequest) => Promise<boolean> | boolean;
 }
@@ -129,22 +129,22 @@ export interface PluginWebhook {
  * 插件钩子类型
  * 限制插件只能注册作用于自身路径的钩子
  */
-export type PluginHookName = 
-  | 'onRequest'      // 请求开始时
-  | 'preParsing'     // 解析请求体之前
-  | 'preValidation'  // 验证之前
-  | 'preHandler'     // 处理器之前
-  | 'preSerialization' // 序列化之前
-  | 'onSend'         // 发送响应之前
-  | 'onResponse'     // 响应完成后
-  | 'onError';       // 错误处理
+export type PluginHookName =
+  | "onRequest" // 请求开始时
+  | "preParsing" // 解析请求体之前
+  | "preValidation" // 验证之前
+  | "preHandler" // 处理器之前
+  | "preSerialization" // 序列化之前
+  | "onSend" // 发送响应之前
+  | "onResponse" // 响应完成后
+  | "onError"; // 错误处理
 
 /**
  * 插件钩子处理器
  */
 export type PluginHookHandler = (
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) => Promise<void> | void;
 
 /**
@@ -158,13 +158,13 @@ export interface PluginMiddlewareContext {
    * @param handler 钩子处理器
    */
   addHook(hookName: PluginHookName, handler: PluginHookHandler): void;
-  
+
   /**
    * 插件的基础路径
    * 例如: '/auth/feishu'
    */
   readonly basePath: string;
-  
+
   /**
    * 插件名称
    */
@@ -191,7 +191,7 @@ export interface AuthProvider {
   /**
    * 插件初始化
    * 在服务器启动时调用，用于加载配置、建立连接等
-   * 
+   *
    * @param config 插件配置对象
    */
   initialize(config: AuthProviderConfig): Promise<void>;
@@ -199,7 +199,7 @@ export interface AuthProvider {
   /**
    * 检查是否支持该认证请求
    * 根据请求参数判断是否由本插件处理
-   * 
+   *
    * @param context 认证上下文
    * @returns 是否可以处理该请求
    */
@@ -208,7 +208,7 @@ export interface AuthProvider {
   /**
    * 渲染登录 UI
    * 返回 HTML 片段或重定向 URL
-   * 
+   *
    * @param context 认证上下文
    * @returns 登录 UI 渲染结果
    */
@@ -217,7 +217,7 @@ export interface AuthProvider {
   /**
    * 处理认证请求
    * 验证用户凭证，返回认证结果
-   * 
+   *
    * @param context 认证上下文
    * @returns 认证结果
    */
@@ -226,7 +226,7 @@ export interface AuthProvider {
   /**
    * 处理 OAuth 回调（可选）
    * 用于第三方 OAuth 登录的回调处理
-   * 
+   *
    * @param context 认证上下文
    * @returns 认证结果
    */
@@ -235,7 +235,7 @@ export interface AuthProvider {
   /**
    * 获取用户信息
    * 根据用户 ID 获取完整用户信息
-   * 
+   *
    * @param userId 用户 ID
    * @returns 用户信息，如果用户不存在返回 null
    */
@@ -244,12 +244,12 @@ export interface AuthProvider {
   /**
    * 注册插件路由（可选）
    * 插件可以注册自定义 API 路由
-   * 
+   *
    * 示例：
    * - GET /auth/:provider/status - 获取认证状态
    * - POST /auth/:provider/refresh - 刷新令牌
    * - GET /auth/:provider/users - 获取用户列表
-   * 
+   *
    * @returns 路由定义数组
    */
   registerRoutes?(): PluginRoute[];
@@ -257,11 +257,11 @@ export interface AuthProvider {
   /**
    * 注册静态资源（可选）
    * 插件可以提供静态文件（如图标、样式表、脚本）
-   * 
+   *
    * 示例：
    * - /auth/:provider/icon.svg - 插件图标
    * - /auth/:provider/style.css - 自定义样式
-   * 
+   *
    * @returns 静态资源定义数组
    */
   registerStaticAssets?(): PluginStaticAsset[];
@@ -269,10 +269,10 @@ export interface AuthProvider {
   /**
    * 注册 Webhook（可选）
    * 用于接收外部系统的回调通知
-   * 
+   *
    * 示例：
    * - POST /auth/:provider/webhook - 接收第三方事件通知
-   * 
+   *
    * @returns Webhook 定义数组
    */
   registerWebhooks?(): PluginWebhook[];
@@ -281,7 +281,7 @@ export interface AuthProvider {
    * 注册中间件（可选）
    * 插件可以注册钩子，在请求处理前后执行逻辑
    * 注意：钩子只作用于插件自身的路径（/auth/:provider/*）
-   * 
+   *
    * @param context 插件中间件上下文（受限权限）
    */
   registerMiddleware?(context: PluginMiddlewareContext): Promise<void>;
@@ -289,7 +289,7 @@ export interface AuthProvider {
   /**
    * 获取插件元数据（可选）
    * 返回插件的详细信息，用于管理界面展示
-   * 
+   *
    * @returns 插件元数据
    */
   getMetadata?(): PluginMetadata;
@@ -306,37 +306,37 @@ export interface AuthProvider {
  */
 export enum PluginPermission {
   /** 读取用户信息 */
-  READ_USER = 'read:user',
-  
+  READ_USER = "read:user",
+
   /** 创建用户 */
-  CREATE_USER = 'create:user',
-  
+  CREATE_USER = "create:user",
+
   /** 更新用户 */
-  UPDATE_USER = 'update:user',
-  
+  UPDATE_USER = "update:user",
+
   /** 删除用户 */
-  DELETE_USER = 'delete:user',
-  
+  DELETE_USER = "delete:user",
+
   /** 读取配置 */
-  READ_CONFIG = 'read:config',
-  
+  READ_CONFIG = "read:config",
+
   /** 访问 State Store */
-  ACCESS_STATE_STORE = 'access:state_store',
-  
+  ACCESS_STATE_STORE = "access:state_store",
+
   /** 注册路由 */
-  REGISTER_ROUTES = 'register:routes',
-  
+  REGISTER_ROUTES = "register:routes",
+
   /** 注册静态资源 */
-  REGISTER_STATIC = 'register:static',
-  
+  REGISTER_STATIC = "register:static",
+
   /** 注册 Webhook */
-  REGISTER_WEBHOOK = 'register:webhook',
-  
+  REGISTER_WEBHOOK = "register:webhook",
+
   /** 注册中间件 */
-  REGISTER_MIDDLEWARE = 'register:middleware',
-  
+  REGISTER_MIDDLEWARE = "register:middleware",
+
   /** 发送 HTTP 请求（外部 API） */
-  HTTP_REQUEST = 'http:request',
+  HTTP_REQUEST = "http:request",
 }
 
 /**
@@ -346,42 +346,42 @@ export enum PluginPermission {
 export interface PluginMetadata {
   /** 插件名称 */
   name: string;
-  
+
   /** 插件显示名称 */
   displayName: string;
-  
+
   /** 插件版本 */
   version: string;
-  
+
   /** 插件描述 */
   description?: string;
-  
+
   /** 插件作者 */
   author?: string;
-  
+
   /** 插件主页 */
   homepage?: string;
-  
+
   /** 插件图标 URL */
   icon?: string;
-  
+
   /** 插件所需权限 */
   permissions: PluginPermission[];
-  
+
   /** 支持的功能特性 */
   features?: string[];
-  
+
   /** 插件状态 */
   status?: {
     /** 是否已初始化 */
     initialized: boolean;
-    
+
     /** 是否健康 */
     healthy: boolean;
-    
+
     /** 状态消息 */
     message?: string;
-    
+
     /** 统计信息 */
     stats?: Record<string, any>;
   };
@@ -393,13 +393,13 @@ export interface PluginMetadata {
 export interface AuthProviderConfig {
   /** 是否启用 */
   enabled: boolean;
-  
+
   /** 显示名称 */
   displayName: string;
-  
+
   /** 优先级（影响显示顺序） */
   priority?: number;
-  
+
   /** 插件特定配置 */
   config: Record<string, any>;
 }
@@ -513,7 +513,7 @@ export interface UserInfo {
  */
 export interface LoginUIResult {
   /** UI 类型 */
-  type: 'html' | 'redirect';
+  type: "html" | "redirect";
 
   /** HTML 内容（type=html 时） */
   html?: string;
@@ -556,15 +556,12 @@ export interface UserRepository {
   /**
    * 根据认证提供者和外部 ID 查找用户
    */
-  findByProviderAndExternalId(
-    provider: string,
-    externalId: string
-  ): Promise<UserInfo | null>;
+  findByProviderAndExternalId(provider: string, externalId: string): Promise<UserInfo | null>;
 
   /**
    * 查找或创建用户（原子操作）
    * 避免并发创建时的竞态条件
-   * 
+   *
    * @param provider 认证提供者
    * @param externalId 外部 ID
    * @param userData 用户数据（如果不存在则创建）
@@ -573,7 +570,7 @@ export interface UserRepository {
   findOrCreate(
     provider: string,
     externalId: string,
-    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'>
+    userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider">,
   ): Promise<UserInfo>;
 
   /**
@@ -608,16 +605,16 @@ export interface UserRepository {
 export interface ListOptions {
   /** 分页：偏移量 */
   offset?: number;
-  
+
   /** 分页：每页数量 */
   limit?: number;
-  
+
   /** 排序字段 */
   sortBy?: string;
-  
+
   /** 排序方向 */
-  sortOrder?: 'asc' | 'desc';
-  
+  sortOrder?: "asc" | "desc";
+
   /** 过滤条件 */
   filter?: Record<string, any>;
 }
@@ -628,13 +625,13 @@ export interface ListOptions {
 export interface OAuthStateData {
   /** OIDC 交互 UID */
   interactionUid: string;
-  
+
   /** 认证提供者名称 */
   provider: string;
-  
+
   /** 创建时间戳 */
   createdAt: number;
-  
+
   /** 额外元数据 */
   metadata?: Record<string, any>;
 }
@@ -715,7 +712,7 @@ export interface IAuthCoordinator {
   generateOAuthState(
     interactionUid: string,
     provider: string,
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
   ): Promise<string>;
 
   /**
@@ -742,7 +739,7 @@ export interface IAuthCoordinator {
   /**
    * 完成 OIDC 交互
    * 供插件调用，用于完成用户认证后的 OIDC 交互流程
-   * 
+   *
    * @param request Fastify 请求对象
    * @param reply Fastify 响应对象
    * @param interactionUid OIDC 交互 UID
@@ -752,7 +749,7 @@ export interface IAuthCoordinator {
     request: FastifyRequest,
     reply: FastifyReply,
     interactionUid: string,
-    userId: string
+    userId: string,
   ): Promise<void>;
 
   /**
@@ -772,13 +769,13 @@ export interface IAuthCoordinator {
 export interface LocalAuthConfig {
   /** htpasswd 文件路径 */
   passwordFile: string;
-  
+
   /** 密码格式 */
-  passwordFormat: 'bcrypt' | 'md5' | 'sha' | 'auto';
-  
+  passwordFormat: "bcrypt" | "md5" | "sha" | "auto";
+
   /** 是否允许注册 */
   allowRegistration?: boolean;
-  
+
   /** 密码策略 */
   passwordPolicy?: {
     minLength?: number;
@@ -787,7 +784,7 @@ export interface LocalAuthConfig {
     requireNumber?: boolean;
     requireSpecialChar?: boolean;
   };
-  
+
   /** 账户锁定策略 */
   lockoutPolicy?: {
     enabled: boolean;
@@ -802,19 +799,19 @@ export interface LocalAuthConfig {
 export interface FeishuAuthConfig {
   /** 应用 ID */
   appId: string;
-  
+
   /** 应用密钥 */
   appSecret: string;
-  
+
   /** 回调 URI */
   redirectUri: string;
-  
+
   /** 权限范围 */
   scope?: string;
-  
+
   /** 是否自动创建用户 */
   autoCreateUser?: boolean;
-  
+
   /** 用户字段映射 */
   userMapping?: {
     username?: string;
@@ -827,13 +824,13 @@ export interface FeishuAuthConfig {
    * 飞书组的中文 map 到 gitea 组名（英文）
    */
   groupMapping?: Record<string, string>;
-  
+
   /** 飞书 API 端点（可选，用于私有化部署） */
   apiEndpoint?: string;
-  
+
   /** 加密密钥（用于事件订阅和回调加密） */
   encryptKey?: string;
-  
+
   /** 验证令牌（用于验证请求来源） */
   verificationToken?: string;
 }
@@ -843,11 +840,11 @@ export interface FeishuAuthConfig {
  */
 export interface HashedPassword {
   /** 哈希算法 */
-  algorithm: 'bcrypt' | 'md5' | 'sha' | 'plain';
-  
+  algorithm: "bcrypt" | "md5" | "sha" | "plain";
+
   /** 哈希值 */
   hash: string;
-  
+
   /** 盐值（如果适用） */
   salt?: string;
 }

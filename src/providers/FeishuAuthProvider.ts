@@ -4,20 +4,20 @@
  */
 
 import * as lark from "@larksuiteoapi/node-sdk";
-import type { FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
-  AuthProvider,
   AuthContext,
-  AuthResult,
-  LoginUIResult,
-  UserInfo,
-  UserRepository,
+  AuthProvider,
   AuthProviderConfig,
+  AuthResult,
   FeishuAuthConfig,
   IAuthCoordinator,
+  LoginUIResult,
+  PluginMetadata,
   PluginRoute,
   PluginWebhook,
-  PluginMetadata,
+  UserInfo,
+  UserRepository,
 } from "../types/auth";
 import { PluginPermission } from "../types/auth";
 import { AuthErrors } from "../utils/authErrors";
@@ -185,26 +185,18 @@ export class FeishuAuthProvider implements AuthProvider {
   }
 
   canHandle(context: AuthContext): boolean {
-    return (
-      context.authMethod === this.name || context.body.authMethod === this.name
-    );
+    return context.authMethod === this.name || context.body.authMethod === this.name;
   }
 
   async renderLoginUI(context: AuthContext): Promise<LoginUIResult> {
     // 生成 OAuth state
-    const state = await this.coordinator.generateOAuthState(
-      context.interactionUid,
-      this.name,
-      {
-        userAgent: context.request.headers["user-agent"],
-        ip: context.request.ip,
-      }
-    );
+    const state = await this.coordinator.generateOAuthState(context.interactionUid, this.name, {
+      userAgent: context.request.headers["user-agent"],
+      ip: context.request.ip,
+    });
 
     // 构建飞书授权 URL
-    const authUrl = new URL(
-      "https://open.feishu.cn/open-apis/authen/v1/authorize"
-    );
+    const authUrl = new URL("https://open.feishu.cn/open-apis/authen/v1/authorize");
     authUrl.searchParams.set("app_id", this.config.appId);
     authUrl.searchParams.set("redirect_uri", this.config.redirectUri);
     authUrl.searchParams.set("state", state);
@@ -230,9 +222,7 @@ export class FeishuAuthProvider implements AuthProvider {
     // 这个方法不会被直接调用，因为飞书使用 OAuth 回调
     return {
       success: false,
-      error: AuthErrors.oauthCallbackFailed(
-        "Feishu authentication requires OAuth callback"
-      ),
+      error: AuthErrors.oauthCallbackFailed("Feishu authentication requires OAuth callback"),
     };
   }
 
@@ -277,21 +267,17 @@ export class FeishuAuthProvider implements AuthProvider {
       const email = this.mapEmail(feishuUser);
 
       // 创建或更新本地用户
-      const user = await this.userRepository.findOrCreate(
-        this.name,
-        feishuUser.open_id,
-        {
-          username: this.mapUsername(feishuUser),
-          name: this.mapName(feishuUser),
-          email: email,
-          emailVerified: !!email,
-          groups: this.mapGroups(feishuUser),
-          picture: feishuUser.avatar_url,
-          phone: feishuUser.mobile,
-          phoneVerified: !!feishuUser.mobile,
-          metadata: feishuUser,
-        }
-      );
+      const user = await this.userRepository.findOrCreate(this.name, feishuUser.open_id, {
+        username: this.mapUsername(feishuUser),
+        name: this.mapName(feishuUser),
+        email: email,
+        emailVerified: !!email,
+        groups: this.mapGroups(feishuUser),
+        picture: feishuUser.avatar_url,
+        phone: feishuUser.mobile,
+        phoneVerified: !!feishuUser.mobile,
+        metadata: feishuUser,
+      });
 
       return {
         success: true,
@@ -323,10 +309,7 @@ export class FeishuAuthProvider implements AuthProvider {
    */
   registerRoutes(): PluginRoute[] {
     // 回调处理函数（GET 和 POST 共用）
-    const callbackHandler = async (
-      request: FastifyRequest,
-      reply: FastifyReply
-    ) => {
+    const callbackHandler = async (request: FastifyRequest, reply: FastifyReply) => {
       const body = request.body as any;
 
       // 打印请求详情用于调试
@@ -348,31 +331,19 @@ export class FeishuAuthProvider implements AuthProvider {
           Logger.debug("[FeishuAuth] Decrypted data:", decrypted);
 
           // 类型守卫：检查是否为 URL 验证请求
-          if (
-            "challenge" in decrypted &&
-            decrypted.type === "url_verification"
-          ) {
-            Logger.info(
-              "[FeishuAuth] Returning challenge:",
-              decrypted.challenge
-            );
+          if ("challenge" in decrypted && decrypted.type === "url_verification") {
+            Logger.info("[FeishuAuth] Returning challenge:", decrypted.challenge);
             return reply.send({ challenge: decrypted.challenge });
           }
 
           // 如果是事件通知，这里可以处理
           if ("header" in decrypted) {
-            Logger.info(
-              "[FeishuAuth] Received event:",
-              decrypted.header?.event_type
-            );
+            Logger.info("[FeishuAuth] Received event:", decrypted.header?.event_type);
             // 事件处理逻辑...
             return reply.send({ success: true });
           }
         } catch (err) {
-          Logger.error(
-            "[FeishuAuth] Failed to decrypt verification request:",
-            err
-          );
+          Logger.error("[FeishuAuth] Failed to decrypt verification request:", err);
           return reply.code(400).send({ error: "Decryption failed" });
         }
       }
@@ -381,7 +352,7 @@ export class FeishuAuthProvider implements AuthProvider {
       if (request.method === "POST" && body?.challenge) {
         Logger.info(
           "[FeishuAuth] Received plain URL verification request, challenge:",
-          body.challenge
+          body.challenge,
         );
         return reply.send({ challenge: body.challenge });
       }
@@ -418,8 +389,7 @@ export class FeishuAuthProvider implements AuthProvider {
       }
 
       // 认证失败
-      const errorMessage =
-        result.error?.userMessage || result.error?.message || "认证失败";
+      const errorMessage = result.error?.userMessage || result.error?.message || "认证失败";
       return reply.code(400).send({ error: errorMessage });
     };
 
@@ -494,10 +464,7 @@ export class FeishuAuthProvider implements AuthProvider {
       const crypto = require("crypto");
 
       // 1. 对 encryptKey 进行 SHA256 哈希，得到32字节的密钥
-      const keyHash = crypto
-        .createHash("sha256")
-        .update(this.config.encryptKey)
-        .digest();
+      const keyHash = crypto.createHash("sha256").update(this.config.encryptKey).digest();
 
       // 2. 使用密钥的前16字节作为 IV
       const iv = keyHash.slice(0, 16);
@@ -534,10 +501,7 @@ export class FeishuAuthProvider implements AuthProvider {
       return JSON.parse(decryptedStr);
     } catch (err) {
       Logger.error("[FeishuAuth] Failed to decrypt data:", err);
-      Logger.error(
-        "[FeishuAuth] Encrypt key length:",
-        this.config.encryptKey?.length
-      );
+      Logger.error("[FeishuAuth] Encrypt key length:", this.config.encryptKey?.length);
       throw err;
     }
   }
@@ -546,9 +510,7 @@ export class FeishuAuthProvider implements AuthProvider {
    * 验证飞书请求签名
    * 参考: https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/request-url-verification-and-event-decryption
    */
-  private async verifyFeishuSignature(
-    request: FastifyRequest
-  ): Promise<boolean> {
+  private async verifyFeishuSignature(request: FastifyRequest): Promise<boolean> {
     const signature = request.headers["x-lark-signature"] as string;
     const timestamp = request.headers["x-lark-request-timestamp"] as string;
     const nonce = request.headers["x-lark-request-nonce"] as string;
@@ -561,7 +523,7 @@ export class FeishuAuthProvider implements AuthProvider {
     // 如果没有配置 verificationToken，跳过验证（开发环境）
     if (!this.config.verificationToken) {
       Logger.warn(
-        "[FeishuAuth] Verification token not configured, skipping signature verification"
+        "[FeishuAuth] Verification token not configured, skipping signature verification",
       );
       return true;
     }
@@ -650,25 +612,17 @@ export class FeishuAuthProvider implements AuthProvider {
         PluginPermission.REGISTER_STATIC,
         PluginPermission.REGISTER_WEBHOOK,
       ],
-      features: [
-        "OAuth 2.0 认证",
-        "用户信息同步",
-        "Webhook 事件处理",
-        "自动创建用户",
-      ],
+      features: ["OAuth 2.0 认证", "用户信息同步", "Webhook 事件处理", "自动创建用户"],
       status: {
         initialized: !!this.config,
         healthy: !!this.larkClient,
         message: this.larkClient ? "运行正常" : "未初始化",
         stats: {
-          appId: this.config?.appId
-            ? `${this.config.appId.substring(0, 8)}...`
-            : "N/A",
+          appId: this.config?.appId ? `${this.config.appId.substring(0, 8)}...` : "N/A",
         },
       },
     };
   }
-
 
   /**
    * 用 code 换取 user access token
@@ -699,9 +653,7 @@ export class FeishuAuthProvider implements AuthProvider {
     });
 
     if (data.code !== 0 || !data.data?.access_token) {
-      throw new Error(
-        `Failed to exchange code for token: ${data.msg} (code: ${data.code})`
-      );
+      throw new Error(`Failed to exchange code for token: ${data.msg} (code: ${data.code})`);
     }
 
     return data.data.access_token;
@@ -710,13 +662,12 @@ export class FeishuAuthProvider implements AuthProvider {
   /**
    * 获取飞书用户信息(使用 SDK)
    */
-  private async getFeishuUserInfo(
-    userAccessToken: string
-  ): Promise<FeishuUserInfo> {
+  private async getFeishuUserInfo(userAccessToken: string): Promise<FeishuUserInfo> {
     // 1. 使用 SDK 获取基本用户信息
     try {
-      const userInfoRes = await this.larkClient.authen.v1.userInfo.get({}, 
-        lark.withUserAccessToken(userAccessToken)
+      const userInfoRes = await this.larkClient.authen.v1.userInfo.get(
+        {},
+        lark.withUserAccessToken(userAccessToken),
       );
 
       Logger.debug("[FeishuAuth] SDK basic user info response:", {
@@ -783,7 +734,6 @@ export class FeishuAuthProvider implements AuthProvider {
     }
   }
 
-
   /**
    * 映射用户名
    */
@@ -820,17 +770,20 @@ export class FeishuAuthProvider implements AuthProvider {
   private mapGroups(feishuUser: FeishuUserInfo): string[] {
     const mapping = this.config.groupMapping;
     if (mapping) {
-      return Object.entries(mapping).reduce((acc, [key, value]) => {
-        if (feishuUser.fullInfo?.department_path?.some((d) => d.department_name.name === key)) {
-          acc.push(value);
-        }
-        return acc;
-      }, ["Owners"] as string[]);
+      return Object.entries(mapping).reduce(
+        (acc, [key, value]) => {
+          if (feishuUser.fullInfo?.department_path?.some((d) => d.department_name.name === key)) {
+            acc.push(value);
+          }
+          return acc;
+        },
+        ["Owners"] as string[],
+      );
     }
     const groups = feishuUser.fullInfo?.department_path?.map((d) => d.department_name.name) ?? [];
     groups.push("Owners");
-    if(feishuUser.fullInfo?.department_ids?.length) {
-      groups.push(...feishuUser.fullInfo?.department_ids);
+    if (feishuUser.fullInfo?.department_ids?.length) {
+      groups.push(...feishuUser.fullInfo.department_ids);
     }
     return groups;
   }

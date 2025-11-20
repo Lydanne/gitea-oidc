@@ -1,23 +1,21 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createCipheriv, createHash } from 'crypto';
-import * as lark from '@larksuiteoapi/node-sdk';
-
-import { PluginPermission } from '../../types/auth';
-import type { AuthContext, AuthProviderConfig, FeishuAuthConfig, UserInfo } from '../../types/auth';
-import { FeishuAuthProvider } from '../FeishuAuthProvider';
-import { AuthErrors } from '../../utils/authErrors';
-import { Logger } from '../../utils/Logger';
+import { createCipheriv, createHash } from "crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthContext, AuthProviderConfig, FeishuAuthConfig, UserInfo } from "../../types/auth";
+import { PluginPermission } from "../../types/auth";
+import { AuthErrors } from "../../utils/authErrors";
+import { Logger } from "../../utils/Logger";
+import { FeishuAuthProvider } from "../FeishuAuthProvider";
 
 const baseProviderConfig: AuthProviderConfig = {
   enabled: true,
-  displayName: 'Feishu',
+  displayName: "Feishu",
   config: {
-    appId: 'app-test',
-    appSecret: 'secret-test',
-    redirectUri: 'https://example.com/callback',
-    scope: 'user_info',
+    appId: "app-test",
+    appSecret: "secret-test",
+    redirectUri: "https://example.com/callback",
+    scope: "user_info",
     userMapping: {},
-    groupMapping: { 研发部: 'dev-group' },
+    groupMapping: { 研发部: "dev-group" },
   } satisfies FeishuAuthConfig,
 };
 
@@ -27,7 +25,7 @@ type CoordinatorMock = {
   storeAuthResult: ReturnType<typeof vi.fn>;
 };
 
-describe('FeishuAuthProvider', () => {
+describe("FeishuAuthProvider", () => {
   let provider: FeishuAuthProvider;
   let userRepository: {
     findOrCreate: ReturnType<typeof vi.fn>;
@@ -37,13 +35,13 @@ describe('FeishuAuthProvider', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   const createContext = (overrides: Partial<AuthContext> = {}): AuthContext => ({
-    authMethod: overrides.authMethod ?? 'feishu',
-    interactionUid: overrides.interactionUid ?? 'interaction-1',
-    request: overrides.request ?? ({ headers: { 'user-agent': 'vitest' }, ip: '127.0.0.1' } as any),
+    authMethod: overrides.authMethod ?? "feishu",
+    interactionUid: overrides.interactionUid ?? "interaction-1",
+    request: overrides.request ?? ({ headers: { "user-agent": "vitest" }, ip: "127.0.0.1" } as any),
     reply: overrides.reply ?? ({} as any),
     params: overrides.params ?? {},
     query: overrides.query ?? {},
-    body: overrides.body ?? { authMethod: 'feishu' },
+    body: overrides.body ?? { authMethod: "feishu" },
   });
 
   beforeEach(() => {
@@ -59,7 +57,7 @@ describe('FeishuAuthProvider', () => {
 
     provider = new FeishuAuthProvider(userRepository as any, coordinator as any);
     (provider as any).config = baseProviderConfig.config;
-    
+
     // Mock SDK 客户端
     (provider as any).larkClient = {
       authen: {
@@ -77,8 +75,8 @@ describe('FeishuAuthProvider', () => {
         },
       },
     };
-    
-    fetchSpy = vi.spyOn(global, 'fetch' as any).mockRejectedValue(new Error('fetch not mocked'));
+
+    fetchSpy = vi.spyOn(global, "fetch" as any).mockRejectedValue(new Error("fetch not mocked"));
   });
 
   afterEach(() => {
@@ -86,229 +84,237 @@ describe('FeishuAuthProvider', () => {
   });
 
   const encryptFeishuPayload = (encryptKey: string, data: Record<string, any>): string => {
-    const keyHash = createHash('sha256').update(encryptKey).digest();
+    const keyHash = createHash("sha256").update(encryptKey).digest();
     const iv = keyHash.slice(0, 16);
-    const randomPrefix = Buffer.from('1234567890123456');
+    const randomPrefix = Buffer.from("1234567890123456");
     const json = Buffer.from(JSON.stringify(data));
-    const plain = Buffer.concat([randomPrefix, json, Buffer.from('app_id')]);
-    const cipher = createCipheriv('aes-256-cbc', keyHash, iv);
+    const plain = Buffer.concat([randomPrefix, json, Buffer.from("app_id")]);
+    const cipher = createCipheriv("aes-256-cbc", keyHash, iv);
     const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
-    return encrypted.toString('base64');
+    return encrypted.toString("base64");
   };
 
-  describe('canHandle', () => {
-    it('returns true when authMethod matches', () => {
+  describe("canHandle", () => {
+    it("returns true when authMethod matches", () => {
       expect(provider.canHandle(createContext())).toBe(true);
     });
 
-    it('returns true when body authMethod matches', () => {
+    it("returns true when body authMethod matches", () => {
       expect(
         provider.canHandle(
-          createContext({ authMethod: 'other', body: { authMethod: 'feishu' } as any }),
+          createContext({ authMethod: "other", body: { authMethod: "feishu" } as any }),
         ),
       ).toBe(true);
     });
 
-    it('returns false when neither matches', () => {
+    it("returns false when neither matches", () => {
       expect(
         provider.canHandle(
-          createContext({ authMethod: 'other', body: { authMethod: 'local' } as any }),
+          createContext({ authMethod: "other", body: { authMethod: "local" } as any }),
         ),
       ).toBe(false);
     });
   });
 
-  describe('renderLoginUI', () => {
-    it('generates state and returns redirect url', async () => {
-      coordinator.generateOAuthState.mockResolvedValue('state-123');
-      const context = createContext({ interactionUid: 'interaction-abc' });
+  describe("renderLoginUI", () => {
+    it("generates state and returns redirect url", async () => {
+      coordinator.generateOAuthState.mockResolvedValue("state-123");
+      const context = createContext({ interactionUid: "interaction-abc" });
 
       const result = await provider.renderLoginUI(context);
 
-      expect(coordinator.generateOAuthState).toHaveBeenCalledWith('interaction-abc', 'feishu', {
-        userAgent: 'vitest',
-        ip: '127.0.0.1',
+      expect(coordinator.generateOAuthState).toHaveBeenCalledWith("interaction-abc", "feishu", {
+        userAgent: "vitest",
+        ip: "127.0.0.1",
       });
-      expect(result.type).toBe('redirect');
-      expect(result.redirectUrl).toContain('https://open.feishu.cn/open-apis/authen/v1/authorize');
-      expect(result.redirectUrl).toContain('state=state-123');
-      expect(result.redirectUrl).toContain('app_id=app-test');
+      expect(result.type).toBe("redirect");
+      expect(result.redirectUrl).toContain("https://open.feishu.cn/open-apis/authen/v1/authorize");
+      expect(result.redirectUrl).toContain("state=state-123");
+      expect(result.redirectUrl).toContain("app_id=app-test");
     });
   });
 
-  describe('handleCallback', () => {
-    it('returns missingParameter when code or state absent', async () => {
+  describe("handleCallback", () => {
+    it("returns missingParameter when code or state absent", async () => {
       const result = await provider.handleCallback(createContext({ query: {} }));
 
       expect(result).toEqual({
         success: false,
-        error: AuthErrors.missingParameter(['code', 'state']),
+        error: AuthErrors.missingParameter(["code", "state"]),
       });
     });
 
-    it('returns stateExpired when verifyOAuthState returns null', async () => {
+    it("returns stateExpired when verifyOAuthState returns null", async () => {
       coordinator.verifyOAuthState.mockResolvedValue(null);
 
       const result = await provider.handleCallback(
-        createContext({ query: { code: 'abc', state: 'state-1' } as any }),
+        createContext({ query: { code: "abc", state: "state-1" } as any }),
       );
 
       expect(result).toEqual({ success: false, error: AuthErrors.stateExpired() });
     });
 
-    it('returns invalidState when provider mismatches', async () => {
-      coordinator.verifyOAuthState.mockResolvedValue({ provider: 'local' });
+    it("returns invalidState when provider mismatches", async () => {
+      coordinator.verifyOAuthState.mockResolvedValue({ provider: "local" });
 
       const result = await provider.handleCallback(
-        createContext({ query: { code: 'abc', state: 'state-1' } as any }),
+        createContext({ query: { code: "abc", state: "state-1" } as any }),
       );
 
-      expect(result).toEqual({ success: false, error: AuthErrors.invalidState('state-1') });
+      expect(result).toEqual({ success: false, error: AuthErrors.invalidState("state-1") });
     });
 
-    it('returns oauthCallbackFailed when exchange code fails', async () => {
-      coordinator.verifyOAuthState.mockResolvedValue({ provider: 'feishu', interactionUid: 'i-1' });
-      vi.spyOn(provider as any, 'exchangeCodeForToken').mockRejectedValue(new Error('failed to exchange'));
+    it("returns oauthCallbackFailed when exchange code fails", async () => {
+      coordinator.verifyOAuthState.mockResolvedValue({ provider: "feishu", interactionUid: "i-1" });
+      vi.spyOn(provider as any, "exchangeCodeForToken").mockRejectedValue(
+        new Error("failed to exchange"),
+      );
 
       const result = await provider.handleCallback(
-        createContext({ query: { code: 'abc', state: 'state-1' } as any }),
+        createContext({ query: { code: "abc", state: "state-1" } as any }),
       );
 
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe(AuthErrors.oauthCallbackFailed('飞书登录失败').code);
+      expect(result.error?.code).toBe(AuthErrors.oauthCallbackFailed("飞书登录失败").code);
     });
 
-    it('returns success and userId when flow completes', async () => {
+    it("returns success and userId when flow completes", async () => {
       const feishuUser = {
-        open_id: 'open-1',
-        name: '张三',
-        en_name: 'zhangsan',
-        email: 'test@example.com',
+        open_id: "open-1",
+        name: "张三",
+        en_name: "zhangsan",
+        email: "test@example.com",
         fullInfo: {
           department_path: [
             {
               department_name: {
-                name: '研发部',
-                i18n_name: { en_us: 'R&D', ja_jp: '', zh_cn: '研发部' },
+                name: "研发部",
+                i18n_name: { en_us: "R&D", ja_jp: "", zh_cn: "研发部" },
               },
             } as any,
           ],
         },
       } as any;
 
-      coordinator.verifyOAuthState.mockResolvedValue({ provider: 'feishu', interactionUid: 'i-uid' });
-      vi.spyOn(provider as any, 'exchangeCodeForToken').mockResolvedValue('user-token');
-      vi.spyOn(provider as any, 'getFeishuUserInfo').mockResolvedValue(feishuUser);
+      coordinator.verifyOAuthState.mockResolvedValue({
+        provider: "feishu",
+        interactionUid: "i-uid",
+      });
+      vi.spyOn(provider as any, "exchangeCodeForToken").mockResolvedValue("user-token");
+      vi.spyOn(provider as any, "getFeishuUserInfo").mockResolvedValue(feishuUser);
       const user: UserInfo = {
-        sub: 'user-1',
-        username: 'zhangsan',
-        name: '张三',
-        email: 'test@example.com',
-        authProvider: 'feishu',
-        externalId: 'open-1',
+        sub: "user-1",
+        username: "zhangsan",
+        name: "张三",
+        email: "test@example.com",
+        authProvider: "feishu",
+        externalId: "open-1",
       } as UserInfo;
       userRepository.findOrCreate.mockResolvedValue(user);
 
       const result = await provider.handleCallback(
-        createContext({ query: { code: 'abc', state: 'state-1' } as any }),
+        createContext({ query: { code: "abc", state: "state-1" } as any }),
       );
 
       expect(result.success).toBe(true);
-      expect(result.userId).toBe('user-1');
-      expect(result.metadata?.interactionUid).toBe('i-uid');
-      expect(userRepository.findOrCreate).toHaveBeenCalledWith('feishu', 'open-1', expect.objectContaining({
-        username: 'open-1',
-        email: 'test@example.com',
-        groups: expect.arrayContaining(['dev-group']),
-      }));
+      expect(result.userId).toBe("user-1");
+      expect(result.metadata?.interactionUid).toBe("i-uid");
+      expect(userRepository.findOrCreate).toHaveBeenCalledWith(
+        "feishu",
+        "open-1",
+        expect.objectContaining({
+          username: "open-1",
+          email: "test@example.com",
+          groups: expect.arrayContaining(["dev-group"]),
+        }),
+      );
     });
   });
 
-
-  describe('exchangeCodeForToken', () => {
-    it('returns user access token when successful', async () => {
+  describe("exchangeCodeForToken", () => {
+    it("returns user access token when successful", async () => {
       const response = {
-        json: vi.fn().mockResolvedValue({ code: 0, data: { access_token: 'user-token' } }),
+        json: vi.fn().mockResolvedValue({ code: 0, data: { access_token: "user-token" } }),
       };
       fetchSpy.mockResolvedValue(response as any);
 
-      const token = await (provider as any).exchangeCodeForToken('code-123');
+      const token = await (provider as any).exchangeCodeForToken("code-123");
 
-      expect(token).toBe('user-token');
+      expect(token).toBe("user-token");
     });
 
-    it('throws when Feishu returns error', async () => {
+    it("throws when Feishu returns error", async () => {
       const response = {
-        json: vi.fn().mockResolvedValue({ code: 8, msg: 'bad code' }),
+        json: vi.fn().mockResolvedValue({ code: 8, msg: "bad code" }),
       };
       fetchSpy.mockResolvedValue(response as any);
 
-      await expect((provider as any).exchangeCodeForToken('code-abc')).rejects.toThrow(/bad code/);
+      await expect((provider as any).exchangeCodeForToken("code-abc")).rejects.toThrow(/bad code/);
     });
   });
 
-  describe('getFeishuUserInfo', () => {
-    it('returns merged user data with full info', async () => {
+  describe("getFeishuUserInfo", () => {
+    it("returns merged user data with full info", async () => {
       const mockLarkClient = (provider as any).larkClient;
-      
+
       // Mock 基本用户信息
       mockLarkClient.authen.v1.userInfo.get.mockResolvedValue({
         code: 0,
-        data: { open_id: 'open-1', name: 'Alice', email: 'alice@test.com' },
+        data: { open_id: "open-1", name: "Alice", email: "alice@test.com" },
       });
-      
+
       // Mock 完整用户信息
       mockLarkClient.contact.v3.user.get.mockResolvedValue({
         code: 0,
-        data: { user: { department_path: [], department_ids: ['dept-1'] } },
+        data: { user: { department_path: [], department_ids: ["dept-1"] } },
       });
 
-      const result = await (provider as any).getFeishuUserInfo('user-token');
+      const result = await (provider as any).getFeishuUserInfo("user-token");
 
-      expect(result.open_id).toBe('open-1');
-      expect(result.name).toBe('Alice');
-      expect(result.fullInfo).toEqual({ department_path: [], department_ids: ['dept-1'] });
+      expect(result.open_id).toBe("open-1");
+      expect(result.name).toBe("Alice");
+      expect(result.fullInfo).toEqual({ department_path: [], department_ids: ["dept-1"] });
     });
 
-    it('throws when user info fetch fails', async () => {
+    it("throws when user info fetch fails", async () => {
       const mockLarkClient = (provider as any).larkClient;
       mockLarkClient.authen.v1.userInfo.get.mockResolvedValue({
         code: 2,
-        msg: 'denied',
+        msg: "denied",
       });
 
-      await expect((provider as any).getFeishuUserInfo('user-token')).rejects.toThrow(/denied/);
+      await expect((provider as any).getFeishuUserInfo("user-token")).rejects.toThrow(/denied/);
     });
 
-    it('falls back to basic info when full user info fetch fails', async () => {
+    it("falls back to basic info when full user info fetch fails", async () => {
       const mockLarkClient = (provider as any).larkClient;
-      
+
       mockLarkClient.authen.v1.userInfo.get.mockResolvedValue({
         code: 0,
-        data: { open_id: 'open-1', name: 'Bob' },
-      });
-      
-      mockLarkClient.contact.v3.user.get.mockResolvedValue({
-        code: 3,
-        msg: 'no access',
+        data: { open_id: "open-1", name: "Bob" },
       });
 
-      const result = await (provider as any).getFeishuUserInfo('token');
-      
-      expect(result.open_id).toBe('open-1');
-      expect(result.name).toBe('Bob');
+      mockLarkClient.contact.v3.user.get.mockResolvedValue({
+        code: 3,
+        msg: "no access",
+      });
+
+      const result = await (provider as any).getFeishuUserInfo("token");
+
+      expect(result.open_id).toBe("open-1");
+      expect(result.name).toBe("Bob");
       expect(result.fullInfo).toBeUndefined();
     });
   });
 
-  describe('静态资源与元数据', () => {
-    it('registerStaticAssets 返回 svg 资源', () => {
+  describe("静态资源与元数据", () => {
+    it("registerStaticAssets 返回 svg 资源", () => {
       const assets = provider.registerStaticAssets();
 
-      expect(assets[0]).toMatchObject({ path: '/icon.svg', contentType: 'image/svg+xml' });
+      expect(assets[0]).toMatchObject({ path: "/icon.svg", contentType: "image/svg+xml" });
     });
 
-    it('getMetadata 返回健康状态并包含权限', () => {
+    it("getMetadata 返回健康状态并包含权限", () => {
       // larkClient 已在 beforeEach 中 mock
       const metadata = provider.getMetadata();
 
@@ -320,91 +326,91 @@ describe('FeishuAuthProvider', () => {
         ]),
       );
       expect(metadata.status?.healthy).toBe(true);
-      expect(metadata.status?.stats?.appId).toContain('app-test'.substring(0, 8));
+      expect(metadata.status?.stats?.appId).toContain("app-test".substring(0, 8));
     });
 
-    it('destroy 不会抛出错误', async () => {
+    it("destroy 不会抛出错误", async () => {
       await expect(provider.destroy()).resolves.not.toThrow();
     });
   });
 
-  describe('字段映射', () => {
+  describe("字段映射", () => {
     beforeEach(() => {
       (provider as any).config.userMapping = {
-        username: 'custom_username',
-        name: 'custom_name',
-        email: 'custom_email',
+        username: "custom_username",
+        name: "custom_name",
+        email: "custom_email",
       };
-      (provider as any).config.groupMapping = { 研发部: 'dev-group' };
+      (provider as any).config.groupMapping = { 研发部: "dev-group" };
     });
 
-    it('map* 函数应遵循映射配置', () => {
+    it("map* 函数应遵循映射配置", () => {
       const feishuUser: any = {
-        open_id: 'open-1',
-        en_name: 'english',
-        name: '中文名',
-        custom_username: 'mapped-user',
-        custom_name: 'mapped-name',
-        custom_email: 'mapped@example.com',
+        open_id: "open-1",
+        en_name: "english",
+        name: "中文名",
+        custom_username: "mapped-user",
+        custom_name: "mapped-name",
+        custom_email: "mapped@example.com",
         fullInfo: {
-          department_path: [
-            { department_name: { name: '研发部' } },
-          ],
+          department_path: [{ department_name: { name: "研发部" } }],
         },
       };
 
-      expect((provider as any).mapUsername(feishuUser)).toBe('mapped-user');
-      expect((provider as any).mapName(feishuUser)).toBe('mapped-name');
-      expect((provider as any).mapEmail(feishuUser)).toBe('mapped@example.com');
-      expect((provider as any).mapGroups(feishuUser)).toEqual(['Owners', 'dev-group']);
+      expect((provider as any).mapUsername(feishuUser)).toBe("mapped-user");
+      expect((provider as any).mapName(feishuUser)).toBe("mapped-name");
+      expect((provider as any).mapEmail(feishuUser)).toBe("mapped@example.com");
+      expect((provider as any).mapGroups(feishuUser)).toEqual(["Owners", "dev-group"]);
     });
 
-    it('mapGroups 在无映射时返回部门名称并追加 Owners', () => {
+    it("mapGroups 在无映射时返回部门名称并追加 Owners", () => {
       delete (provider as any).config.groupMapping;
       const feishuUser: any = {
-        open_id: 'open-1',
-        en_name: 'english',
-        name: '中文名',
+        open_id: "open-1",
+        en_name: "english",
+        name: "中文名",
         fullInfo: {
           department_path: [
-            { department_name: { name: 'DeptA' } },
-            { department_name: { name: 'DeptB' } },
+            { department_name: { name: "DeptA" } },
+            { department_name: { name: "DeptB" } },
           ],
         },
       };
 
-      expect((provider as any).mapGroups(feishuUser)).toEqual(['DeptA', 'DeptB', 'Owners']);
+      expect((provider as any).mapGroups(feishuUser)).toEqual(["DeptA", "DeptB", "Owners"]);
     });
 
-    it('缺少映射字段时使用默认值', () => {
+    it("缺少映射字段时使用默认值", () => {
       delete (provider as any).config.userMapping;
       const feishuUser: any = {
-        open_id: 'open-1',
-        en_name: 'english-name',
-        name: '中文名',
+        open_id: "open-1",
+        en_name: "english-name",
+        name: "中文名",
       };
 
-      expect((provider as any).mapUsername(feishuUser)).toBe('open-1');
-      expect((provider as any).mapName(feishuUser)).toBe('中文名');
-      expect((provider as any).mapEmail(feishuUser)).toBe('open-1@feishu.local');
+      expect((provider as any).mapUsername(feishuUser)).toBe("open-1");
+      expect((provider as any).mapName(feishuUser)).toBe("中文名");
+      expect((provider as any).mapEmail(feishuUser)).toBe("open-1@feishu.local");
     });
   });
 
-  describe('registerRoutes', () => {
-    it('redirects user when callback returns success', async () => {
-      const handleSpy = vi.spyOn(provider as any, 'handleCallback').mockResolvedValue({
+  describe("registerRoutes", () => {
+    it("redirects user when callback returns success", async () => {
+      const handleSpy = vi.spyOn(provider as any, "handleCallback").mockResolvedValue({
         success: true,
-        userId: 'user-1',
-        metadata: { interactionUid: 'i-123' },
+        userId: "user-1",
+        metadata: { interactionUid: "i-123" },
       });
       const routes = provider.registerRoutes();
-      const callbackRoute = routes.find(route => route.method === 'GET' && route.path === '/callback');
+      const callbackRoute = routes.find(
+        (route) => route.method === "GET" && route.path === "/callback",
+      );
       const request = {
-        method: 'GET',
-        query: { code: 'abc', state: 'state-1' },
+        method: "GET",
+        query: { code: "abc", state: "state-1" },
         body: null,
         params: {},
-        headers: { 'content-type': 'application/json' },
+        headers: { "content-type": "application/json" },
       } as any;
       const reply = {
         redirect: vi.fn(),
@@ -416,23 +422,25 @@ describe('FeishuAuthProvider', () => {
       await callbackRoute?.handler(request, reply);
 
       expect(handleSpy).toHaveBeenCalled();
-      expect(coordinator.storeAuthResult).toHaveBeenCalledWith('i-123', 'user-1');
-      expect(reply.redirect).toHaveBeenCalledWith('/interaction/i-123/complete');
+      expect(coordinator.storeAuthResult).toHaveBeenCalledWith("i-123", "user-1");
+      expect(reply.redirect).toHaveBeenCalledWith("/interaction/i-123/complete");
     });
 
-    it('returns 400 when callback fails', async () => {
-      const handleSpy = vi.spyOn(provider as any, 'handleCallback').mockResolvedValue({
+    it("returns 400 when callback fails", async () => {
+      const handleSpy = vi.spyOn(provider as any, "handleCallback").mockResolvedValue({
         success: false,
-        error: AuthErrors.invalidState('state-1'),
+        error: AuthErrors.invalidState("state-1"),
       });
       const routes = provider.registerRoutes();
-      const callbackRoute = routes.find(route => route.method === 'GET' && route.path === '/callback');
+      const callbackRoute = routes.find(
+        (route) => route.method === "GET" && route.path === "/callback",
+      );
       const request = {
-        method: 'GET',
-        query: { code: 'abc', state: 'state-1' },
+        method: "GET",
+        query: { code: "abc", state: "state-1" },
         body: null,
         params: {},
-        headers: { 'content-type': 'application/json' },
+        headers: { "content-type": "application/json" },
       } as any;
       const reply = {
         redirect: vi.fn(),
@@ -444,18 +452,20 @@ describe('FeishuAuthProvider', () => {
 
       expect(handleSpy).toHaveBeenCalled();
       expect(reply.code).toHaveBeenCalledWith(400);
-      expect(reply.send).toHaveBeenCalledWith({ error: '无效的认证状态' });
+      expect(reply.send).toHaveBeenCalledWith({ error: "无效的认证状态" });
     });
 
-    it('处理加密 challenge 请求并返回 challenge', async () => {
+    it("处理加密 challenge 请求并返回 challenge", async () => {
       const decryptSpy = vi
-        .spyOn(provider as any, 'decryptFeishuData')
-        .mockReturnValue({ type: 'url_verification', challenge: 'enc-token' });
+        .spyOn(provider as any, "decryptFeishuData")
+        .mockReturnValue({ type: "url_verification", challenge: "enc-token" });
       const routes = provider.registerRoutes();
-      const callbackRoute = routes.find(route => route.method === 'POST' && route.path === '/callback');
+      const callbackRoute = routes.find(
+        (route) => route.method === "POST" && route.path === "/callback",
+      );
       const request = {
-        method: 'POST',
-        body: { encrypt: 'encrypted-payload' },
+        method: "POST",
+        body: { encrypt: "encrypted-payload" },
         headers: {},
       } as any;
       const reply = {
@@ -466,19 +476,21 @@ describe('FeishuAuthProvider', () => {
 
       await callbackRoute?.handler(request, reply);
 
-      expect(decryptSpy).toHaveBeenCalledWith('encrypted-payload');
-      expect(reply.send).toHaveBeenCalledWith({ challenge: 'enc-token' });
+      expect(decryptSpy).toHaveBeenCalledWith("encrypted-payload");
+      expect(reply.send).toHaveBeenCalledWith({ challenge: "enc-token" });
     });
 
-    it('加密请求解密失败时返回 400', async () => {
-      vi.spyOn(provider as any, 'decryptFeishuData').mockImplementation(() => {
-        throw new Error('boom');
+    it("加密请求解密失败时返回 400", async () => {
+      vi.spyOn(provider as any, "decryptFeishuData").mockImplementation(() => {
+        throw new Error("boom");
       });
       const routes = provider.registerRoutes();
-      const callbackRoute = routes.find(route => route.method === 'POST' && route.path === '/callback');
+      const callbackRoute = routes.find(
+        (route) => route.method === "POST" && route.path === "/callback",
+      );
       const request = {
-        method: 'POST',
-        body: { encrypt: 'payload' },
+        method: "POST",
+        body: { encrypt: "payload" },
         headers: {},
       } as any;
       const reply = {
@@ -490,15 +502,17 @@ describe('FeishuAuthProvider', () => {
       await callbackRoute?.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(400);
-      expect(reply.send).toHaveBeenCalledWith({ error: 'Decryption failed' });
+      expect(reply.send).toHaveBeenCalledWith({ error: "Decryption failed" });
     });
 
-    it('处理明文 challenge 请求', async () => {
+    it("处理明文 challenge 请求", async () => {
       const routes = provider.registerRoutes();
-      const callbackRoute = routes.find(route => route.method === 'POST' && route.path === '/callback');
+      const callbackRoute = routes.find(
+        (route) => route.method === "POST" && route.path === "/callback",
+      );
       const request = {
-        method: 'POST',
-        body: { challenge: 'plain-token' },
+        method: "POST",
+        body: { challenge: "plain-token" },
         headers: {},
       } as any;
       const reply = {
@@ -509,23 +523,25 @@ describe('FeishuAuthProvider', () => {
 
       await callbackRoute?.handler(request, reply);
 
-      expect(reply.send).toHaveBeenCalledWith({ challenge: 'plain-token' });
+      expect(reply.send).toHaveBeenCalledWith({ challenge: "plain-token" });
     });
 
-    it('handleCallback 成功但缺少 interactionUid 时返回 400', async () => {
-      vi.spyOn(provider as any, 'handleCallback').mockResolvedValue({
+    it("handleCallback 成功但缺少 interactionUid 时返回 400", async () => {
+      vi.spyOn(provider as any, "handleCallback").mockResolvedValue({
         success: true,
-        userId: 'user-1',
+        userId: "user-1",
         metadata: {},
       });
       const routes = provider.registerRoutes();
-      const callbackRoute = routes.find(route => route.method === 'GET' && route.path === '/callback');
+      const callbackRoute = routes.find(
+        (route) => route.method === "GET" && route.path === "/callback",
+      );
       const request = {
-        method: 'GET',
-        query: { code: 'abc', state: 'state-1' },
+        method: "GET",
+        query: { code: "abc", state: "state-1" },
         body: null,
         params: {},
-        headers: { 'content-type': 'application/json' },
+        headers: { "content-type": "application/json" },
       } as any;
       const reply = {
         redirect: vi.fn(),
@@ -536,29 +552,29 @@ describe('FeishuAuthProvider', () => {
       await callbackRoute?.handler(request, reply);
 
       expect(reply.code).toHaveBeenCalledWith(400);
-      expect(reply.send).toHaveBeenCalledWith({ error: 'Invalid or expired state' });
+      expect(reply.send).toHaveBeenCalledWith({ error: "Invalid or expired state" });
     });
 
-    it('status 路由返回插件状态', async () => {
+    it("status 路由返回插件状态", async () => {
       // larkClient 已在 beforeEach 中 mock
       const routes = provider.registerRoutes();
-      const statusRoute = routes.find(route => route.path === '/status');
+      const statusRoute = routes.find((route) => route.path === "/status");
 
       const result = await statusRoute?.handler({} as any, {} as any);
 
       expect(result).toEqual({
-        provider: 'feishu',
+        provider: "feishu",
         configured: true,
         sdkInitialized: true,
       });
     });
   });
 
-  describe('decryptFeishuData', () => {
-    it('should decrypt payload when encrypt key is configured', () => {
-      const key = 'encrypt-key-123';
+  describe("decryptFeishuData", () => {
+    it("should decrypt payload when encrypt key is configured", () => {
+      const key = "encrypt-key-123";
       (provider as any).config.encryptKey = key;
-      const payload = { challenge: 'abc', type: 'url_verification' };
+      const payload = { challenge: "abc", type: "url_verification" };
       const encrypted = encryptFeishuPayload(key, payload);
 
       const result = (provider as any).decryptFeishuData(encrypted);
@@ -566,33 +582,41 @@ describe('FeishuAuthProvider', () => {
       expect(result).toEqual(payload);
     });
 
-    it('should throw when encrypt key missing', () => {
+    it("should throw when encrypt key missing", () => {
       delete (provider as any).config.encryptKey;
-      expect(() => (provider as any).decryptFeishuData('payload')).toThrow('Encrypt key not configured');
+      expect(() => (provider as any).decryptFeishuData("payload")).toThrow(
+        "Encrypt key not configured",
+      );
     });
 
-    it('解密失败时会记录错误并抛出', () => {
-      (provider as any).config.encryptKey = 'key';
-      const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+    it("解密失败时会记录错误并抛出", () => {
+      (provider as any).config.encryptKey = "key";
+      const errorSpy = vi.spyOn(Logger, "error").mockImplementation(() => {});
 
-      expect(() => (provider as any).decryptFeishuData('invalid-base64')).toThrow();
-      expect(errorSpy).toHaveBeenCalledWith('[FeishuAuth] Failed to decrypt data:', expect.any(Error));
+      expect(() => (provider as any).decryptFeishuData("invalid-base64")).toThrow();
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[FeishuAuth] Failed to decrypt data:",
+        expect.any(Error),
+      );
     });
   });
 
-  describe('verifyFeishuSignature', () => {
-    it('returns false when headers missing', async () => {
-      const result = await (provider as any).verifyFeishuSignature({ headers: {}, body: {} } as any);
+  describe("verifyFeishuSignature", () => {
+    it("returns false when headers missing", async () => {
+      const result = await (provider as any).verifyFeishuSignature({
+        headers: {},
+        body: {},
+      } as any);
       expect(result).toBe(false);
     });
 
-    it('skips verification when token not configured', async () => {
+    it("skips verification when token not configured", async () => {
       delete (provider as any).config.verificationToken;
       const request = {
         headers: {
-          'x-lark-signature': 'sig',
-          'x-lark-request-timestamp': '111',
-          'x-lark-request-nonce': 'nonce',
+          "x-lark-signature": "sig",
+          "x-lark-request-timestamp": "111",
+          "x-lark-request-nonce": "nonce",
         },
         body: {},
       } as any;
@@ -600,20 +624,20 @@ describe('FeishuAuthProvider', () => {
       expect(result).toBe(true);
     });
 
-    it('validates correct signature', async () => {
-      (provider as any).config.verificationToken = 'token-123';
+    it("validates correct signature", async () => {
+      (provider as any).config.verificationToken = "token-123";
       const timestamp = `${Math.floor(Date.now() / 1000)}`;
-      const nonce = 'nonce-1';
-      const body = { foo: 'bar' };
-      const signature = createHash('sha256')
+      const nonce = "nonce-1";
+      const body = { foo: "bar" };
+      const signature = createHash("sha256")
         .update(`${timestamp}${nonce}token-123${JSON.stringify(body)}`)
-        .digest('hex');
+        .digest("hex");
 
       const result = await (provider as any).verifyFeishuSignature({
         headers: {
-          'x-lark-signature': signature,
-          'x-lark-request-timestamp': timestamp,
-          'x-lark-request-nonce': nonce,
+          "x-lark-signature": signature,
+          "x-lark-request-timestamp": timestamp,
+          "x-lark-request-nonce": nonce,
         },
         body,
       } as any);
@@ -621,15 +645,15 @@ describe('FeishuAuthProvider', () => {
       expect(result).toBe(true);
     });
 
-    it('returns false for invalid signature', async () => {
-      (provider as any).config.verificationToken = 'token-abc';
+    it("returns false for invalid signature", async () => {
+      (provider as any).config.verificationToken = "token-abc";
       const request = {
         headers: {
-          'x-lark-signature': 'invalid',
-          'x-lark-request-timestamp': '1',
-          'x-lark-request-nonce': '2',
+          "x-lark-signature": "invalid",
+          "x-lark-request-timestamp": "1",
+          "x-lark-request-nonce": "2",
         },
-        body: { foo: 'bar' },
+        body: { foo: "bar" },
       } as any;
 
       const result = await (provider as any).verifyFeishuSignature(request);
@@ -637,50 +661,56 @@ describe('FeishuAuthProvider', () => {
       expect(result).toBe(false);
     });
 
-    it('JSON.stringify 失败时返回 false 并记录错误', async () => {
-      (provider as any).config.verificationToken = 'token-123';
+    it("JSON.stringify 失败时返回 false 并记录错误", async () => {
+      (provider as any).config.verificationToken = "token-123";
       const body: any = {};
       body.self = body;
-      const timestamp = '1';
-      const nonce = '2';
-      const loggerSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+      const timestamp = "1";
+      const nonce = "2";
+      const loggerSpy = vi.spyOn(Logger, "error").mockImplementation(() => {});
 
       const result = await (provider as any).verifyFeishuSignature({
         headers: {
-          'x-lark-signature': 'sig',
-          'x-lark-request-timestamp': timestamp,
-          'x-lark-request-nonce': nonce,
+          "x-lark-signature": "sig",
+          "x-lark-request-timestamp": timestamp,
+          "x-lark-request-nonce": nonce,
         },
         body,
       } as any);
 
       expect(result).toBe(false);
-      expect(loggerSpy).toHaveBeenCalledWith('[FeishuAuth] Error verifying signature:', expect.any(TypeError));
+      expect(loggerSpy).toHaveBeenCalledWith(
+        "[FeishuAuth] Error verifying signature:",
+        expect.any(TypeError),
+      );
     });
   });
 
-  describe('registerWebhooks', () => {
-    it('returns challenge for url verification', async () => {
+  describe("registerWebhooks", () => {
+    it("returns challenge for url verification", async () => {
       const webhooks = provider.registerWebhooks();
       const webhook = webhooks[0];
       const response = await webhook.handler(
-        { body: { type: 'url_verification', challenge: 'challenge-token' } } as any,
+        { body: { type: "url_verification", challenge: "challenge-token" } } as any,
         {} as any,
       );
 
-      expect(response).toEqual({ challenge: 'challenge-token' });
+      expect(response).toEqual({ challenge: "challenge-token" });
     });
 
-    it('returns success for other events', async () => {
+    it("returns success for other events", async () => {
       const webhooks = provider.registerWebhooks();
       const webhook = webhooks[0];
-      const response = await webhook.handler({ body: { type: 'user.updated', event: { id: 1 } } } as any, {} as any);
+      const response = await webhook.handler(
+        { body: { type: "user.updated", event: { id: 1 } } } as any,
+        {} as any,
+      );
 
       expect(response).toEqual({ success: true });
     });
 
-    it('delegates verifySignature to verifyFeishuSignature', async () => {
-      const spy = vi.spyOn(provider as any, 'verifyFeishuSignature').mockResolvedValue(true);
+    it("delegates verifySignature to verifyFeishuSignature", async () => {
+      const spy = vi.spyOn(provider as any, "verifyFeishuSignature").mockResolvedValue(true);
       const webhooks = provider.registerWebhooks();
       const webhook = webhooks[0];
       const request = { headers: {}, body: {} } as any;

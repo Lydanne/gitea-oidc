@@ -3,15 +3,15 @@
  * 用于生产环境的持久化存储
  */
 
-import Database from 'better-sqlite3';
-import { randomUUID } from 'crypto';
-import { generateUserId } from '../utils/userIdGenerator';
-import type { UserRepository, UserInfo, ListOptions } from '../types/auth';
+import Database from "better-sqlite3";
+import { randomUUID } from "crypto";
+import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
+import { generateUserId } from "../utils/userIdGenerator";
 
 export class SqliteUserRepository implements UserRepository {
   private db: Database.Database;
 
-  constructor(uri: string = ':memory:') {
+  constructor(uri: string = ":memory:") {
     this.db = new Database(uri);
     this.initializeDatabase();
   }
@@ -88,26 +88,26 @@ export class SqliteUserRepository implements UserRepository {
   }
 
   async findById(sub: string): Promise<UserInfo | null> {
-    const stmt = this.db.prepare('SELECT * FROM users WHERE sub = ?');
+    const stmt = this.db.prepare("SELECT * FROM users WHERE sub = ?");
     const row = stmt.get(sub) as any;
     return row ? this.userFromRow(row) : null;
   }
 
   async findByUsername(username: string): Promise<UserInfo | null> {
-    const stmt = this.db.prepare('SELECT * FROM users WHERE username = ?');
+    const stmt = this.db.prepare("SELECT * FROM users WHERE username = ?");
     const row = stmt.get(username) as any;
     return row ? this.userFromRow(row) : null;
   }
 
   async findByEmail(email: string): Promise<UserInfo | null> {
-    const stmt = this.db.prepare('SELECT * FROM users WHERE email = ?');
+    const stmt = this.db.prepare("SELECT * FROM users WHERE email = ?");
     const row = stmt.get(email) as any;
     return row ? this.userFromRow(row) : null;
   }
 
   async findByProviderAndExternalId(
     provider: string,
-    externalId: string
+    externalId: string,
   ): Promise<UserInfo | null> {
     const sql = `
       SELECT * FROM users
@@ -122,7 +122,7 @@ export class SqliteUserRepository implements UserRepository {
   async findOrCreate(
     provider: string,
     externalId: string,
-    userData: Omit<UserInfo, 'sub' | 'createdAt' | 'updatedAt' | 'externalId' | 'authProvider'>
+    userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider">,
   ): Promise<UserInfo> {
     const existingUser = await this.findByProviderAndExternalId(provider, externalId);
 
@@ -136,7 +136,7 @@ export class SqliteUserRepository implements UserRepository {
     }
 
     // 创建新用户
-    const userToCreate: Omit<UserInfo, 'sub'> = {
+    const userToCreate: Omit<UserInfo, "sub"> = {
       ...userData,
       authProvider: provider,
       externalId,
@@ -147,13 +147,14 @@ export class SqliteUserRepository implements UserRepository {
     return await this.create(userToCreate);
   }
 
-  async create(userData: Omit<UserInfo, 'sub'>): Promise<UserInfo> {
+  async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
     const now = new Date();
 
     // 如果提供了 authProvider 和 externalId，使用哈希生成确定性的 sub
-    const sub = userData.authProvider && userData.externalId
-      ? generateUserId(userData.authProvider, userData.externalId)
-      : randomUUID();
+    const sub =
+      userData.authProvider && userData.externalId
+        ? generateUserId(userData.authProvider, userData.externalId)
+        : randomUUID();
 
     const user: UserInfo = {
       ...userData,
@@ -173,8 +174,20 @@ export class SqliteUserRepository implements UserRepository {
 
     const stmt = this.db.prepare(sql);
     stmt.run(
-      row.sub, row.username, row.name, row.email, row.picture, row.phone, row.authProvider,
-      row.externalId, row.emailVerified, row.phoneVerified, row.groups, row.createdAt, row.updatedAt, row.metadata
+      row.sub,
+      row.username,
+      row.name,
+      row.email,
+      row.picture,
+      row.phone,
+      row.authProvider,
+      row.externalId,
+      row.emailVerified,
+      row.phoneVerified,
+      row.groups,
+      row.createdAt,
+      row.updatedAt,
+      row.metadata,
     );
 
     return user;
@@ -205,10 +218,19 @@ export class SqliteUserRepository implements UserRepository {
 
     const stmt = this.db.prepare(sql);
     stmt.run(
-      row.username, row.name, row.email, row.picture, row.phone, row.authProvider,
+      row.username,
+      row.name,
+      row.email,
+      row.picture,
+      row.phone,
+      row.authProvider,
       row.externalId,
-      row.emailVerified, row.phoneVerified, row.groups, row.updatedAt, row.metadata,
-      sub
+      row.emailVerified,
+      row.phoneVerified,
+      row.groups,
+      row.updatedAt,
+      row.metadata,
+      sub,
     );
 
     return updatedUser;
@@ -217,7 +239,7 @@ export class SqliteUserRepository implements UserRepository {
   private ensureExternalIdColumn(): void {
     const pragmaStmt = this.db.prepare(`PRAGMA table_info(users)`);
     const columns = pragmaStmt.all() as { name: string }[];
-    const hasExternalId = columns.some(col => col.name === 'externalId');
+    const hasExternalId = columns.some((col) => col.name === "externalId");
 
     if (!hasExternalId) {
       this.db.exec('ALTER TABLE users ADD COLUMN "externalId" TEXT');
@@ -225,20 +247,20 @@ export class SqliteUserRepository implements UserRepository {
   }
 
   async delete(sub: string): Promise<void> {
-    const stmt = this.db.prepare('DELETE FROM users WHERE sub = ?');
+    const stmt = this.db.prepare("DELETE FROM users WHERE sub = ?");
     stmt.run(sub);
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
-    let sql = 'SELECT * FROM users';
+    let sql = "SELECT * FROM users";
     const params: any[] = [];
 
     // 过滤
     const conditions: string[] = [];
     if (options?.filter) {
       for (const [key, value] of Object.entries(options.filter)) {
-        if (['username', 'name', 'email', 'authProvider'].includes(key)) {
-          const columnName = key === 'authProvider' ? '"authProvider"' : key;
+        if (["username", "name", "email", "authProvider"].includes(key)) {
+          const columnName = key === "authProvider" ? '"authProvider"' : key;
           conditions.push(`${columnName} = ?`);
           params.push(value);
         }
@@ -246,13 +268,13 @@ export class SqliteUserRepository implements UserRepository {
     }
 
     if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ');
+      sql += ` WHERE ${conditions.join(" AND ")}`;
     }
 
     // 排序
     if (options?.sortBy) {
-      const sortBy = options.sortBy === 'authProvider' ? '"authProvider"' : options.sortBy;
-      const sortOrder = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
+      const sortBy = options.sortBy === "authProvider" ? '"authProvider"' : options.sortBy;
+      const sortOrder = options.sortOrder === "desc" ? "DESC" : "ASC";
       sql += ` ORDER BY ${sortBy} ${sortOrder}`;
     }
 
@@ -260,24 +282,24 @@ export class SqliteUserRepository implements UserRepository {
     if (options?.offset !== undefined || options?.limit !== undefined) {
       const offset = options.offset || 0;
       const limit = options.limit;
-      sql += ' LIMIT ? OFFSET ?';
+      sql += " LIMIT ? OFFSET ?";
       params.push(limit || -1, offset);
     }
 
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as any[];
-    return rows.map(row => this.userFromRow(row));
+    return rows.map((row) => this.userFromRow(row));
   }
 
   async clear(): Promise<void> {
-    this.db.exec('DELETE FROM users');
+    this.db.exec("DELETE FROM users");
   }
 
   /**
    * 获取用户数量（用于调试）
    */
   async size(): Promise<number> {
-    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM users');
+    const stmt = this.db.prepare("SELECT COUNT(*) as count FROM users");
     const row = stmt.get() as any;
     return row.count;
   }

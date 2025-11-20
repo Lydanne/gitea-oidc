@@ -1,0 +1,27 @@
+{
+  "recommendations": [
+    // 代码质量和格式化
+    "biomejs.biome",
+
+    // 测试支持
+    "vitest.explorer",
+
+    // Markdown 支持
+    "davidanson.vscode-markdownlint",
+
+    // Git 增强
+    "eamodio.gitlens",
+
+    // Node.js 和 npm
+    "christian-kohler.npm-intellisense",
+    "christian-kohler.path-intellisense",
+
+    // 版本管理提示
+    "ms-vscode.vscode-typescript-next"
+  ],
+  "unwantedRecommendations": [
+    // Biome 已经处理了格式化和 Lint，不需要这些插件
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint"
+  ]
+}

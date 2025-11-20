@@ -5,6 +5,7 @@
   "description": "Simple OpenID Connect Identity Provider using Fastify and TypeScript",
   "main": "dist/server.js",
   "scripts": {
+    "preinstall": "node scripts/preinstall.js",
     "dev": "tsx watch src/server.ts",
     "build": "rolldown -c rolldown.config.ts",
     "build:prod": "rolldown -c rolldown.config.prod.ts",
@@ -30,8 +31,10 @@
   "author": "",
   "license": "ISC",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
   },
+  "packageManager": "pnpm@9.0.0",
   "publishConfig": {
     "access": "public"
   },

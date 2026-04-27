@@ -204,7 +204,7 @@ gitea-oidc/
     "level": "info"
   },
   "oidc": {
-    "issuer": "http://localhost:3000",
+    "issuer": "http://localhost:3000/oidc",
     "cookieKeys": [
       "change-this-to-a-random-string-in-production",
       "and-another-one-for-key-rotation"

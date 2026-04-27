@@ -29,11 +29,11 @@ export class DingTalkProviderApiClient extends BaseProviderApiClient {
   }
 
   async getUserToken(_userId: string): Promise<ProviderTokenRecord | null> {
-    return null;
+    throw new Error("DingTalk Provider API is not implemented yet");
   }
 
   async getAppToken(_ownerId?: string): Promise<ProviderTokenRecord | null> {
-    return null;
+    throw new Error("DingTalk Provider API is not implemented yet");
   }
 
   async refreshUserToken(_userId: string): Promise<ProviderTokenRecord> {
@@ -41,6 +41,6 @@ export class DingTalkProviderApiClient extends BaseProviderApiClient {
   }
 
   async probeToken(_record: ProviderTokenRecord): Promise<ProviderTokenStatus> {
-    return "unknown";
+    throw new Error("DingTalk Provider API is not implemented yet");
   }
 }

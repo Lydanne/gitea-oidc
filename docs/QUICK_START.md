@@ -42,7 +42,7 @@ node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSyn
     "trustProxy": false
   },
   "oidc": {
-    "issuer": "http://localhost:3000"
+    "issuer": "http://localhost:3000/oidc"
   },
   "auth": {
     "providers": {

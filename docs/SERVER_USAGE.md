@@ -55,7 +55,7 @@ const customConfig: GiteaOidcConfig = {
     level: 'info',
   },
   oidc: {
-    issuer: 'http://localhost:4000',
+    issuer: 'http://localhost:4000/oidc',
     cookieKeys: ['your-secret-key-here'],
     ttl: {
       AccessToken: 3600,
@@ -164,7 +164,8 @@ setupOIDC();
 
 ### 关键配置项
 
-- **server.url**: 必须与 `oidc.issuer` 保持一致
+- **server.url**: 对外访问的服务根地址，例如 `https://idp.example.com`
+- **oidc.issuer**: 对外访问的 OIDC 发行者地址，默认是 `${server.url}/oidc`
 - **server.trustProxy**: 在反向代理（Nginx/Traefik）后必须设置为 `true`
 - **oidc.cookieKeys**: 生产环境必须使用强密钥，建议使用多个密钥支持密钥轮换
 - **clients**: 配置允许使用此 IdP 的客户端应用

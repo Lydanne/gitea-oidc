@@ -8,7 +8,7 @@
 
 ```json
 {
-  "issuer": "https://your-domain.com",
+  "issuer": "https://your-domain.com/oidc",
   "authorization_endpoint": "http://your-domain.com/oidc/auth",  // ❌ 错误：应该是 https
   "token_endpoint": "http://your-domain.com/oidc/token",         // ❌ 错误：应该是 https
   ...
@@ -30,7 +30,7 @@
     "trustProxy": true  // ⭐ 关键配置：启用代理信任
   },
   "oidc": {
-    "issuer": "https://your-domain.com",  // ⭐ 使用 HTTPS
+    "issuer": "https://your-domain.com/oidc",  // 使用 HTTPS 和 /oidc 挂载路径
     ...
   }
 }
@@ -39,7 +39,7 @@
 **关键配置说明：**
 
 - `server.url`: 设置为公网访问的 HTTPS 地址
-- `oidc.issuer`: 必须与 `server.url` 一致，使用 HTTPS
+- `oidc.issuer`: 设置为公网 OIDC 发行者地址，默认挂载路径为 `${server.url}/oidc`
 - `server.trustProxy`: **必须设置为 `true`**，这样应用才能识别反向代理传递的协议信息
 
 ### 2. 反向代理配置
@@ -123,7 +123,7 @@ curl https://your-domain.com/oidc/.well-known/openid-configuration | jq
 
 ```json
 {
-  "issuer": "https://your-domain.com",
+  "issuer": "https://your-domain.com/oidc",
   "authorization_endpoint": "https://your-domain.com/oidc/auth",  // ✅ 正确
   "token_endpoint": "https://your-domain.com/oidc/token",         // ✅ 正确
   "userinfo_endpoint": "https://your-domain.com/oidc/me",         // ✅ 正确

@@ -107,7 +107,7 @@ OIDC 适配器负责持久化存储 OIDC Provider 的状态数据(如 Session、
     }
   },
   "oidc": {
-    "issuer": "http://localhost:3000",
+    "issuer": "http://localhost:3000/oidc",
     "cookieKeys": ["secret-key-1", "secret-key-2"]
   },
   "clients": [
@@ -139,7 +139,7 @@ OIDC 适配器负责持久化存储 OIDC Provider 的状态数据(如 Session、
     }
   },
   "oidc": {
-    "issuer": "https://idp.example.com",
+    "issuer": "https://idp.example.com/oidc",
     "cookieKeys": ["production-secret-1", "production-secret-2"]
   }
 }

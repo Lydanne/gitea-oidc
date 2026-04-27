@@ -2,15 +2,13 @@
  * Nest 接入工具
  */
 
-import { createGiteaOidcExpressMiddleware, type GiteaOidcExpressOptions } from "./express";
+import type { GiteaOidcExpressOptions } from "./express";
 
 /**
  * 创建 Nest Guard
  * @param options bearer token 校验配置
  */
 export function createGiteaOidcNestGuard(options: GiteaOidcExpressOptions) {
-  const middleware = createGiteaOidcExpressMiddleware(options);
-
   return class GiteaOidcNestGuard {
     /**
      * Nest Guard 入口
@@ -18,15 +16,21 @@ export function createGiteaOidcNestGuard(options: GiteaOidcExpressOptions) {
      */
     async canActivate(context: any): Promise<boolean> {
       const request = context.switchToHttp().getRequest();
-      const response = context.switchToHttp().getResponse();
+      const authorization = request.headers?.authorization;
 
-      await new Promise<void>((resolve, reject) => {
-        middleware(request, response, (err?: unknown) => {
-          if (err) reject(err);
-          else resolve();
-        });
+      if (!authorization) {
+        return false;
+      }
+
+      const response = await fetch(options.userInfoEndpoint, {
+        headers: { Authorization: authorization },
       });
 
+      if (!response.ok) {
+        return false;
+      }
+
+      request.user = await response.json();
       return !!request.user;
     }
   };

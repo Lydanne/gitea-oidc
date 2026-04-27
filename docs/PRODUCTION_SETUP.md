@@ -173,7 +173,7 @@ pnpm start
     "trustProxy": true
   },
   "oidc": {
-    "issuer": "https://idp.example.com",
+    "issuer": "https://idp.example.com/oidc",
     "cookieKeys": [
       "your-strong-random-key-1",
       "your-strong-random-key-2"
@@ -186,7 +186,7 @@ pnpm start
 
 - `server.url`: 使用 HTTPS 和实际域名
 - `server.trustProxy`: 在反向代理后必须设为 `true`
-- `oidc.issuer`: 必须与 `server.url` 一致
+- `oidc.issuer`: 使用 HTTPS 和实际 OIDC 挂载路径，默认是 `${server.url}/oidc`
 - `oidc.cookieKeys`: 使用强随机密钥
 
 ### 5. 生成强随机密钥

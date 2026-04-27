@@ -87,7 +87,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
   },
 
   oidc: {
-    issuer: "http://localhost:3000",
+    issuer: "http://localhost:3000/oidc",
     cookieKeys: ["secret-key-1", "secret-key-2"],
     ttl: {
       AccessToken: 3600,

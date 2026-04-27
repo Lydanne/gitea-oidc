@@ -53,6 +53,24 @@ describe("SqliteUserRepository", () => {
       expect(user.createdAt).toEqual(customTime);
       expect(user.updatedAt).toEqual(customTime);
     });
+
+    it("应该为老格式用户默认设置 active 状态并持久化规范字段", async () => {
+      const user = await repository.create({
+        ...mockUserData,
+        roles: ["operator"],
+        lastSyncedAt: new Date("2026-01-01T00:00:00Z"),
+        providerProfile: {
+          provider: "local",
+          externalId: "ext123",
+          syncedAt: new Date("2026-01-01T00:00:00Z"),
+        },
+      });
+      const found = await repository.findById(user.sub);
+
+      expect(found?.status).toBe("active");
+      expect(found?.roles).toEqual(["operator"]);
+      expect(found?.providerProfile?.provider).toBe("local");
+    });
   });
 
   describe("findById", () => {

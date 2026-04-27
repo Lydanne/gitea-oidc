@@ -239,7 +239,7 @@ const defaultConfig: GiteaOidcConfig = {
   },
 
   oidc: {
-    issuer: "http://localhost:3000",
+    issuer: "http://localhost:3000/oidc",
     cookieKeys: ["some-secret-key"],
     ttl: {
       AccessToken: 3600,

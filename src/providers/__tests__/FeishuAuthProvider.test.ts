@@ -1,5 +1,6 @@
 import { createCipheriv, createHash } from "crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryProviderTokenRepository } from "../../repositories/MemoryProviderTokenRepository";
 import type { AuthContext, AuthProviderConfig, FeishuAuthConfig, UserInfo } from "../../types/auth";
 import { PluginPermission } from "../../types/auth";
 import { AuthErrors } from "../../utils/authErrors";
@@ -228,6 +229,52 @@ describe("FeishuAuthProvider", () => {
           groups: expect.arrayContaining(["dev-group"]),
         }),
       );
+    });
+
+    it("stores Feishu user token after OAuth callback succeeds", async () => {
+      const tokenRepository = new MemoryProviderTokenRepository();
+      provider = new FeishuAuthProvider(userRepository as any, coordinator as any, tokenRepository);
+      (provider as any).config = baseProviderConfig.config;
+
+      coordinator.verifyOAuthState.mockResolvedValue({
+        provider: "feishu",
+        interactionUid: "i-uid",
+      });
+      vi.spyOn(provider as any, "exchangeCodeForToken").mockResolvedValue({
+        accessToken: "user-access-token",
+        refreshToken: "user-refresh-token",
+        expiresIn: 7200,
+        tokenType: "Bearer",
+      });
+      vi.spyOn(provider as any, "getFeishuUserInfo").mockResolvedValue({
+        open_id: "open-1",
+        union_id: "union-1",
+        tenant_key: "tenant-1",
+        name: "张三",
+        en_name: "zhangsan",
+        email: "test@example.com",
+      });
+      userRepository.findOrCreate.mockResolvedValue({
+        sub: "user-1",
+        username: "zhangsan",
+        name: "张三",
+        email: "test@example.com",
+        authProvider: "feishu",
+        externalId: "open-1",
+      } as UserInfo);
+
+      const result = await provider.handleCallback(
+        createContext({ query: { code: "abc", state: "state-1" } as any }),
+      );
+      const token = await tokenRepository.find("feishu", "user", "user-1");
+
+      expect(result.success).toBe(true);
+      expect(token).toMatchObject({
+        accessToken: "user-access-token",
+        refreshToken: "user-refresh-token",
+        metadata: { openId: "open-1", unionId: "union-1", tenantKey: "tenant-1" },
+        status: "valid",
+      });
     });
   });
 

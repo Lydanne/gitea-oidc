@@ -28,6 +28,7 @@ change touches their area.
 - Use `$gitea-oidc-auth-provider` for auth providers, OAuth callbacks, permissions, and users.
 - Use `$gitea-oidc-oidc-storage` for OIDC adapters, Redis, SQLite, TTL, and cleanup.
 - Use `$gitea-oidc-config-safety` for config loading, schema, JWKS, proxy, and production safety.
+- Use `$gitea-oidc-docs-quality` for docs writing, cleanup, organization, links, and Markdown style.
 - Use `$gitea-oidc-release-quality` for package, build, Docker, CI, changelog, and publish checks.
 
 ## Local References

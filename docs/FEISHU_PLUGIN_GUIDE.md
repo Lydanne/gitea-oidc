@@ -623,7 +623,7 @@ export default {
   
   clients: [{
     client_id: 'gitea',
-    client_secret: 'PEwXhUvyDswaTaPPJsMDVtC7jtcaTErH',
+    client_secret: process.env.GITEA_OIDC_CLIENT_SECRET || 'change-this-client-secret',
     redirect_uris: ['https://gitea.example.com/user/oauth2/oidc/callback'],
     response_types: ['code'],
     grant_types: ['authorization_code', 'refresh_token'],
@@ -677,8 +677,8 @@ export default {
 
 - [飞书开放平台文档](https://open.feishu.cn/document/home/index)
 - [飞书 OAuth 2.0 文档](https://open.feishu.cn/document/common-capabilities/sso/api/get-user-info)
-- [插件系统设计文档](./AUTH_PLUGIN_DESIGN.md)
-- [插件路由指南](./PLUGIN_ROUTES_GUIDE.md)
+- [插件系统设计文档](./dev/AUTH_PLUGIN_DESIGN.md)
+- [插件路由指南](./dev/PLUGIN_ROUTES_GUIDE.md)
 
 ---
 

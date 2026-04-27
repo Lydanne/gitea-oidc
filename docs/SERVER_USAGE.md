@@ -230,5 +230,5 @@ process.on('SIGTERM', async () => {
 ## 更多信息
 
 - [完整配置示例](../example.gitea-oidc.config.json)
-- [认证插件开发](./PLUGIN_ROUTES_GUIDE.md)
+- [认证插件开发](./dev/PLUGIN_ROUTES_GUIDE.md)
 - [生产环境配置](./PRODUCTION_SETUP.md)

@@ -121,16 +121,13 @@ pnpm test:coverage
 
 ## 📖 文档
 
-- **[快速开始](./docs/QUICK_START.md)** - 5 分钟快速上手
-- **[生产环境配置](./docs/PRODUCTION_SETUP.md)** - ⭐ 生产环境部署指南
-- **[集成完成](./docs/INTEGRATION_COMPLETE.md)** - 集成状态和使用说明
-- **[实现状态 & 验证清单](./docs/P0_IMPLEMENTATION_STATUS.md)** - 核心功能实现与验证状态
-- **[设计文档](./docs/AUTH_PLUGIN_DESIGN.md)** - 架构设计详解
-- **[插件开发](./docs/PLUGIN_ROUTES_GUIDE.md)** - 如何开发自定义插件
-- **[P0 改进](./docs/P0_IMPROVEMENTS.md)** - 安全性改进说明
-- **[集成指南](./docs/SERVER_INTEGRATION_GUIDE.md)** - 详细集成步骤
-- **[OIDC 帮助](./docs/OIDC_HELP.md)** - OIDC 相关说明
-- **[发布与 CI/CD 指南](./docs/RELEASE_AND_CI_CD.md)** - release-it 与 GitHub Actions 工作流说明
+- **[文档目录](./docs/README.md)** - 使用者与开发者文档入口
+- **[快速开始](./docs/QUICK_START.md)** - 本地启动和 Gitea OIDC 配置
+- **[生产环境配置](./docs/PRODUCTION_SETUP.md)** - 生产环境部署指南
+- **[反向代理 HTTPS](./docs/REVERSE_PROXY_HTTPS.md)** - 代理和 HTTPS URL 配置
+- **[OIDC 适配器配置](./docs/ADAPTER_CONFIGURATION.md)** - SQLite、Redis、memory 适配器选择
+- **[飞书认证插件](./docs/FEISHU_PLUGIN_GUIDE.md)** - 飞书 OAuth 登录配置
+- **[开发者文档](./docs/dev/README.md)** - 插件开发、架构和发布维护
 
 ## 技术栈
 
@@ -563,7 +560,7 @@ docker run -d -p 3000:3000 \
 
 更多关于发布与 CI/CD 的说明已迁移至独立文档：
 
-- **[发布与 CI/CD 指南](./docs/RELEASE_AND_CI_CD.md)** - release-it 与 GitHub Actions 工作流说明
+- **[发布与 CI/CD 指南](./docs/dev/RELEASE_AND_CI_CD.md)** - release-it 与 GitHub Actions 工作流说明
 
 该文档涵盖：
 

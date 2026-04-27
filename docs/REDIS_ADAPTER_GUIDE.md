@@ -12,77 +12,38 @@
 - ✅ **索引支持**: 支持 userCode、uid、grantId 等索引查询
 - ✅ **连接池**: 所有适配器实例共享同一个 Redis 连接
 
-## 安装依赖
-
-```bash
-pnpm add redis
-```
-
 ## 基本使用
 
-### 1. 配置 Redis 连接
+项目已经包含 Redis 依赖，不需要额外安装。只需要在配置文件中选择 Redis 适配器。
 
-在 `src/server.ts` 中配置:
+### URL 方式
 
-```typescript
-import { RedisOidcAdapter } from './adapters/RedisOidcAdapter';
-
-// 方式 1: 使用 URL 连接
-const redisOptions = {
-  url: 'redis://localhost:6379'
-};
-
-// 方式 2: 使用详细配置
-const redisOptions = {
-  host: 'localhost',
-  port: 6379,
-  password: 'your-password',  // 可选
-  database: 0,                // 可选,默认 0
-  keyPrefix: 'oidc:'          // 可选,默认 'oidc:'
-};
-
-// 配置 OIDC Provider
-const configuration: Configuration = {
-  adapter: (name) => new RedisOidcAdapter(name, redisOptions),
-  // ... 其他配置
-};
+```json
+{
+  "adapter": {
+    "type": "redis",
+    "redis": {
+      "url": "redis://localhost:6379",
+      "keyPrefix": "oidc:"
+    }
+  }
+}
 ```
 
-### 2. 完整示例
+### 主机和端口方式
 
-```typescript
-import { Provider, type Configuration } from 'oidc-provider';
-import { RedisOidcAdapter } from './adapters/RedisOidcAdapter';
-
-async function start() {
-  // Redis 配置
-  const redisOptions = {
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
-    keyPrefix: 'myapp:oidc:',
-  };
-
-  // OIDC Provider 配置
-  const configuration: Configuration = {
-    adapter: (name) => new RedisOidcAdapter(name, redisOptions),
-    clients: [
-      {
-        client_id: 'my-client',
-        client_secret: 'secret',
-        redirect_uris: ['http://localhost:3001/callback'],
-        response_types: ['code'],
-        grant_types: ['authorization_code', 'refresh_token'],
-      },
-    ],
-    // ... 其他配置
-  };
-
-  const oidc = new Provider('http://localhost:3000', configuration);
-  
-  // 优雅关闭
-  process.on('SIGTERM', async () => {
-    await RedisOidcAdapter.disconnect();
-    process.exit(0);
-  });
+```json
+{
+  "adapter": {
+    "type": "redis",
+    "redis": {
+      "host": "localhost",
+      "port": 6379,
+      "password": "your-password",
+      "database": 0,
+      "keyPrefix": "oidc:"
+    }
+  }
 }
 ```
 
@@ -101,20 +62,25 @@ async function start() {
 
 ## 环境变量配置
 
-推荐使用环境变量管理 Redis 连接:
+如果使用 `gitea-oidc.config.js`，推荐通过环境变量管理 Redis 连接：
 
 ```bash
-# .env
 REDIS_URL=redis://localhost:6379
 REDIS_PASSWORD=your-password
 REDIS_DB=0
 ```
 
-```typescript
-const redisOptions = {
-  url: process.env.REDIS_URL,
-  password: process.env.REDIS_PASSWORD,
-  database: parseInt(process.env.REDIS_DB || '0'),
+```javascript
+export default {
+  adapter: {
+    type: "redis",
+    redis: {
+      url: process.env.REDIS_URL,
+      password: process.env.REDIS_PASSWORD,
+      database: Number(process.env.REDIS_DB || 0),
+      keyPrefix: "oidc:"
+    }
+  }
 };
 ```
 

@@ -89,8 +89,8 @@ At a high level:
 
 For a more detailed design, see (Chinese):
 
-- `docs/AUTH_PLUGIN_DESIGN.md`
-- `docs/PLUGIN_ROUTES_GUIDE.md`
+- `docs/dev/AUTH_PLUGIN_DESIGN.md`
+- `docs/dev/PLUGIN_ROUTES_GUIDE.md`
 - `docs/ADAPTER_CONFIGURATION.md`
 
 ---
@@ -217,10 +217,7 @@ Basic steps for integrating this IdP with Gitea:
    - **Client Secret**: `gitea-client-secret-change-in-production`
 4. Save and try logging in via OIDC.
 
-For more detailed, step-by-step instructions (Chinese), see:
-
-- `docs/SERVER_INTEGRATION_GUIDE.md`
-- `docs/INTEGRATION_COMPLETE.md`
+For more detailed, step-by-step instructions (Chinese), see `docs/QUICK_START.md`.
 
 ---
 
@@ -275,12 +272,14 @@ GitHub Actions workflows:
 
 Main documentation lives under `docs/` and is currently in Chinese:
 
+- `docs/README.md` – documentation index
 - `docs/QUICK_START.md` – quick start guide
 - `docs/PRODUCTION_SETUP.md` – production setup
-- `docs/AUTH_PLUGIN_DESIGN.md` – plugin architecture
-- `docs/PLUGIN_ROUTES_GUIDE.md` – how to build custom providers
 - `docs/ADAPTER_CONFIGURATION.md`, `docs/REDIS_ADAPTER_GUIDE.md` – adapter details
 - `docs/REVERSE_PROXY_HTTPS.md` – reverse proxy & HTTPS
+- `docs/dev/README.md` – developer documentation index
+- `docs/dev/AUTH_PLUGIN_DESIGN.md` – plugin architecture
+- `docs/dev/PLUGIN_ROUTES_GUIDE.md` – how to build custom providers
 
 If you can read Chinese, please start from `docs/QUICK_START.md`.
 

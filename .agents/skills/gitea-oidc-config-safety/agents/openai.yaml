@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitea OIDC Config Safety"
+  short_description: "Keep config, schema, and deployment safe"
+  default_prompt: "Use $gitea-oidc-config-safety to update config or production settings."

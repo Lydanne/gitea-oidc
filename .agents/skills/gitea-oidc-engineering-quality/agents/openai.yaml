@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitea OIDC Engineering Quality"
+  short_description: "Guide feature work and code quality"
+  default_prompt: "Use $gitea-oidc-engineering-quality to implement a high-quality change in this repository."

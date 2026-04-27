@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitea OIDC Release Quality"
+  short_description: "Validate build, Docker, CI, and release work"
+  default_prompt: "Use $gitea-oidc-release-quality to prepare or validate a release change."

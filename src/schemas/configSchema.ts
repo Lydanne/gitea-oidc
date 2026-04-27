@@ -64,6 +64,9 @@ export const ClientConfigSchema = z.object({
   redirect_uris: z
     .array(z.url({ message: "重定向 URI 必须是有效的 URL" }))
     .min(1, "至少需要一个重定向 URI"),
+  post_logout_redirect_uris: z
+    .array(z.url({ message: "登出后重定向 URI 必须是有效的 URL" }))
+    .optional(),
   response_types: z.array(z.string()).min(1),
   grant_types: z.array(z.string()).min(1),
   token_endpoint_auth_method: z.string(),

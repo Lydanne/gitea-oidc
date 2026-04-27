@@ -232,6 +232,7 @@ gitea-oidc/
       "client_id": "gitea",
       "client_secret": "gitea-client-secret-change-in-production",
       "redirect_uris": ["http://localhost:3001/user/oauth2/gitea/callback"],
+      "post_logout_redirect_uris": ["http://localhost:3001/"],
       "response_types": ["code"],
       "grant_types": ["authorization_code", "refresh_token"],
       "token_endpoint_auth_method": "client_secret_basic"

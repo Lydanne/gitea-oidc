@@ -144,6 +144,7 @@ export interface GiteaOidcConfig {
    * - client_id: 客户端唯一标识符
    * - client_secret: 客户端密钥，用于客户端认证
    * - redirect_uris: 授权后重定向的 URL 列表
+   * - post_logout_redirect_uris: 登出后允许重定向的 URL 列表
    * - response_types: 支持的响应类型，如 'code'（授权码流程）
    * - grant_types: 支持的授权类型，如 'authorization_code'
    * - token_endpoint_auth_method: 令牌端点认证方法
@@ -152,6 +153,7 @@ export interface GiteaOidcConfig {
     client_id: string;
     client_secret: string;
     redirect_uris: string[];
+    post_logout_redirect_uris?: string[];
     response_types: string[];
     grant_types: string[];
     token_endpoint_auth_method: string;

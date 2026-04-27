@@ -160,6 +160,14 @@ function checkConfigWarnings(config: any): string[] {
           }
         });
       }
+
+      if (client.post_logout_redirect_uris) {
+        client.post_logout_redirect_uris.forEach((uri: string) => {
+          if (!uri.startsWith("https://") && !uri.startsWith("http://localhost")) {
+            warnings.push(`客户端 "${client.client_id}" 的登出后重定向 URI "${uri}" 未使用 HTTPS`);
+          }
+        });
+      }
     });
   }
 

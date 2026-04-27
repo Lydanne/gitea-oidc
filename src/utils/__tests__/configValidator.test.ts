@@ -43,6 +43,7 @@ const createBaseConfig = (): GiteaOidcConfig => ({
       client_id: "web-app",
       client_secret: "super-secret-value-123",
       redirect_uris: ["https://app.example.com/callback"],
+      post_logout_redirect_uris: ["https://app.example.com/"],
       response_types: ["code"],
       grant_types: ["authorization_code"],
       token_endpoint_auth_method: "client_secret_basic",
@@ -78,6 +79,9 @@ describe("validateConfig", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.warnings).toEqual([]);
     expect(result.config?.server.url).toBe("https://id.example.com");
+    expect(result.config?.clients[0].post_logout_redirect_uris).toEqual([
+      "https://app.example.com/",
+    ]);
   });
 
   it("should collect zod errors when invalid config provided", () => {
@@ -95,6 +99,7 @@ describe("validateConfig", () => {
     config.oidc.cookieKeys = ["change-this-to-a-random-string-in-production", "B".repeat(32)];
     config.clients[0].client_secret = "shortsecret";
     config.clients[0].redirect_uris = ["http://example.com/callback"];
+    config.clients[0].post_logout_redirect_uris = ["http://example.com/"];
     config.server.url = "http://id.example.com";
     config.auth.providers.local.enabled = false;
     config.auth.providers.feishu.enabled = false;
@@ -116,6 +121,7 @@ describe("validateConfig", () => {
         expect.stringContaining('客户端 "legacy-app" 使用默认密钥'),
         expect.stringContaining("服务器 URL 未使用 HTTPS"),
         expect.stringContaining('客户端 "web-app" 的重定向 URI'),
+        expect.stringContaining('客户端 "web-app" 的登出后重定向 URI'),
         expect.stringContaining("没有启用任何认证提供者"),
       ]),
     );

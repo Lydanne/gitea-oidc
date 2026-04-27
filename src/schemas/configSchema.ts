@@ -152,6 +152,39 @@ export const AuthConfigSchema = z.object({
 });
 
 /**
+ * 后台管理配置 Schema
+ */
+export const AdminConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  basePath: z.string().regex(/^\/[a-zA-Z0-9/_-]*$/, "后台路径必须以 / 开头"),
+  allowedGroups: z.array(z.string().min(1)).default(["Owners"]),
+  sessionTtlSeconds: z.number().int().positive().default(3600),
+});
+
+/**
+ * Provider API 单 Provider 配置 Schema
+ */
+export const ProviderApiProviderConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  baseUrl: z.url({ message: "Provider API baseUrl 必须是有效的 URL" }).optional(),
+  allowedOperations: z.array(z.string()).optional().default([]),
+  defaultAppOwnerId: z.string().optional().default("default"),
+  config: z.record(z.string(), z.any()).optional(),
+});
+
+/**
+ * Provider API 配置 Schema
+ */
+export const ProviderApiConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  tokenEncryptionKey: z.string().min(16, "Provider token 加密密钥至少需要 16 个字符"),
+  refreshSkewSeconds: z.number().int().nonnegative().default(300),
+  probeIntervalSeconds: z.number().int().positive().default(300),
+  sdkProxy: z.boolean().default(true),
+  providers: z.record(z.string(), ProviderApiProviderConfigSchema).default({}),
+});
+
+/**
  * SQLite 适配器配置 Schema
  */
 export const SqliteAdapterConfigSchema = z.object({
@@ -217,6 +250,20 @@ export const GiteaOidcConfigSchema = z.object({
   oidc: OidcConfigSchema,
   clients: z.array(ClientConfigSchema).min(1, "至少需要配置一个客户端"),
   auth: AuthConfigSchema,
+  admin: AdminConfigSchema.default({
+    enabled: true,
+    basePath: "/admin",
+    allowedGroups: ["Owners"],
+    sessionTtlSeconds: 3600,
+  }),
+  providerApi: ProviderApiConfigSchema.default({
+    enabled: true,
+    tokenEncryptionKey: "change-this-provider-token-key",
+    refreshSkewSeconds: 300,
+    probeIntervalSeconds: 300,
+    sdkProxy: true,
+    providers: {},
+  }),
   adapter: OidcAdapterConfigSchema.optional().default({
     type: "sqlite",
     sqlite: {

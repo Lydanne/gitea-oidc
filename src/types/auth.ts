@@ -5,6 +5,23 @@
  */
 
 import type { FastifyReply, FastifyRequest, RouteOptions } from "fastify";
+import type { ProviderProfile, UserStatus } from "./user";
+
+export type { AdminConfig, AdminMeResponse, AdminSession, AdminTokenSummary } from "./admin";
+export type {
+  ProviderApiActor,
+  ProviderApiClient,
+  ProviderApiProviderConfig,
+  ProviderApiRequest,
+  ProviderApiResponse,
+  ProviderApiRuntimeConfig,
+  ProviderTokenListOptions,
+  ProviderTokenOwnerType,
+  ProviderTokenRecord,
+  ProviderTokenRepository,
+  ProviderTokenStatus,
+} from "./providerApi";
+export type { ProviderProfile, UserStatus } from "./user";
 
 /**
  * 认证错误码
@@ -498,6 +515,21 @@ export interface UserInfo {
   /** 用户组列表（OIDC groups claim，用于团队映射） */
   groups?: string[];
 
+  /** 用户账号状态，未持久化的老数据默认为 active */
+  status?: UserStatus;
+
+  /** 规范化角色列表，用于平台权限判断 */
+  roles?: string[];
+
+  /** 最近一次登录时间 */
+  lastLoginAt?: Date;
+
+  /** 最近一次从 Provider 同步的时间 */
+  lastSyncedAt?: Date;
+
+  /** Provider 原始档案快照 */
+  providerProfile?: ProviderProfile;
+
   /** 创建时间 */
   createdAt?: Date;
 
@@ -791,6 +823,12 @@ export interface LocalAuthConfig {
     maxAttempts: number;
     lockoutDuration: number; // 秒
   };
+
+  /** 本地用户默认用户组 */
+  defaultGroups?: string[];
+
+  /** 本地管理员用户名列表，命中后会附加 Owners 组 */
+  adminUsers?: string[];
 }
 
 /**

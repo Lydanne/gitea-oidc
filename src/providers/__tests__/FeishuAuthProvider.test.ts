@@ -240,7 +240,7 @@ describe("FeishuAuthProvider", () => {
 
       const token = await (provider as any).exchangeCodeForToken("code-123");
 
-      expect(token).toBe("user-token");
+      expect(token).toMatchObject({ accessToken: "user-token" });
     });
 
     it("throws when Feishu returns error", async () => {

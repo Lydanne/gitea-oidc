@@ -9,9 +9,16 @@ import { OidcAdapterFactory } from "./adapters/OidcAdapterFactory";
 import { type GiteaOidcConfig, loadConfig } from "./config";
 // 认证系统导入
 import { AuthCoordinator } from "./core/AuthCoordinator";
+import { DingTalkProviderApiClient } from "./provider-api/DingTalkProviderApiClient";
+import { FeishuProviderApiClient } from "./provider-api/FeishuProviderApiClient";
+import { ProviderApiService } from "./provider-api/ProviderApiService";
+import { ProviderTokenProbeScheduler } from "./provider-api/ProviderTokenProbeScheduler";
 import { FeishuAuthProvider } from "./providers/FeishuAuthProvider";
 import { LocalAuthProvider } from "./providers/LocalAuthProvider";
+import { ProviderTokenRepositoryFactory } from "./repositories/ProviderTokenRepositoryFactory";
 import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory";
+import { registerAdminRoutes } from "./routes/adminRoutes";
+import { registerProviderApiRoutes } from "./routes/providerApiRoutes";
 import { MemoryStateStore } from "./stores/MemoryStateStore";
 import type { AuthContext, AuthProvider } from "./types/auth";
 import { formatAuthError, getUserErrorMessage } from "./utils/authErrors";
@@ -55,6 +62,20 @@ export async function start(customConfig?: GiteaOidcConfig) {
     cleanupIntervalMs: 30000, // 每30秒清理一次
   });
   const userRepository = UserRepositoryFactory.create(config.auth.userRepository);
+  const tokenRepository = config.providerApi.enabled
+    ? ProviderTokenRepositoryFactory.create(
+        config.auth.userRepository,
+        config.providerApi.tokenEncryptionKey,
+      )
+    : undefined;
+  const providerApiService =
+    config.providerApi.enabled && tokenRepository
+      ? new ProviderApiService({
+          adminGroups: config.admin.allowedGroups,
+          tokenRepository,
+        })
+      : undefined;
+  let providerTokenProbeScheduler: ProviderTokenProbeScheduler | undefined;
 
   // 创建认证协调器
   const authCoordinator = new AuthCoordinator({
@@ -72,7 +93,7 @@ export async function start(customConfig?: GiteaOidcConfig) {
   }
 
   if (config.auth.providers.feishu?.enabled) {
-    const feishuProvider = new FeishuAuthProvider(userRepository, authCoordinator);
+    const feishuProvider = new FeishuAuthProvider(userRepository, authCoordinator, tokenRepository);
     authCoordinator.registerProvider(feishuProvider);
     Logger.info("[认证系统] 已注册 FeishuAuthProvider");
   }
@@ -150,6 +171,8 @@ export async function start(customConfig?: GiteaOidcConfig) {
             phone: user.phone,
             phone_verified: user.phoneVerified ?? false,
             groups: user.groups ?? [],
+            roles: user.roles ?? [],
+            status: user.status ?? "active",
             updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
           };
 
@@ -162,6 +185,50 @@ export async function start(customConfig?: GiteaOidcConfig) {
   };
 
   const oidc = new Provider(config.oidc.issuer, configuration);
+
+  if (providerApiService && tokenRepository) {
+    const feishuProviderConfig = config.auth.providers.feishu?.config as any;
+    const feishuApiConfig = config.providerApi.providers.feishu;
+    if (
+      feishuApiConfig?.enabled &&
+      feishuProviderConfig?.appId &&
+      feishuProviderConfig?.appSecret
+    ) {
+      providerApiService.registerClient(
+        new FeishuProviderApiClient({
+          config: feishuProviderConfig,
+          tokenRepository,
+          baseUrl: feishuApiConfig.baseUrl ?? "https://open.feishu.cn/open-apis",
+          refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
+          allowedOperations: feishuApiConfig.allowedOperations,
+          defaultAppOwnerId: feishuApiConfig.defaultAppOwnerId,
+        }),
+      );
+      Logger.info("[Provider API] 已注册 FeishuProviderApiClient");
+    }
+
+    const dingtalkApiConfig = config.providerApi.providers.dingtalk;
+    if (dingtalkApiConfig?.enabled) {
+      providerApiService.registerClient(
+        new DingTalkProviderApiClient({
+          tokenRepository,
+          baseUrl: dingtalkApiConfig.baseUrl ?? "https://api.dingtalk.com",
+          refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
+          allowedOperations: dingtalkApiConfig.allowedOperations,
+          defaultAppOwnerId: dingtalkApiConfig.defaultAppOwnerId,
+        }),
+      );
+      Logger.info("[Provider API] 已注册 DingTalkProviderApiClient 骨架");
+    }
+
+    providerTokenProbeScheduler = new ProviderTokenProbeScheduler({
+      providerApiService,
+      tokenRepository,
+      probeIntervalSeconds: config.providerApi.probeIntervalSeconds,
+      refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
+    });
+    providerTokenProbeScheduler.start();
+  }
 
   // 配置 oidc-provider 信任反向代理（基于 Koa 的 proxy 设置）
   // 在反向代理（Nginx/Traefik）后必须启用，才能正确识别 X-Forwarded-Proto 等头信息
@@ -178,6 +245,26 @@ export async function start(customConfig?: GiteaOidcConfig) {
 
   // 将 OIDC Provider 实例传递给 AuthCoordinator
   authCoordinator.setOidcProvider(oidc);
+
+  if (providerApiService) {
+    registerProviderApiRoutes({
+      app,
+      oidcProvider: oidc,
+      userRepository,
+      providerApiService,
+      sdkProxy: config.providerApi.sdkProxy,
+    });
+  }
+
+  registerAdminRoutes({
+    app,
+    config,
+    oidcProvider: oidc,
+    authCoordinator,
+    userRepository,
+    providerApiService,
+    tokenRepository,
+  });
 
   // 挂载OIDC到Fastify
   app.use("/oidc", oidc.callback());
@@ -420,6 +507,8 @@ export async function start(customConfig?: GiteaOidcConfig) {
 
     // 销毁认证系统
     await authCoordinator.destroy();
+    providerTokenProbeScheduler?.stop();
+    await tokenRepository?.close?.();
     stateStore.destroy();
 
     // 清理适配器资源

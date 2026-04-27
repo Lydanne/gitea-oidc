@@ -144,11 +144,17 @@ export class LocalAuthProvider implements AuthProvider {
     }
 
     // 查找或创建用户
+    const groups = new Set(this.config.defaultGroups ?? []);
+    if ((this.config.adminUsers ?? []).includes(username)) {
+      groups.add("Owners");
+    }
+
     const user = await this.userRepository.findOrCreate(this.name, username, {
       username,
       name: username,
       email: `${username}@local`,
       emailVerified: false,
+      ...(groups.size > 0 ? { groups: Array.from(groups) } : {}),
     });
 
     return {

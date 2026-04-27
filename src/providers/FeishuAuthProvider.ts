@@ -16,6 +16,7 @@ import type {
   PluginMetadata,
   PluginRoute,
   PluginWebhook,
+  ProviderTokenRepository,
   UserInfo,
   UserRepository,
 } from "../types/auth";
@@ -164,10 +165,16 @@ export class FeishuAuthProvider implements AuthProvider {
   private userRepository!: UserRepository;
   private coordinator!: IAuthCoordinator;
   private larkClient!: lark.Client;
+  private tokenRepository?: ProviderTokenRepository;
 
-  constructor(userRepository: UserRepository, coordinator: IAuthCoordinator) {
+  constructor(
+    userRepository: UserRepository,
+    coordinator: IAuthCoordinator,
+    tokenRepository?: ProviderTokenRepository,
+  ) {
     this.userRepository = userRepository;
     this.coordinator = coordinator;
+    this.tokenRepository = tokenRepository;
   }
 
   async initialize(config: AuthProviderConfig): Promise<void> {
@@ -259,10 +266,10 @@ export class FeishuAuthProvider implements AuthProvider {
 
     try {
       // 用 code 换取 user_access_token
-      const userAccessToken = await this.exchangeCodeForToken(code as string);
+      const userToken = await this.exchangeCodeForToken(code as string);
 
       // 获取用户信息
-      const feishuUser = await this.getFeishuUserInfo(userAccessToken);
+      const feishuUser = await this.getFeishuUserInfo(userToken.accessToken);
 
       const email = this.mapEmail(feishuUser);
 
@@ -276,8 +283,17 @@ export class FeishuAuthProvider implements AuthProvider {
         picture: feishuUser.avatar_url,
         phone: feishuUser.mobile,
         phoneVerified: !!feishuUser.mobile,
+        lastSyncedAt: new Date(),
+        providerProfile: {
+          provider: this.name,
+          externalId: feishuUser.open_id,
+          raw: feishuUser as any,
+          syncedAt: new Date(),
+        },
         metadata: feishuUser,
       });
+
+      await this.storeUserToken(user.sub, userToken, feishuUser);
 
       return {
         success: true,
@@ -627,7 +643,12 @@ export class FeishuAuthProvider implements AuthProvider {
   /**
    * 用 code 换取 user access token
    */
-  private async exchangeCodeForToken(code: string): Promise<string> {
+  private async exchangeCodeForToken(code: string): Promise<{
+    accessToken: string;
+    refreshToken?: string;
+    expiresIn?: number;
+    tokenType?: string;
+  }> {
     const url = "https://open.feishu.cn/open-apis/authen/v1/access_token";
 
     const response = await fetch(url, {
@@ -656,7 +677,46 @@ export class FeishuAuthProvider implements AuthProvider {
       throw new Error(`Failed to exchange code for token: ${data.msg} (code: ${data.code})`);
     }
 
-    return data.data.access_token;
+    return {
+      accessToken: data.data.access_token,
+      refreshToken: data.data.refresh_token,
+      expiresIn: data.data.expires_in,
+      tokenType: data.data.token_type,
+    };
+  }
+
+  /**
+   * 保存用户 Provider token
+   */
+  private async storeUserToken(
+    userId: string,
+    token: {
+      accessToken: string;
+      refreshToken?: string;
+      expiresIn?: number;
+      tokenType?: string;
+    },
+    feishuUser: FeishuUserInfo,
+  ): Promise<void> {
+    if (!this.tokenRepository) {
+      return;
+    }
+
+    await this.tokenRepository.upsert({
+      provider: this.name,
+      ownerType: "user",
+      ownerId: userId,
+      accessToken: token.accessToken,
+      refreshToken: token.refreshToken,
+      tokenType: token.tokenType ?? "Bearer",
+      expiresAt: token.expiresIn ? new Date(Date.now() + token.expiresIn * 1000) : undefined,
+      status: "valid",
+      metadata: {
+        openId: feishuUser.open_id,
+        unionId: feishuUser.union_id,
+        tenantKey: feishuUser.tenant_key,
+      },
+    });
   }
 
   /**

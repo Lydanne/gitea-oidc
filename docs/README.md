@@ -12,6 +12,7 @@
 - [OIDC 适配器配置指南](./ADAPTER_CONFIGURATION.md)
 - [Redis OIDC 适配器使用指南](./REDIS_ADAPTER_GUIDE.md)
 - [飞书认证插件使用指南](./FEISHU_PLUGIN_GUIDE.md)
+- [管理后台与 Provider API](./ADMIN_AND_PROVIDER_API.md)
 - [确定性用户 ID 生成](./HASH_ID_GENERATION.md)
 - [OIDC-Provider 使用指南](./OIDC_HELP.md)
 

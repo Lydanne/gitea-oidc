@@ -127,6 +127,7 @@ pnpm test:coverage
 - **[反向代理 HTTPS](./docs/REVERSE_PROXY_HTTPS.md)** - 代理和 HTTPS URL 配置
 - **[OIDC 适配器配置](./docs/ADAPTER_CONFIGURATION.md)** - SQLite、Redis、memory 适配器选择
 - **[飞书认证插件](./docs/FEISHU_PLUGIN_GUIDE.md)** - 飞书 OAuth 登录配置
+- **[管理后台与 Provider API](./docs/ADMIN_AND_PROVIDER_API.md)** - 后台、token 探活和 SDK 代理
 - **[开发者文档](./docs/dev/README.md)** - 插件开发、架构和发布维护
 
 ## 技术栈

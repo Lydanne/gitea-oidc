@@ -145,6 +145,13 @@ function checkConfigWarnings(config: any): string[] {
     }
   }
 
+  if (config.providerApi?.enabled) {
+    const key = config.providerApi.tokenEncryptionKey;
+    if (!key || key === "change-this-provider-token-key") {
+      warnings.push("⚠️  Provider token 加密密钥仍为默认值，生产环境中必须更换");
+    }
+  }
+
   // 检查 HTTPS
   if (config.server?.url && !config.server.url.startsWith("https://")) {
     warnings.push("⚠️  服务器 URL 未使用 HTTPS，生产环境中建议使用 HTTPS");

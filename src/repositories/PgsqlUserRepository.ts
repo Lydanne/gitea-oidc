@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { Pool } from "pg";
 import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
+import { withUserDefaults } from "../utils/userDefaults";
 import { generateUserId } from "../utils/userIdGenerator";
 
 export class PgsqlUserRepository implements UserRepository {
@@ -35,13 +36,23 @@ export class PgsqlUserRepository implements UserRepository {
         groups JSONB,
         "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
         "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-        metadata JSONB
+        metadata JSONB,
+        status TEXT DEFAULT 'active',
+        roles JSONB,
+        "lastLoginAt" TIMESTAMP WITH TIME ZONE,
+        "lastSyncedAt" TIMESTAMP WITH TIME ZONE,
+        "providerProfile" JSONB
       );
 
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users("authProvider");
       CREATE INDEX IF NOT EXISTS idx_users_provider_external ON users("authProvider", "externalId");
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS roles JSONB;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS "lastLoginAt" TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS "lastSyncedAt" TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS "providerProfile" JSONB;
     `;
 
     const client = await this.pool.connect();
@@ -53,7 +64,7 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   private userFromRow(row: any): UserInfo {
-    return {
+    return withUserDefaults({
       sub: row.sub,
       username: row.username,
       name: row.name,
@@ -72,7 +83,12 @@ export class PgsqlUserRepository implements UserRepository {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       metadata: row.metadata || undefined,
-    };
+      status: row.status || undefined,
+      ...(row.roles ? { roles: row.roles } : {}),
+      ...(row.lastLoginAt ? { lastLoginAt: row.lastLoginAt } : {}),
+      ...(row.lastSyncedAt ? { lastSyncedAt: row.lastSyncedAt } : {}),
+      ...(row.providerProfile ? { providerProfile: row.providerProfile } : {}),
+    });
   }
 
   private userToRow(user: UserInfo): any {
@@ -91,6 +107,11 @@ export class PgsqlUserRepository implements UserRepository {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       metadata: user.metadata || null,
+      status: user.status ?? "active",
+      roles: user.roles || null,
+      lastLoginAt: user.lastLoginAt || null,
+      lastSyncedAt: user.lastSyncedAt || null,
+      providerProfile: user.providerProfile || null,
     };
   }
 
@@ -191,8 +212,12 @@ export class PgsqlUserRepository implements UserRepository {
     const sql = `
       INSERT INTO users (
         sub, username, name, email, picture, phone, "authProvider",
-        "externalId", "emailVerified", "phoneVerified", groups, "createdAt", "updatedAt", metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        "externalId", "emailVerified", "phoneVerified", groups, "createdAt", "updatedAt",
+        metadata, status, roles, "lastLoginAt", "lastSyncedAt", "providerProfile"
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, $17, $18, $19
+      )
     `;
 
     const client = await this.pool.connect();
@@ -212,8 +237,13 @@ export class PgsqlUserRepository implements UserRepository {
         row.createdAt,
         row.updatedAt,
         row.metadata,
+        row.status,
+        row.roles,
+        row.lastLoginAt,
+        row.lastSyncedAt,
+        row.providerProfile,
       ]);
-      return user;
+      return withUserDefaults(user);
     } finally {
       client.release();
     }
@@ -238,8 +268,10 @@ export class PgsqlUserRepository implements UserRepository {
       UPDATE users SET
         username = $1, name = $2, email = $3, picture = $4, phone = $5, "authProvider" = $6,
         "externalId" = $7,
-        "emailVerified" = $8, "phoneVerified" = $9, groups = $10, "updatedAt" = $11, metadata = $12
-      WHERE sub = $13
+        "emailVerified" = $8, "phoneVerified" = $9, groups = $10, "updatedAt" = $11,
+        metadata = $12, status = $13, roles = $14, "lastLoginAt" = $15,
+        "lastSyncedAt" = $16, "providerProfile" = $17
+      WHERE sub = $18
     `;
 
     const client = await this.pool.connect();
@@ -257,6 +289,11 @@ export class PgsqlUserRepository implements UserRepository {
         row.groups,
         row.updatedAt,
         row.metadata,
+        row.status,
+        row.roles,
+        row.lastLoginAt,
+        row.lastSyncedAt,
+        row.providerProfile,
         sub,
       ]);
       return updatedUser;

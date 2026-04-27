@@ -6,6 +6,7 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
+import { withUserDefaults } from "../utils/userDefaults";
 import { generateUserId } from "../utils/userIdGenerator";
 
 export class SqliteUserRepository implements UserRepository {
@@ -32,7 +33,12 @@ export class SqliteUserRepository implements UserRepository {
         groups TEXT,
         "createdAt" INTEGER NOT NULL,
         "updatedAt" INTEGER NOT NULL,
-        metadata TEXT
+        metadata TEXT,
+        status TEXT,
+        roles TEXT,
+        "lastLoginAt" INTEGER,
+        "lastSyncedAt" INTEGER,
+        "providerProfile" TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -42,11 +48,11 @@ export class SqliteUserRepository implements UserRepository {
     `;
 
     this.db.exec(createTableSQL);
-    this.ensureExternalIdColumn();
+    this.ensureUserColumns();
   }
 
   private userFromRow(row: any): UserInfo {
-    return {
+    return withUserDefaults({
       sub: row.sub,
       username: row.username,
       name: row.name,
@@ -65,7 +71,12 @@ export class SqliteUserRepository implements UserRepository {
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
-    };
+      status: row.status || undefined,
+      ...(row.roles ? { roles: JSON.parse(row.roles) } : {}),
+      ...(row.lastLoginAt ? { lastLoginAt: new Date(row.lastLoginAt) } : {}),
+      ...(row.lastSyncedAt ? { lastSyncedAt: new Date(row.lastSyncedAt) } : {}),
+      ...(row.providerProfile ? { providerProfile: JSON.parse(row.providerProfile) } : {}),
+    });
   }
 
   private userToRow(user: UserInfo): any {
@@ -84,6 +95,11 @@ export class SqliteUserRepository implements UserRepository {
       createdAt: user.createdAt ? user.createdAt.getTime() : Date.now(),
       updatedAt: user.updatedAt ? user.updatedAt.getTime() : Date.now(),
       metadata: user.metadata ? JSON.stringify(user.metadata) : null,
+      status: user.status ?? "active",
+      roles: user.roles ? JSON.stringify(user.roles) : null,
+      lastLoginAt: user.lastLoginAt ? user.lastLoginAt.getTime() : null,
+      lastSyncedAt: user.lastSyncedAt ? user.lastSyncedAt.getTime() : null,
+      providerProfile: user.providerProfile ? JSON.stringify(user.providerProfile) : null,
     };
   }
 
@@ -168,8 +184,9 @@ export class SqliteUserRepository implements UserRepository {
     const sql = `
       INSERT INTO users (
         sub, username, name, email, picture, phone, "authProvider",
-        "externalId", "emailVerified", "phoneVerified", groups, "createdAt", "updatedAt", metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "externalId", "emailVerified", "phoneVerified", groups, "createdAt", "updatedAt",
+        metadata, status, roles, "lastLoginAt", "lastSyncedAt", "providerProfile"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const stmt = this.db.prepare(sql);
@@ -188,9 +205,14 @@ export class SqliteUserRepository implements UserRepository {
       row.createdAt,
       row.updatedAt,
       row.metadata,
+      row.status,
+      row.roles,
+      row.lastLoginAt,
+      row.lastSyncedAt,
+      row.providerProfile,
     );
 
-    return user;
+    return withUserDefaults(user);
   }
 
   async update(sub: string, updates: Partial<UserInfo>): Promise<UserInfo> {
@@ -212,7 +234,8 @@ export class SqliteUserRepository implements UserRepository {
       UPDATE users SET
         username = ?, name = ?, email = ?, picture = ?, phone = ?, "authProvider" = ?,
         "externalId" = ?,
-        "emailVerified" = ?, "phoneVerified" = ?, groups = ?, "updatedAt" = ?, metadata = ?
+        "emailVerified" = ?, "phoneVerified" = ?, groups = ?, "updatedAt" = ?, metadata = ?,
+        status = ?, roles = ?, "lastLoginAt" = ?, "lastSyncedAt" = ?, "providerProfile" = ?
       WHERE sub = ?
     `;
 
@@ -230,19 +253,36 @@ export class SqliteUserRepository implements UserRepository {
       row.groups,
       row.updatedAt,
       row.metadata,
+      row.status,
+      row.roles,
+      row.lastLoginAt,
+      row.lastSyncedAt,
+      row.providerProfile,
       sub,
     );
 
     return updatedUser;
   }
 
-  private ensureExternalIdColumn(): void {
+  private ensureUserColumns(): void {
     const pragmaStmt = this.db.prepare(`PRAGMA table_info(users)`);
     const columns = pragmaStmt.all() as { name: string }[];
-    const hasExternalId = columns.some((col) => col.name === "externalId");
+    const requiredColumns: Array<{ name: string; definition: string }> = [
+      { name: "externalId", definition: 'ALTER TABLE users ADD COLUMN "externalId" TEXT' },
+      { name: "status", definition: "ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'" },
+      { name: "roles", definition: "ALTER TABLE users ADD COLUMN roles TEXT" },
+      { name: "lastLoginAt", definition: 'ALTER TABLE users ADD COLUMN "lastLoginAt" INTEGER' },
+      { name: "lastSyncedAt", definition: 'ALTER TABLE users ADD COLUMN "lastSyncedAt" INTEGER' },
+      {
+        name: "providerProfile",
+        definition: 'ALTER TABLE users ADD COLUMN "providerProfile" TEXT',
+      },
+    ];
 
-    if (!hasExternalId) {
-      this.db.exec('ALTER TABLE users ADD COLUMN "externalId" TEXT');
+    for (const column of requiredColumns) {
+      if (!columns.some((col) => col.name === column.name)) {
+        this.db.exec(column.definition);
+      }
     }
   }
 

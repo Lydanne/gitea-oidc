@@ -20,6 +20,7 @@ import type {
   UserRepository,
 } from "../types/auth";
 import { PluginPermission } from "../types/auth";
+import { renderLoginPageHTML } from "../ui/loginPageRenderer";
 import { AuthErrors } from "../utils/authErrors";
 import { PermissionChecker } from "./PermissionChecker";
 
@@ -280,184 +281,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     context: AuthContext,
     loginOptions: Array<{ provider: AuthProvider; ui: any }>,
   ): string {
-    const forms: string[] = [];
-    const buttons: string[] = [];
-
-    for (const { provider, ui } of loginOptions) {
-      if (ui.type === "html") {
-        forms.push(ui.html);
-      } else if (ui.type === "redirect" && ui.button) {
-        buttons.push(`
-          <a href="${ui.redirectUrl}" class="oauth-button" style="${ui.button.style || ""}">
-            ${ui.button.icon ? `<img src="${ui.button.icon}" alt="${provider.displayName}" />` : ""}
-            <span>${ui.button.text}</span>
-          </a>
-        `);
-      }
-    }
-
-    return `
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>登录 - Gitea OIDC</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .login-container {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-      max-width: 400px;
-      width: 100%;
-      padding: 40px;
-    }
-    .logo {
-      text-align: center;
-      margin-bottom: 30px;
-    }
-    .logo h1 {
-      font-size: 28px;
-      color: #333;
-      margin-bottom: 8px;
-    }
-    .logo p {
-      color: #666;
-      font-size: 14px;
-    }
-    .login-form {
-      margin-bottom: 20px;
-    }
-    .form-group {
-      margin-bottom: 16px;
-    }
-    .form-group label {
-      display: block;
-      margin-bottom: 8px;
-      color: #333;
-      font-size: 14px;
-      font-weight: 500;
-    }
-    .form-group input {
-      width: 100%;
-      padding: 12px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      font-size: 14px;
-      transition: border-color 0.3s;
-    }
-    .form-group input:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-    .submit-button {
-      width: 100%;
-      padding: 12px;
-      background: #667eea;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 16px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.3s;
-    }
-    .submit-button:hover {
-      background: #5568d3;
-    }
-    .divider {
-      text-align: center;
-      margin: 24px 0;
-      position: relative;
-    }
-    .divider::before {
-      content: "";
-      position: absolute;
-      top: 50%;
-      left: 0;
-      right: 0;
-      height: 1px;
-      background: #ddd;
-    }
-    .divider span {
-      background: white;
-      padding: 0 16px;
-      color: #999;
-      font-size: 14px;
-      position: relative;
-    }
-    .oauth-buttons {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .oauth-button {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      padding: 12px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      text-decoration: none;
-      color: #333;
-      font-size: 14px;
-      font-weight: 500;
-      transition: all 0.3s;
-    }
-    .oauth-button:hover {
-      border-color: #667eea;
-      background: #f8f9ff;
-    }
-    .oauth-button img {
-      width: 20px;
-      height: 20px;
-    }
-    .error {
-      background: #fee;
-      border: 1px solid #fcc;
-      color: #c33;
-      padding: 12px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-      font-size: 14px;
-    }
-  </style>
-</head>
-<body>
-  <div class="login-container">
-    <div class="logo">
-      <h1>🔐 Gitea OIDC</h1>
-      <p>统一身份认证平台</p>
-    </div>
-    
-    ${forms.join("\n")}
-    
-    ${forms.length > 0 && buttons.length > 0 ? '<div class="divider"><span>或</span></div>' : ""}
-    
-    ${
-      buttons.length > 0
-        ? `
-      <div class="oauth-buttons">
-        ${buttons.join("\n")}
-      </div>
-    `
-        : ""
-    }
-  </div>
-</body>
-</html>
-    `.trim();
+    return renderLoginPageHTML(context, loginOptions);
   }
 
   /**
@@ -496,6 +320,7 @@ export class AuthCoordinator implements IAuthCoordinator {
 
       // 如果认证成功，记录日志
       if (result.success && result.userId) {
+        await this.touchLastLogin(result.userId);
         this.app.log.info(`User ${result.userId} authenticated successfully via ${authMethod}`);
       }
 
@@ -517,7 +342,12 @@ export class AuthCoordinator implements IAuthCoordinator {
    */
   async findAccount(userId: string): Promise<UserInfo | null> {
     try {
-      return await this.userRepository.findById(userId);
+      const user = await this.userRepository.findById(userId);
+      if (user?.status && user.status !== "active") {
+        this.app.log.warn(`User ${userId} is not active: ${user.status}`);
+        return null;
+      }
+      return user;
     } catch (err) {
       this.app.log.error({ err, userId }, "Failed to find account");
       return null;
@@ -602,6 +432,8 @@ export class AuthCoordinator implements IAuthCoordinator {
    * 存储认证结果（用于 OAuth 回调后的重定向）
    */
   async storeAuthResult(interactionUid: string, userId: string): Promise<void> {
+    await this.touchLastLogin(userId);
+
     const authResult = {
       userId,
       timestamp: Date.now(),
@@ -727,5 +559,16 @@ export class AuthCoordinator implements IAuthCoordinator {
 
     this.providers.clear();
     this.initialized = false;
+  }
+
+  /**
+   * 记录用户最近登录时间
+   */
+  private async touchLastLogin(userId: string): Promise<void> {
+    try {
+      await this.userRepository.update(userId, { lastLoginAt: new Date() });
+    } catch (err) {
+      this.app.log.warn({ err, userId }, "Failed to update last login time");
+    }
   }
 }

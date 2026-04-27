@@ -17,7 +17,9 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { OidcAdapterConfig } from "./adapters/OidcAdapterFactory";
+import type { AdminConfig } from "./types/admin";
 import type { AuthConfig } from "./types/config";
+import type { ProviderApiRuntimeConfig } from "./types/providerApi";
 
 /**
  * Gitea OIDC IdP 完整配置接口
@@ -166,6 +168,16 @@ export interface GiteaOidcConfig {
   auth: AuthConfig;
 
   /**
+   * 内置后台管理配置
+   */
+  admin: AdminConfig;
+
+  /**
+   * 统一 Provider API 配置
+   */
+  providerApi: ProviderApiRuntimeConfig;
+
+  /**
    * OIDC 适配器配置
    * 配置持久化存储方式
    * - sqlite: SQLite 文件数据库 (默认)
@@ -237,7 +249,7 @@ const defaultConfig: GiteaOidcConfig = {
     },
     claims: {
       openid: ["sub"],
-      profile: ["name", "email"],
+      profile: ["name", "email", "groups", "roles", "status"],
     },
     features: {
       devInteractions: { enabled: false },
@@ -250,7 +262,10 @@ const defaultConfig: GiteaOidcConfig = {
     {
       client_id: "gitea",
       client_secret: "secret",
-      redirect_uris: ["http://localhost:3001/user/oauth2/gitea/callback"],
+      redirect_uris: [
+        "http://localhost:3001/user/oauth2/gitea/callback",
+        "http://localhost:3000/admin/callback",
+      ],
       response_types: ["code"],
       grant_types: ["authorization_code", "refresh_token"],
       token_endpoint_auth_method: "client_secret_basic",
@@ -270,7 +285,37 @@ const defaultConfig: GiteaOidcConfig = {
         config: {
           passwordFile: ".htpasswd",
           passwordFormat: "bcrypt",
+          adminUsers: ["admin"],
         },
+      },
+    },
+  },
+
+  admin: {
+    enabled: true,
+    basePath: "/admin",
+    allowedGroups: ["Owners"],
+    sessionTtlSeconds: 3600,
+  },
+
+  providerApi: {
+    enabled: true,
+    tokenEncryptionKey: "change-this-provider-token-key",
+    refreshSkewSeconds: 300,
+    probeIntervalSeconds: 300,
+    sdkProxy: true,
+    providers: {
+      feishu: {
+        enabled: false,
+        baseUrl: "https://open.feishu.cn/open-apis",
+        allowedOperations: ["authen.user_info", "contact.user.get"],
+        defaultAppOwnerId: "default",
+      },
+      dingtalk: {
+        enabled: false,
+        baseUrl: "https://api.dingtalk.com",
+        allowedOperations: [],
+        defaultAppOwnerId: "default",
       },
     },
   },

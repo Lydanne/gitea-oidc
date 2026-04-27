@@ -92,6 +92,7 @@ const expectedUserFromRow = (row: ReturnType<typeof createRow>): UserInfo => ({
   phoneVerified: Boolean(row.phoneVerified),
   groups: row.groups,
   metadata: row.metadata,
+  status: row.status ?? "active",
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
@@ -249,7 +250,7 @@ describe("PgsqlUserRepository", () => {
     expect(updateClient.query.mock.calls[0][0]).toContain("UPDATE users SET");
     expect(updateClient.query.mock.calls[0][1][1]).toBe("Updated Name");
     expect(updateClient.query.mock.calls[0][1][11]).toEqual({ role: "admin" });
-    expect(updateClient.query.mock.calls[0][1][12]).toBe(existing.sub);
+    expect(updateClient.query.mock.calls[0][1][17]).toBe(existing.sub);
     expect(finderClient.release).toHaveBeenCalled();
     expect(updateClient.release).toHaveBeenCalled();
   });
@@ -354,6 +355,7 @@ describe("PgsqlUserRepository", () => {
     expect(row.phoneVerified).toBeNull();
     expect(row.groups).toBeNull();
     expect(row.metadata).toBeNull();
+    expect(row.status).toBe("active");
   });
 
   it("should return parsed value from size()", async () => {

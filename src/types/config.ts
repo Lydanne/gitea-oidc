@@ -97,7 +97,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     },
     claims: {
       openid: ["sub"],
-      profile: ["name", "email", "email_verified"],
+      profile: ["name", "email", "email_verified", "groups", "roles", "status"],
     },
     features: {
       devInteractions: { enabled: false },
@@ -110,7 +110,10 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     {
       client_id: "gitea",
       client_secret: "gitea-secret",
-      redirect_uris: ["http://localhost:3001/user/oauth2/gitea/callback"],
+      redirect_uris: [
+        "http://localhost:3001/user/oauth2/gitea/callback",
+        "http://localhost:3000/admin/callback",
+      ],
       post_logout_redirect_uris: ["http://localhost:3001/"],
       response_types: ["code"],
       grant_types: ["authorization_code", "refresh_token"],
@@ -132,6 +135,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
         config: {
           passwordFile: ".htpasswd",
           passwordFormat: "bcrypt",
+          adminUsers: ["admin"],
         },
       },
 
@@ -146,6 +150,35 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
           scope: "contact:user.base:readonly",
           autoCreateUser: true,
         },
+      },
+    },
+  },
+
+  admin: {
+    enabled: true,
+    basePath: "/admin",
+    allowedGroups: ["Owners"],
+    sessionTtlSeconds: 3600,
+  },
+
+  providerApi: {
+    enabled: true,
+    tokenEncryptionKey: "change-this-provider-token-key",
+    refreshSkewSeconds: 300,
+    probeIntervalSeconds: 300,
+    sdkProxy: true,
+    providers: {
+      feishu: {
+        enabled: false,
+        baseUrl: "https://open.feishu.cn/open-apis",
+        allowedOperations: ["authen.user_info", "contact.user.get"],
+        defaultAppOwnerId: "default",
+      },
+      dingtalk: {
+        enabled: false,
+        baseUrl: "https://api.dingtalk.com",
+        allowedOperations: [],
+        defaultAppOwnerId: "default",
       },
     },
   },

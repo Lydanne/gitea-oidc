@@ -4,11 +4,42 @@
   "type": "module",
   "description": "Simple OpenID Connect Identity Provider using Fastify and TypeScript",
   "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./express": {
+      "types": "./dist/express.d.ts",
+      "import": "./dist/express.js"
+    },
+    "./nest": {
+      "types": "./dist/nest.d.ts",
+      "import": "./dist/nest.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js"
+    }
+  },
   "scripts": {
     "preinstall": "node scripts/preinstall.js",
     "dev": "tsx watch src/server.ts",
-    "build": "rolldown -c rolldown.config.ts",
-    "build:prod": "rolldown -c rolldown.config.prod.ts",
+    "build": "rolldown -c rolldown.config.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "build:prod": "rolldown -c rolldown.config.prod.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest --watch",
@@ -35,6 +66,14 @@
     "pnpm": ">=10.0.0"
   },
   "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "bcrypt",
+      "better-sqlite3",
+      "esbuild",
+      "protobufjs"
+    ]
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -73,6 +112,7 @@
     "oidc-provider": "^9.5.2",
     "pg": "^8.16.3",
     "redis": "^5.9.0",
+    "vue": "^3.5.0",
     "zod": "^4.1.12"
   }
 }

@@ -69,6 +69,20 @@ const createBaseConfig = (): GiteaOidcConfig => ({
       },
     },
   },
+  admin: {
+    enabled: true,
+    basePath: "/admin",
+    allowedGroups: ["Owners"],
+    sessionTtlSeconds: 3600,
+  },
+  providerApi: {
+    enabled: true,
+    tokenEncryptionKey: "A".repeat(32),
+    refreshSkewSeconds: 300,
+    probeIntervalSeconds: 300,
+    sdkProxy: true,
+    providers: {},
+  },
 });
 
 describe("validateConfig", () => {

@@ -10,7 +10,14 @@ import { defineConfig } from "rolldown";
  * - 更激进的 tree-shaking
  */
 export default defineConfig({
-  input: "src/server.ts",
+  input: {
+    server: "src/server.ts",
+    config: "src/config.ts",
+    client: "src/sdk/client.ts",
+    express: "src/sdk/express.ts",
+    nest: "src/sdk/nest.ts",
+    vue: "src/sdk/vue.ts",
+  },
 
   output: {
     dir: "dist",

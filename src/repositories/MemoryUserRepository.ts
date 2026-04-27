@@ -5,6 +5,7 @@
 
 import { randomUUID } from "crypto";
 import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
+import { withUserDefaults } from "../utils/userDefaults";
 import { generateUserId } from "../utils/userIdGenerator";
 
 export class MemoryUserRepository implements UserRepository {
@@ -83,10 +84,15 @@ export class MemoryUserRepository implements UserRepository {
       externalId,
     };
 
-    this.users.set(user.sub, user);
-    this.providerIndex.set(`${user.authProvider}:${user.externalId}`, user.sub);
+    const normalizedUser = withUserDefaults(user);
 
-    return user;
+    this.users.set(normalizedUser.sub, normalizedUser);
+    this.providerIndex.set(
+      `${normalizedUser.authProvider}:${normalizedUser.externalId}`,
+      normalizedUser.sub,
+    );
+
+    return normalizedUser;
   }
 
   async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
@@ -106,15 +112,17 @@ export class MemoryUserRepository implements UserRepository {
       externalId: userData.externalId,
     };
 
-    this.users.set(user.sub, user);
+    const normalizedUser = withUserDefaults(user);
+
+    this.users.set(normalizedUser.sub, normalizedUser);
 
     // 更新索引
-    if (user.externalId) {
-      const key = `${user.authProvider}:${user.externalId}`;
-      this.providerIndex.set(key, user.sub);
+    if (normalizedUser.externalId) {
+      const key = `${normalizedUser.authProvider}:${normalizedUser.externalId}`;
+      this.providerIndex.set(key, normalizedUser.sub);
     }
 
-    return user;
+    return normalizedUser;
   }
 
   async update(userId: string, updates: Partial<UserInfo>): Promise<UserInfo> {
@@ -131,9 +139,9 @@ export class MemoryUserRepository implements UserRepository {
       updatedAt: new Date(Date.now() + 1),
     };
 
-    const updatedUser: UserInfo = {
+    const updatedUser: UserInfo = withUserDefaults({
       ...merged,
-    };
+    });
 
     this.users.set(userId, updatedUser);
 

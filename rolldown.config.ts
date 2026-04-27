@@ -2,7 +2,14 @@ import { builtinModules } from "node:module";
 import { defineConfig } from "rolldown";
 
 export default defineConfig({
-  input: "src/server.ts",
+  input: {
+    server: "src/server.ts",
+    config: "src/config.ts",
+    client: "src/sdk/client.ts",
+    express: "src/sdk/express.ts",
+    nest: "src/sdk/nest.ts",
+    vue: "src/sdk/vue.ts",
+  },
 
   output: {
     dir: "dist",

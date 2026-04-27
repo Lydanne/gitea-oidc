@@ -9,6 +9,7 @@
 - A migration note that only records past implementation history.
 - A guide that tells users to edit files that no longer exist.
 - A summary whose useful parts are already covered by README or index pages.
+- An implemented `docs/spec/` draft whose durable knowledge has been promoted.
 
 ## Keep Or Move When Content Is
 
@@ -18,6 +19,7 @@
 - A design document needed by maintainers.
 - A plugin or adapter development guide.
 - A release or CI guide used by maintainers.
+- A current `docs/spec/` draft with clear status, TODO, acceptance criteria, and exit conditions.
 
 ## Rewrite Instead Of Delete When
 
@@ -33,3 +35,4 @@
 - Real-looking client secrets or tokens.
 - References to npm scripts that are not in `package.json`.
 - Links to files that no longer exist.
+- Spec drafts without status or exit conditions.

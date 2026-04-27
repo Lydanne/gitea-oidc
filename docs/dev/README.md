@@ -11,6 +11,10 @@
 
 - [发布流程与 CI/CD 指南](./RELEASE_AND_CI_CD.md)
 
+## 草案区
+
+- [AI 草案与 TODO 目录](../spec/README.md)
+
 ## 使用者文档
 
 部署和配置说明请从 [文档目录](../README.md) 开始。

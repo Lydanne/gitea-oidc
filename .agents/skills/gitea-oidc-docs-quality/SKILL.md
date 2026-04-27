@@ -16,12 +16,14 @@ or documentation embedded in examples.
 
 1. Decide the audience before editing: user/deployer/operator or developer/maintainer.
 2. Put user-facing docs in `docs/`; put developer-facing docs in `docs/dev/`.
-3. Prefer current, executable guidance over historical notes.
-4. Remove stale summaries, temporary logs, personal environment details, duplicate pages,
+3. Put AI-generated temporary proposals and TODO drafts in `docs/spec/`.
+4. Prefer current, executable guidance over historical notes.
+5. Remove stale summaries, temporary logs, personal environment details, duplicate pages,
    and outdated setup paths.
-5. Keep docs linked from the right index: `docs/README.md` or `docs/dev/README.md`.
-6. Update README links when top-level documentation navigation changes.
-7. Run Markdown lint and local link checks after moving or deleting docs.
+6. Keep docs linked from the right index: `docs/README.md`, `docs/dev/README.md`, or
+   `docs/spec/README.md`.
+7. Update README links when top-level documentation navigation changes.
+8. Run Markdown lint and local link checks after moving or deleting docs.
 
 ## Local References
 
@@ -29,6 +31,7 @@ or documentation embedded in examples.
 - Read `references/organization-rules.md` before moving, deleting, or adding docs.
 - Read `references/cleanup-checklist.md` before pruning content.
 - Read `references/validation.md` before finishing documentation work.
+- Use `$gitea-oidc-spec-drafts` for temporary AI proposals and TODO drafts under `docs/spec/`.
 
 ## Definition Of Done
 

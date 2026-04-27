@@ -72,6 +72,37 @@ describe("registerAdminRoutes", () => {
     );
   });
 
+  it("serves the admin SPA index for routed admin pages", async () => {
+    const app = createApp();
+    registerAdminRoutes({
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["Owners"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [{ client_id: "gitea", client_secret: "secret" }],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: {} as any,
+    });
+    const handler = app.get.mock.calls.find((call) => call[0] === "/admin/users")?.[1];
+    const reply = {
+      type: vi.fn().mockReturnThis(),
+      send: vi.fn(),
+    };
+
+    await handler({}, reply);
+
+    expect(reply.type).toHaveBeenCalledWith("text/html; charset=utf-8");
+    expect(reply.send.mock.calls[0][0]).toContain('<div id="app"></div>');
+  });
+
   it("wires user create, update and delete APIs behind admin guard", async () => {
     const app = createApp();
     const admin = { sub: "admin-1", groups: ["Owners"], status: "active" };

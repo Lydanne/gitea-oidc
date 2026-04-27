@@ -8,6 +8,40 @@
 - `src/repositories/*ProviderTokenRepository.ts` 提供 memory、SQLite、PostgreSQL token 仓储。
 - `src/provider-api/*` 实现 Provider client、权限服务和后台探活调度器。
 - `src/routes/providerApiRoutes.ts` 暴露 SDK 代理，`src/routes/adminRoutes.ts` 暴露后台 API。
+- `admin-src/` 是内置 Vue 管理台源码，Vite 构建产物输出到 `public/admin/`。
+
+## 管理台构建
+
+管理台是独立的 Vite + Vue Router + PrimeVue 工程：
+
+- 源码入口：`admin-src/src/main.ts`
+- 路由配置：`admin-src/src/router.ts`
+- 页面入口：`admin-src/src/App.vue`
+- 组件目录：`admin-src/src/components/`
+- 视图目录：`admin-src/src/views/`
+- API 封装：`admin-src/src/api/adminApi.ts`
+- 状态组合函数：`admin-src/src/composables/useAdminDashboard.ts`
+- 构建配置：`admin-src/vite.config.ts`
+- 静态产物：`public/admin/`
+
+管理台使用 history 路由，当前页面为：
+
+- `/admin/users`
+- `/admin/providers`
+- `/admin/tokens`
+
+服务端在 `src/routes/adminRoutes.ts` 为这些页面返回 `public/admin/index.html`，避免刷新或
+直接打开深链时落到静态文件 404。
+
+根项目脚本 `pnpm build` 和 `pnpm build:prod` 会先运行管理台 Vite 构建，
+再构建服务端和 SDK 多入口。单独调试管理台可运行：
+
+```bash
+pnpm dev:admin
+```
+
+开发服务器默认把 `/admin/api`、`/admin/login`、`/admin/logout` 和 `/admin/callback`
+代理到 `http://localhost:3000`，因此本地调试时需要同时启动服务端。
 
 ## 权限模型
 

@@ -136,6 +136,7 @@ pnpm test:coverage
 - **Fastify 5.x** - 高性能 Node.js Web 框架
 - **oidc-provider 9.x** - OpenID Certified™ OIDC 服务器
 - **TypeScript 5.x** - 类型安全
+- **Vue 3 + Vue Router + Vite + PrimeVue** - 内置管理后台构建
 - **Vitest** - 测试框架
 - **Rolldown** - 高性能打包工具
 - **bcrypt** - 密码哈希
@@ -172,6 +173,7 @@ gitea-oidc/
 │   ├── utils/                  # 工具与日志
 │   └── __tests__/              # 单元测试
 ├── docs/                       # 文档
+├── admin-src/                   # 内置 Vue 管理台源码
 ├── public/                     # 静态页面（首页、会话过期页等）
 ├── example.gitea-oidc.config.json  # JSON 配置示例
 ├── gitea-oidc.config.js        # JS 配置示例（支持动态配置）

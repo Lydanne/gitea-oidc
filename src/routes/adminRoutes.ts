@@ -58,14 +58,18 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
   const sessionStore = new AdminSessionStore(adminConfig.sessionTtlSeconds);
   const adminClient = config.clients[0];
 
+  const sendAdminIndex = async (_request: FastifyRequest, reply: FastifyReply) =>
+    reply
+      .type("text/html; charset=utf-8")
+      .send(readFileSync(join(process.cwd(), "public", "admin", "index.html"), "utf8"));
+
   app.get(basePath, async (_request, reply) => {
-    return reply.redirect(`${basePath}/index.html`);
+    return reply.redirect(`${basePath}/users`);
   });
 
-  app.get(`${basePath}/assets/vue.esm-browser.prod.js`, async (_request, reply) => {
-    const vuePath = join(process.cwd(), "node_modules/vue/dist/vue.esm-browser.prod.js");
-    return reply.type("application/javascript").send(readFileSync(vuePath, "utf-8"));
-  });
+  for (const routePath of [`${basePath}/users`, `${basePath}/providers`, `${basePath}/tokens`]) {
+    app.get(routePath, sendAdminIndex);
+  }
 
   app.get(`${basePath}/login`, async (_request, reply) => {
     const state = sessionStore.createLoginState();

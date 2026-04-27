@@ -87,6 +87,12 @@ http://localhost:3000/admin
 后台登录会复用本服务 OIDC 授权码流程。登录成功后，后台使用 HttpOnly BFF session cookie
 访问 `/admin/api/*`。
 
+管理台页面支持直接访问和刷新：
+
+- `/admin/users`：账号管理
+- `/admin/providers`：Provider 状态
+- `/admin/tokens`：Token 状态
+
 ## 后台功能
 
 当前后台提供以下能力：

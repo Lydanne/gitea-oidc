@@ -13,6 +13,15 @@ export const adminRoutes: RouteRecordRaw[] = [
     redirect: "/users",
   },
   {
+    path: "/login",
+    name: "login",
+    component: () => import("./views/LoginView.vue"),
+    meta: {
+      title: "登录管理台",
+      description: "使用本服务 OIDC 进入后台管理系统。",
+    } satisfies AdminRouteMeta,
+  },
+  {
     path: "/users",
     name: "users",
     component: () => import("./views/UsersView.vue"),

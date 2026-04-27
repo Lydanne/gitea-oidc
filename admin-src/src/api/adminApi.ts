@@ -25,7 +25,8 @@ export const adminApiRequest = async <T>(
   });
 
   if (response.status === 401) {
-    location.href = "/admin/login";
+    const returnTo = `${location.pathname}${location.search}`;
+    location.href = `/admin/login?returnTo=${encodeURIComponent(returnTo)}`;
     return null;
   }
 

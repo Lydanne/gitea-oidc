@@ -44,6 +44,76 @@ select {
   color: var(--muted);
 }
 
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(#ffffff 0 0) padding-box,
+    radial-gradient(circle at 50% 0%, rgba(0, 112, 243, 0.08), transparent 34rem);
+}
+
+.login-panel {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 24px;
+  padding: 28px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.08);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.login-brand strong,
+.login-brand small {
+  display: block;
+  line-height: 1.2;
+}
+
+.login-brand strong {
+  font-size: 14px;
+}
+
+.login-brand small,
+.login-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.login-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.login-copy h1,
+.login-copy p,
+.login-note {
+  margin: 0;
+}
+
+.login-copy h1 {
+  font-size: 28px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.login-copy p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.login-action {
+  width: 100%;
+}
+
 .admin-shell {
   min-height: 100vh;
   display: grid;

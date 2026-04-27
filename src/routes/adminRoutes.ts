@@ -67,12 +67,19 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     return reply.redirect(`${basePath}/users`);
   });
 
-  for (const routePath of [`${basePath}/users`, `${basePath}/providers`, `${basePath}/tokens`]) {
+  for (const routePath of [
+    `${basePath}/login`,
+    `${basePath}/users`,
+    `${basePath}/providers`,
+    `${basePath}/tokens`,
+  ]) {
     app.get(routePath, sendAdminIndex);
   }
 
-  app.get(`${basePath}/login`, async (_request, reply) => {
-    const state = sessionStore.createLoginState();
+  app.get(`${basePath}/login/start`, async (request, reply) => {
+    const query = request.query as { returnTo?: string };
+    const returnTo = normalizeAdminReturnPath(basePath, query.returnTo);
+    const state = sessionStore.createLoginState(returnTo);
     const redirectUri = `${config.server.url}${basePath}/callback`;
     const url = new URL(`${config.oidc.issuer}/auth`);
     url.searchParams.set("client_id", adminClient.client_id);
@@ -85,7 +92,8 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
 
   app.get(`${basePath}/callback`, async (request, reply) => {
     const query = request.query as { code?: string; state?: string };
-    if (!query.code || !query.state || !sessionStore.consumeLoginState(query.state)) {
+    const returnTo = query.state ? sessionStore.consumeLoginState(query.state) : null;
+    if (!query.code || !returnTo) {
       return reply.code(400).send("Invalid admin login state");
     }
 
@@ -103,7 +111,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
       "Set-Cookie",
       `${ADMIN_COOKIE_NAME}=${session.id}; HttpOnly; SameSite=Lax; Path=${basePath}; Max-Age=${adminConfig.sessionTtlSeconds}`,
     );
-    return reply.redirect(basePath);
+    return reply.redirect(returnTo);
   });
 
   app.post(`${basePath}/logout`, async (request, reply) => {
@@ -241,6 +249,28 @@ function readCookie(request: FastifyRequest, name: string): string | undefined {
   }
 
   return undefined;
+}
+
+function normalizeAdminReturnPath(basePath: string, value?: string): string {
+  const allowedPaths = new Set([
+    `${basePath}/users`,
+    `${basePath}/providers`,
+    `${basePath}/tokens`,
+  ]);
+  if (!value) {
+    return `${basePath}/users`;
+  }
+
+  try {
+    const url = new URL(value, "http://admin.local");
+    if (url.origin !== "http://admin.local" || !allowedPaths.has(url.pathname)) {
+      return `${basePath}/users`;
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return `${basePath}/users`;
+  }
 }
 
 async function exchangeAdminCode(

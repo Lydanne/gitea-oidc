@@ -26,12 +26,14 @@
 
 管理台使用 history 路由，当前页面为：
 
+- `/admin/login`
 - `/admin/users`
 - `/admin/providers`
 - `/admin/tokens`
 
 服务端在 `src/routes/adminRoutes.ts` 为这些页面返回 `public/admin/index.html`，避免刷新或
-直接打开深链时落到静态文件 404。
+直接打开深链时落到静态文件 404。`/admin/login/start` 是后端 OIDC 登录启动端点，
+不由前端路由接管。
 
 根项目脚本 `pnpm build` 和 `pnpm build:prod` 会先运行管理台 Vite 构建，
 再构建服务端和 SDK 多入口。单独调试管理台可运行：

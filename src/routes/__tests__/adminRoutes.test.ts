@@ -60,10 +60,10 @@ describe("registerAdminRoutes", () => {
       authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
       userRepository: {} as any,
     });
-    const handler = app.get.mock.calls.find((call) => call[0] === "/admin/login")?.[1];
+    const handler = app.get.mock.calls.find((call) => call[0] === "/admin/login/start")?.[1];
     const reply = { redirect: vi.fn() };
 
-    await handler({}, reply);
+    await handler({ query: { returnTo: "/admin/tokens" } }, reply);
 
     const redirectUrl = new URL(reply.redirect.mock.calls[0][0]);
     expect(`${redirectUrl.origin}${redirectUrl.pathname}`).toBe("http://localhost:3000/oidc/auth");
@@ -72,7 +72,7 @@ describe("registerAdminRoutes", () => {
     );
   });
 
-  it("serves the admin SPA index for routed admin pages", async () => {
+  it("serves the admin SPA index for login and routed admin pages", async () => {
     const app = createApp();
     registerAdminRoutes({
       app: app as any,
@@ -91,14 +91,17 @@ describe("registerAdminRoutes", () => {
       authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
       userRepository: {} as any,
     });
-    const handler = app.get.mock.calls.find((call) => call[0] === "/admin/users")?.[1];
+    const loginHandler = app.get.mock.calls.find((call) => call[0] === "/admin/login")?.[1];
+    const usersHandler = app.get.mock.calls.find((call) => call[0] === "/admin/users")?.[1];
     const reply = {
       type: vi.fn().mockReturnThis(),
       send: vi.fn(),
     };
 
-    await handler({}, reply);
+    await loginHandler({}, reply);
+    await usersHandler({}, reply);
 
+    expect(reply.type).toHaveBeenCalledTimes(2);
     expect(reply.type).toHaveBeenCalledWith("text/html; charset=utf-8");
     expect(reply.send.mock.calls[0][0]).toContain('<div id="app"></div>');
   });

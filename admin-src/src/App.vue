@@ -26,6 +26,9 @@ const currentDescription = computed(() => String(route.meta.description ?? "管�
 /** 当前会话展示名。 */
 const meName = computed(() => getUserDisplayName(me.value?.user));
 
+/** 当前是否为公开登录页。 */
+const isLoginRoute = computed(() => route.name === "login");
+
 /** 静默刷新后台数据。 */
 const refresh = async () => {
   try {
@@ -36,6 +39,10 @@ const refresh = async () => {
 };
 
 onMounted(() => {
+  if (isLoginRoute.value) {
+    return;
+  }
+
   loadAll().catch(() => undefined);
 });
 </script>
@@ -44,7 +51,9 @@ onMounted(() => {
   <Toast position="top-right" />
   <ConfirmDialog />
 
-  <div v-if="loading" class="loading-screen">
+  <RouterView v-if="isLoginRoute" />
+
+  <div v-else-if="loading" class="loading-screen">
     <ProgressSpinner aria-label="正在加载" />
     <span>正在加载管理台</span>
   </div>
@@ -66,4 +75,3 @@ onMounted(() => {
     <RouterView @error="setError" />
   </AppShell>
 </template>
-

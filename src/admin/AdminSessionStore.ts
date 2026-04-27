@@ -10,7 +10,7 @@ import type { AdminSession } from "../types/admin";
  */
 export class AdminSessionStore {
   private sessions = new Map<string, AdminSession>();
-  private loginStates = new Set<string>();
+  private loginStates = new Map<string, string>();
 
   constructor(private sessionTtlSeconds: number) {}
 
@@ -58,9 +58,9 @@ export class AdminSessionStore {
   /**
    * 创建 OAuth state
    */
-  createLoginState(): string {
+  createLoginState(returnTo: string): string {
     const state = randomBytes(32).toString("hex");
-    this.loginStates.add(state);
+    this.loginStates.set(state, returnTo);
     return state;
   }
 
@@ -68,13 +68,14 @@ export class AdminSessionStore {
    * 验证并消费 OAuth state
    * @param state OAuth state
    */
-  consumeLoginState(state: string): boolean {
-    if (!this.loginStates.has(state)) {
-      return false;
+  consumeLoginState(state: string): string | null {
+    const returnTo = this.loginStates.get(state);
+    if (!returnTo) {
+      return null;
     }
 
     this.loginStates.delete(state);
-    return true;
+    return returnTo;
   }
 
   /**

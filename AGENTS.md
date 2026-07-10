@@ -3,22 +3,23 @@
 ## 交流与范围
 
 - 与用户沟通默认使用中文。
-- 本仓库是单 package TypeScript 项目，最近的 `package.json` 位于仓库根目录。
-  提交信息 scope 使用 `gitea-oidc`；如果未来出现嵌套 package，
-  则以当前修改文件向上查找最近 `package.json` 的目录名作为 scope。
+- 本仓库是 pnpm monorepo，根 `package.json` 仅用于私有 workspace 编排。
+- 提交信息 scope 以修改文件向上查找最近 `package.json` 的目录名为准，例如
+  `server-core`、`admin-web`、`idp-server`；根级编排文件使用 `gitea-oidc`。
 - 变更前先用 `rg` / `rg --files` 熟悉现有实现，优先沿用仓库已有模式。
 - 不要回退用户已有改动；遇到无关脏文件时忽略，遇到相关改动时在其基础上继续。
 
 ## 项目概览
 
 - 运行时：Node.js `>=22`，包管理器：`pnpm@10`。
-- 入口：`src/server.ts`，负责 Fastify、`oidc-provider`、认证协调器、适配器和 JWKS 初始化。
-- 配置：`src/config.ts` 加载并合并配置，`src/schemas/configSchema.ts` 用 Zod 校验。
-- 认证核心：`src/core/`，尤其是 `AuthCoordinator` 和 `PermissionChecker`。
-- 认证提供者：`src/providers/`，目前有本地密码和飞书 OAuth。
-- 用户仓储：`src/repositories/`，支持 memory、SQLite、PostgreSQL。
-- OIDC 持久化：`src/adapters/`，支持 SQLite、Redis、memory。
-- State 存储：`src/stores/MemoryStateStore.ts`。
+- 部署入口：`apps/idp-server/src/main.ts`，只负责服务进程生命周期。
+- 管理台：`apps/admin-web/`，构建后装配到 `packages/server-core/public/admin/`。
+- 公开兼容包：`packages/server-core/`，npm 包名仍为 `gitea-oidc`。
+- 服务组装：`packages/server-core/src/identityServer.ts`；兼容进程入口：
+  `packages/server-core/src/server.ts`。
+- 配置：`packages/server-core/src/config.ts` 加载并合并配置，
+  `packages/server-core/src/schemas/configSchema.ts` 用 Zod 校验。
+- 认证、Provider、仓储和适配器源码均位于 `packages/server-core/src/`。
 - 文档：`docs/` 和根目录 `README*.md`。
 
 ## 常用命令
@@ -50,7 +51,8 @@
 
 - TypeScript 使用 ESM、双引号、分号、2 空格缩进，遵循 `biome.json`。
 - 保持现有中文注释风格；只在复杂流程前添加有帮助的短注释。
-- 类型定义优先放在 `src/types/` 或靠近具体模块；公共配置变更要同步接口、Zod schema、示例配置和文档。
+- 类型定义优先放在 `packages/server-core/src/types/` 或靠近具体模块；公共配置变更要同步接口、
+  Zod schema、示例配置和文档。
 - 不引入新的运行时依赖，除非能明显降低复杂度并符合项目方向。
 - 安全相关逻辑不要吞错；日志中避免输出密码、token、client secret、cookie key、私钥等敏感值。
 

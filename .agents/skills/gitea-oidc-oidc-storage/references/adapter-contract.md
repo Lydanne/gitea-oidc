@@ -2,11 +2,12 @@
 
 ## Key Files
 
-- `src/adapters/OidcAdapterFactory.ts`: adapter type selection, validation, cleanup, and `oidc-provider` factory hook.
-- `src/adapters/SqliteOidcAdapter.ts`: SQLite-backed implementation.
-- `src/adapters/RedisOidcAdapter.ts`: Redis-backed implementation.
-- `src/schemas/configSchema.ts`: runtime validation for adapter config.
-- `src/config.ts`: defaults and merged config shape.
+- `packages/server-core/src/adapters/OidcAdapterFactory.ts`: adapter type selection, validation,
+  cleanup, and `oidc-provider` factory hook.
+- `packages/server-core/src/adapters/SqliteOidcAdapter.ts`: SQLite-backed implementation.
+- `packages/server-core/src/adapters/RedisOidcAdapter.ts`: Redis-backed implementation.
+- `packages/server-core/src/schemas/configSchema.ts`: runtime validation for adapter config.
+- `packages/server-core/src/config.ts`: defaults and merged config shape.
 - `docs/ADAPTER_CONFIGURATION.md` and `docs/REDIS_ADAPTER_GUIDE.md`: user-facing behavior.
 
 ## Behavior Expectations

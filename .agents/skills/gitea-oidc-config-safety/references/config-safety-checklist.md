@@ -2,9 +2,9 @@
 
 ## Key Files
 
-- `src/config.ts`: `GiteaOidcConfig`, defaults, loading, merge behavior.
-- `src/schemas/configSchema.ts`: runtime validation and defaults.
-- `src/utils/configValidator.ts`: production warnings and validation helpers.
+- `packages/server-core/src/config.ts`: `GiteaOidcConfig`, defaults, loading, merge behavior.
+- `packages/server-core/src/schemas/configSchema.ts`: runtime validation and defaults.
+- `packages/server-core/src/utils/configValidator.ts`: production warnings and validation helpers.
 - `example.gitea-oidc.config.json`: user-facing baseline.
 - `docs/PRODUCTION_SETUP.md`, `docs/REVERSE_PROXY_HTTPS.md`, `docs/PRODUCTION_WARNINGS*.md`: deployment guidance.
 

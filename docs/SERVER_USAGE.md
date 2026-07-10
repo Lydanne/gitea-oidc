@@ -197,7 +197,7 @@ setupOIDC();
 
 ### 完整配置接口
 
-请参考 `src/config.ts` 中的 `GiteaOidcConfig` 接口定义，了解所有可配置选项。
+请参考 `packages/server-core/src/config.ts` 中的 `GiteaOidcConfig` 接口定义，了解所有可配置选项。
 
 ### 关键配置项
 

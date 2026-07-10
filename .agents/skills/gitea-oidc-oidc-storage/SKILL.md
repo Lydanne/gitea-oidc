@@ -8,12 +8,12 @@ description: >-
 
 # Gitea OIDC Storage
 
-Use this skill for work under `src/adapters/`, adapter config/schema changes, or
+Use this skill for work under `packages/server-core/src/adapters/`, adapter config/schema changes, or
 tests that exercise OIDC persistence.
 
 ## Workflow
 
-1. Read `src/adapters/OidcAdapterFactory.ts` and the concrete adapter being changed.
+1. Read `packages/server-core/src/adapters/OidcAdapterFactory.ts` and the concrete adapter being changed.
 2. Confirm the `oidc-provider` Adapter methods affected: `upsert`, `find`, `findByUid`,
    `findByUserCode`, `destroy`, `revokeByGrantId`, and `consume`.
 3. Keep storage keys scoped by model name and preserve TTL semantics.
@@ -27,6 +27,6 @@ tests that exercise OIDC persistence.
 ## Validation
 
 - Run adapter-specific tests first, for example:
-  `pnpm vitest run src/adapters/__tests__/SqliteOidcAdapter.test.ts`.
+  `pnpm --filter gitea-oidc exec vitest run src/adapters/__tests__/SqliteOidcAdapter.test.ts`.
 - Run `pnpm test` after shared factory, schema, or type changes.
 - Run `pnpm build` if exports or runtime imports changed.

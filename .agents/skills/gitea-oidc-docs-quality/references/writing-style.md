@@ -29,6 +29,6 @@
 - Use placeholders for secrets: `change-this-client-secret`, `your-domain.com`,
   `your-password`, `cli_your_app_id`.
 - Do not include real tokens, real passwords, local tunnel domains, private IPs, or personal paths.
-- Config examples must match `src/config.ts`, `src/types/config.ts`, and
-  `src/schemas/configSchema.ts`.
+- Config examples must match `packages/server-core/src/config.ts`, `packages/server-core/src/types/config.ts`, and
+  `packages/server-core/src/schemas/configSchema.ts`.
 - Command examples must match `package.json`.

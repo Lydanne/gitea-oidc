@@ -11,7 +11,7 @@
 发布前需要在本地环境或 CI 环境中配置以下变量：
 
 - `NPM_TOKEN`: npm 发布令牌
-- `GHUB_TOKEN`: GitHub 令牌（用于创建 release）
+- `GITHUB_TOKEN`: GitHub 令牌（用于创建 release；GitHub Actions 会自动提供）
 - `DOCKER_USERNAME`: Docker Hub 用户名
 - `DOCKER_PASSWORD`: Docker Hub 密码
 
@@ -38,7 +38,7 @@ pnpm run release -- prerelease --preReleaseId=beta
 
 1. 构建生产版本（`pnpm run build:prod`）
 2. 运行 `pnpm test:pack`，确认 tarball 只包含发布白名单文件且所有 exports 存在
-3. 递增 `package.json` 中的版本号
+3. 递增 `packages/server-core/package.json` 中的版本号
 4. 提交 Git 变更并打标签
 5. 推送代码与标签到 GitHub
 6. 创建 GitHub Release
@@ -61,13 +61,14 @@ pnpm run release -- prerelease --preReleaseId=beta
 触发条件：
 
 - `pull_request` 到 `main` / `master`
+- 推送到 `main` / `master`
 
 主要 Job：
 
 - `lint`
   - 检出代码
   - 使用 Node.js 22 和 pnpm 安装依赖
-  - 对 `README.md` 运行 `markdownlint`
+  - 运行 Markdown、Biome 和 TypeScript 检查
 - `test`
   - 在 Node.js 22 下安装依赖
   - 运行 `pnpm test` 与 `pnpm test:coverage`
@@ -83,7 +84,6 @@ pnpm run release -- prerelease --preReleaseId=beta
 
 触发条件：
 
-- 推送到 `main` / `master`
 - 手动触发 `workflow_dispatch`，并选择 `release_type`：
   - `patch` / `minor` / `major` / `prerelease`
 
@@ -97,10 +97,11 @@ pnpm run release -- prerelease --preReleaseId=beta
    - 安装依赖并重建原生模块
    - 运行 `pnpm run build:prod`
    - 运行 `pnpm test:pack`
-   - 上传构建产物 `dist/` 作为 artifact
+   - 上传 `packages/server-core/dist/`、`packages/server-core/public/` 和
+     `apps/idp-server/dist/` 作为 artifact
 3. `release`（依赖 `build`）
    - 使用 `release-it` 完成版本号递增、Git 标签、GitHub Release 和 npm 发布
-   - 输出新版本号（从 `package.json` 读取）
+   - 输出新版本号（从 `packages/server-core/package.json` 读取）
 4. `docker`（依赖 `release`）
    - 使用 `docker/build-push-action` 构建并推送多平台镜像
    - Tag 格式：
@@ -112,7 +113,7 @@ pnpm run release -- prerelease --preReleaseId=beta
 在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 中配置：
 
 - `NPM_TOKEN`: npm 发布令牌
-- `GHUB_TOKEN`: GitHub 令牌（release-it 可以使用，也可直接复用 `GITHUB_TOKEN`）
+- `GITHUB_TOKEN`: GitHub 令牌（本地发布时提供；Actions 中由 GitHub 自动注入）
 - `DOCKER_USERNAME`: Docker Hub 用户名
 - `DOCKER_PASSWORD`: Docker Hub 密码
 
@@ -126,10 +127,13 @@ pnpm run release -- prerelease --preReleaseId=beta
 4. 选择发布类型（`patch` / `minor` / `major` / `prerelease`）
 5. 等待工作流完成
 
-### 5. 自动发布
+### 5. 发布触发策略
 
-当推送到 `main` / `master` 且提交信息不包含 `chore: release` 时，`Release` 工作流会自动以 `patch` 的方式触发发布流程。
+Release 工作流只允许手动触发。普通主分支推送仍会运行 CI，但不会自动递增版本、发布 npm
+或推送 Docker 镜像，避免无意的 patch 发布和发布提交递归。
 
 ---
 
-如需修改发布策略（例如禁用自动发布、调整版本策略、变更 Docker 镜像命名），可以直接编辑 `.github/workflows/release.yml` 或 `package.json` 中的 `release-it` 配置。
+如需修改发布策略，可以编辑 `.github/workflows/release.yml` 或
+`packages/server-core/.release-it.json`。根 `package.json` 是私有 workspace 编排包，不能作为
+npm 发布入口。

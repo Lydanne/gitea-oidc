@@ -2,11 +2,13 @@
 
 ## Key Files
 
-- `package.json`: scripts, package metadata, engines, dependencies.
+- Root `package.json`: private workspace orchestration and shared tools.
+- `packages/server-core/package.json`: public package metadata, exports, engines, and dependencies.
+- `apps/*/package.json`: application build and runtime boundaries.
 - `pnpm-lock.yaml`: dependency lockfile.
-- `rolldown.config.ts` and `rolldown.config.prod.ts`: ESM bundle output.
+- `packages/server-core/rolldown.config.ts` and `rolldown.config.prod.ts`: ESM bundle output.
 - `Dockerfile`, `docker-test.sh`, `tests/*.sh`, `gitea-server/`: container and integration checks.
-- `README.md`, `README.en.md`, `docs/RELEASE_AND_CI_CD.md`: user-visible workflow.
+- `README.md`, `README.en.md`, `docs/dev/RELEASE_AND_CI_CD.md`: user-visible workflow.
 - `commitlint.config.js`: Conventional Commits enforcement.
 
 ## Pre-Release Checklist
@@ -14,7 +16,9 @@
 - `pnpm install` is only needed when lockfile or dependencies changed.
 - `pnpm lint` passes.
 - `pnpm test` passes.
-- `pnpm build` produces the expected ESM entry under `dist/`.
+- `pnpm build` produces the expected ESM entry under `packages/server-core/dist/` and the process
+  entry under `apps/idp-server/dist/`.
+- `pnpm test:pack` validates the real public tarball and all exported entry points.
 - `pnpm build:prod` still works when production bundling changed.
 - Docker image can build when Docker-related files change.
 - README commands match `package.json` scripts.
@@ -28,6 +32,7 @@
 
 ## Commit Scope Rule
 
-- For files governed by the root `package.json`, use scope `gitea-oidc`.
-- If a future nested package appears, use the directory name containing the nearest `package.json`.
+- Use the directory name containing the nearest `package.json`, such as `server-core`, `admin-web`,
+  or `idp-server`.
+- For root workspace files, use scope `gitea-oidc`.
 - Subject should be Chinese, imperative, concise, and without trailing punctuation.

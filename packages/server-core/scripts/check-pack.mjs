@@ -1,0 +1,166 @@
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const packageRoot = new URL("../", import.meta.url);
+const packageJson = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8"));
+const packDir = await mkdtemp(join(tmpdir(), "gitea-oidc-pack-"));
+
+try {
+  const output = execFileSync(
+    "npm",
+    ["pack", "--json", "--ignore-scripts", "--pack-destination", packDir],
+    {
+      cwd: packageRoot,
+      encoding: "utf8",
+      env: { ...process.env, HUSKY: "0" },
+      stdio: ["ignore", "pipe", "inherit"],
+    },
+  );
+  const jsonStart = output.indexOf("[");
+  if (jsonStart < 0) {
+    throw new Error("npm pack 未返回 JSON 结果");
+  }
+  const [packResult] = JSON.parse(output.slice(jsonStart));
+  const paths = packResult.files.map((file) => file.path);
+
+  const requiredPaths = [
+    packageJson.main,
+    packageJson.types,
+    ...Object.values(packageJson.exports).flatMap((entry) => Object.values(entry)),
+    "package.json",
+    "public/index.html",
+    "public/error-session-expired.html",
+    "public/admin/index.html",
+  ].map((path) => path.replace(/^\.\//, ""));
+  const missingPaths = requiredPaths.filter((path) => !paths.includes(path));
+  if (missingPaths.length > 0) {
+    throw new Error(`npm tarball 缺少运行文件: ${missingPaths.join(", ")}`);
+  }
+
+  const allowedRootFiles = new Set(["LICENSE", "README.md", "README.en.md", "package.json"]);
+  const forbiddenPaths = paths.filter(
+    (path) =>
+      !allowedRootFiles.has(path) && !path.startsWith("dist/") && !path.startsWith("public/"),
+  );
+  if (forbiddenPaths.length > 0) {
+    throw new Error(`npm tarball 包含未授权文件: ${forbiddenPaths.join(", ")}`);
+  }
+
+  for (const path of paths) {
+    if (
+      path.includes("/__tests__/") ||
+      path.endsWith(".tsbuildinfo") ||
+      path.endsWith(".db") ||
+      path.endsWith(".db-shm") ||
+      path.endsWith(".db-wal")
+    ) {
+      throw new Error(`npm tarball 包含测试或数据库文件: ${path}`);
+    }
+  }
+
+  const declarationFiles = await listFiles(fileURLToPath(new URL("dist", packageRoot)), ".d.ts");
+  for (const declarationFile of declarationFiles) {
+    const declaration = await readFile(declarationFile, "utf8");
+    const relativeSpecifiers = Array.from(
+      declaration.matchAll(/(?:from\s+|import\()["'](\.{1,2}\/[^"']+)["']/g),
+      (match) => match[1],
+    );
+    const invalidSpecifier = relativeSpecifiers.find(
+      (specifier) => !specifier.endsWith(".js") && !specifier.endsWith(".json"),
+    );
+    if (invalidSpecifier) {
+      throw new Error(`声明文件包含 NodeNext 无法解析的路径: ${invalidSpecifier}`);
+    }
+  }
+
+  const importScript = [
+    "gitea-oidc",
+    "gitea-oidc/server",
+    "gitea-oidc/config",
+    "gitea-oidc/client",
+    "gitea-oidc/express",
+    "gitea-oidc/nest",
+    "gitea-oidc/vue",
+  ]
+    .map((specifier) => `await import(${JSON.stringify(specifier)});`)
+    .join("\n");
+  const consumerDir = join(packDir, "consumer");
+  await mkdir(consumerDir);
+  await writeFile(
+    join(consumerDir, "package.json"),
+    `${JSON.stringify({ name: "gitea-oidc-pack-consumer", private: true, type: "module" }, null, 2)}\n`,
+    "utf8",
+  );
+  execFileSync(
+    "npm",
+    ["install", "--ignore-scripts", "--no-audit", "--no-fund", join(packDir, packResult.filename)],
+    {
+      cwd: consumerDir,
+      env: { ...process.env, HUSKY: "0" },
+      stdio: ["ignore", "pipe", "inherit"],
+    },
+  );
+  execFileSync(process.execPath, ["--input-type=module", "--eval", importScript], {
+    cwd: consumerDir,
+    env: { ...process.env, NODE_ENV: "test" },
+    stdio: "inherit",
+  });
+
+  const typeFixture = join(consumerDir, "consumer.ts");
+  await writeFile(
+    typeFixture,
+    [
+      'import { createIdentityServer, type IdentityServerOptions } from "gitea-oidc/server";',
+      'import type { GiteaOidcConfig } from "gitea-oidc/config";',
+      'import { GiteaOidcClient } from "gitea-oidc/client";',
+      'const options: IdentityServerOptions = { publicDir: "public" };',
+      "declare const config: GiteaOidcConfig;",
+      "void createIdentityServer(config, options);",
+      "void GiteaOidcClient;",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const tscPath = fileURLToPath(
+    new URL("../../../node_modules/typescript/bin/tsc", import.meta.url),
+  );
+  const typeRoots = fileURLToPath(new URL("node_modules/@types", packageRoot));
+  execFileSync(
+    process.execPath,
+    [
+      tscPath,
+      "--noEmit",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      "--target",
+      "ES2022",
+      "--skipLibCheck",
+      "--typeRoots",
+      typeRoots,
+      typeFixture,
+    ],
+    { cwd: consumerDir, stdio: "inherit" },
+  );
+
+  console.log(
+    `npm tarball 与 exports 检查通过，共 ${paths.length} 个文件，产物 ${packResult.filename}`,
+  );
+} finally {
+  await rm(packDir, { force: true, recursive: true });
+}
+
+async function listFiles(directory, suffix) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nestedFiles = await Promise.all(
+    entries.map((entry) => {
+      const path = join(directory, entry.name);
+      return entry.isDirectory() ? listFiles(path, suffix) : [path];
+    }),
+  );
+  return nestedFiles.flat().filter((path) => path.endsWith(suffix));
+}

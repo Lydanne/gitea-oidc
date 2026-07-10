@@ -4,27 +4,31 @@
 
 ## 核心模块
 
-- `src/types/providerApi.ts` 定义 `ProviderApiClient`、`ProviderTokenRecord` 和代理请求类型。
-- `src/repositories/*ProviderTokenRepository.ts` 提供 memory、SQLite、PostgreSQL token 仓储。
-- `src/provider-api/*` 实现 Provider client、权限服务和后台探活调度器。
-- `src/routes/providerApiRoutes.ts` 暴露 SDK 代理，`src/routes/adminRoutes.ts` 暴露后台 API。
+- `packages/server-core/src/types/providerApi.ts` 定义 `ProviderApiClient`、
+  `ProviderTokenRecord` 和代理请求类型。
+- `packages/server-core/src/repositories/*ProviderTokenRepository.ts` 提供 memory、SQLite、
+  PostgreSQL token 仓储。
+- `packages/server-core/src/provider-api/*` 实现 Provider client、权限服务和后台探活调度器。
+- `packages/server-core/src/routes/providerApiRoutes.ts` 暴露 SDK 代理，
+  `packages/server-core/src/routes/adminRoutes.ts` 暴露后台 API。
 - SDK 代理会校验 bearer token 的 OIDC `client_id`；生产环境必须通过
   `providerApi.allowedClientIds` 明确允许哪些客户端可调用代理。
-- `admin-src/` 是内置 Vue 管理台源码，Vite 构建产物输出到 `public/admin/`。
+- `apps/admin-web/` 是内置 Vue 管理台源码，Vite 构建产物先输出到包内 `dist/`，再由装配脚本
+  复制到 `packages/server-core/public/admin/`。
 
 ## 管理台构建
 
 管理台是独立的 Vite + Vue Router + PrimeVue 工程：
 
-- 源码入口：`admin-src/src/main.ts`
-- 路由配置：`admin-src/src/router.ts`
-- 页面入口：`admin-src/src/App.vue`
-- 组件目录：`admin-src/src/components/`
-- 视图目录：`admin-src/src/views/`
-- API 封装：`admin-src/src/api/adminApi.ts`
-- 状态组合函数：`admin-src/src/composables/useAdminDashboard.ts`
-- 构建配置：`admin-src/vite.config.ts`
-- 静态产物：`public/admin/`
+- 源码入口：`apps/admin-web/src/main.ts`
+- 路由配置：`apps/admin-web/src/router.ts`
+- 页面入口：`apps/admin-web/src/App.vue`
+- 组件目录：`apps/admin-web/src/components/`
+- 视图目录：`apps/admin-web/src/views/`
+- API 封装：`apps/admin-web/src/api/adminApi.ts`
+- 状态组合函数：`apps/admin-web/src/composables/useAdminDashboard.ts`
+- 构建配置：`apps/admin-web/vite.config.ts`
+- 静态产物：`packages/server-core/public/admin/`
 
 管理台使用 history 路由，当前页面为：
 
@@ -33,9 +37,9 @@
 - `/admin/providers`
 - `/admin/tokens`
 
-服务端在 `src/routes/adminRoutes.ts` 为这些页面返回 `public/admin/index.html`，避免刷新或
-直接打开深链时落到静态文件 404。`/admin/login/start` 是后端 OIDC 登录启动端点，
-不由前端路由接管。
+服务端在 `packages/server-core/src/routes/adminRoutes.ts` 为这些页面返回
+`packages/server-core/public/admin/index.html`，避免刷新或直接打开深链时落到静态文件 404。
+`/admin/login/start` 是后端 OIDC 登录启动端点，不由前端路由接管。
 
 根项目脚本 `pnpm build` 和 `pnpm build:prod` 会先运行管理台 Vite 构建，
 再构建服务端和 SDK 多入口。单独调试管理台可运行：
@@ -44,8 +48,8 @@
 pnpm dev:admin
 ```
 
-开发服务器默认把 `/admin/api`、`/admin/login`、`/admin/logout` 和 `/admin/callback`
-代理到 `http://localhost:3000`，因此本地调试时需要同时启动服务端。
+开发服务器默认把 `/admin/api`、`/admin/login/start`、`/admin/logout` 和
+`/admin/callback` 代理到 `http://localhost:3000`，因此本地调试时需要同时启动服务端。
 
 ## 权限模型
 

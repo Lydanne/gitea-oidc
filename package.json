@@ -1,126 +1,53 @@
 {
-  "name": "gitea-oidc",
-  "version": "1.0.29",
+  "name": "gitea-oidc-workspace",
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "description": "Simple OpenID Connect Identity Provider using Fastify and TypeScript",
-  "main": "dist/server.js",
-  "types": "dist/server.d.ts",
-  "files": [
-    "dist",
-    "public/admin",
-    "README.md",
-    "README.en.md",
-    "LICENSE"
-  ],
-  "exports": {
-    ".": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
-    },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
-    },
-    "./config": {
-      "types": "./dist/config.d.ts",
-      "import": "./dist/config.js"
-    },
-    "./client": {
-      "types": "./dist/sdk/client.d.ts",
-      "import": "./dist/client.js"
-    },
-    "./express": {
-      "types": "./dist/sdk/express.d.ts",
-      "import": "./dist/express.js"
-    },
-    "./nest": {
-      "types": "./dist/sdk/nest.d.ts",
-      "import": "./dist/nest.js"
-    },
-    "./vue": {
-      "types": "./dist/sdk/vue.d.ts",
-      "import": "./dist/vue.js"
-    }
-  },
+  "description": "Gitea OIDC monorepo workspace",
   "scripts": {
-    "clean": "node scripts/clean-build.mjs",
-    "dev": "NODE_ENV=development tsx watch src/server.ts",
-    "dev:admin": "vite --config admin-src/vite.config.ts --host 0.0.0.0",
-    "build:admin": "vite build --config admin-src/vite.config.ts",
-    "build": "pnpm clean && vite build --config admin-src/vite.config.ts && rolldown -c rolldown.config.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
-    "build:prod": "pnpm clean && vite build --config admin-src/vite.config.ts && rolldown -c rolldown.config.prod.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
-    "start": "NODE_ENV=production node dist/server.js",
-    "test": "vitest run",
-    "test:pack": "node scripts/check-pack.mjs",
-    "test:watch": "vitest --watch",
-    "test:coverage": "vitest run --coverage",
-    "release": "release-it",
-    "generate-jwks": "tsx scripts/generate-jwks.ts",
+    "clean": "node scripts/clean-workspace.mjs",
+    "dev": "NODE_ENV=development tsx watch packages/server-core/src/server.ts",
+    "dev:admin": "pnpm --filter @gitea-oidc/admin-web dev",
+    "build:admin": "pnpm --filter @gitea-oidc/admin-web build",
+    "stage:admin": "node packages/server-core/scripts/stage-admin-assets.mjs",
+    "build": "pnpm clean && pnpm build:admin && pnpm --filter gitea-oidc build && pnpm --filter @gitea-oidc/idp-server build",
+    "build:prod": "pnpm clean && pnpm build:admin && pnpm --filter gitea-oidc build:prod && pnpm --filter @gitea-oidc/idp-server build",
+    "start": "NODE_ENV=production node apps/idp-server/dist/main.js",
+    "typecheck": "pnpm --filter @gitea-oidc/admin-web typecheck && pnpm --filter gitea-oidc typecheck && pnpm --filter @gitea-oidc/idp-server typecheck",
+    "test": "pnpm --filter gitea-oidc test",
+    "test:watch": "pnpm --filter gitea-oidc test:watch",
+    "test:coverage": "pnpm --filter gitea-oidc test:coverage",
+    "test:pack": "pnpm --filter gitea-oidc test:pack",
+    "release": "pnpm --dir packages/server-core release",
+    "generate-jwks": "tsx packages/server-core/scripts/generate-jwks.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules\" \"!dist\"",
-    "lint:md:fix": "markdownlint-cli2 --fix \"**/*.md\" \"!node_modules\" \"!dist\"",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!**/node_modules/**\" \"!**/dist/**\" \"!**/coverage/**\"",
+    "lint:md:fix": "markdownlint-cli2 --fix \"**/*.md\" \"!**/node_modules/**\" \"!**/dist/**\" \"!**/coverage/**\"",
     "prepare": "husky"
   },
-  "keywords": [
-    "oidc",
-    "idp",
-    "fastify",
-    "typescript"
-  ],
-  "author": "",
-  "license": "ISC",
   "engines": {
     "node": ">=22.0.0",
     "pnpm": ">=10.0.0"
   },
   "packageManager": "pnpm@10.0.0",
-  "publishConfig": {
-    "access": "public"
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "bcrypt",
+      "better-sqlite3",
+      "esbuild",
+      "protobufjs"
+    ]
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.6",
     "@commitlint/cli": "^20.1.0",
     "@commitlint/config-conventional": "^20.0.0",
-    "@primeuix/themes": "^2.0.3",
-    "@release-it/conventional-changelog": "^10.0.1",
-    "@types/bcrypt": "^6.0.0",
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/koa": "^3.0.1",
-    "@types/node": "^22.0.0",
-    "@types/oidc-provider": "^9.5.0",
-    "@types/pg": "^8.15.6",
-    "@vitejs/plugin-vue": "^6.0.6",
-    "@vitest/coverage-v8": "4.0.9",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "markdownlint-cli2": "^0.19.0",
-    "primeicons": "^7.0.0",
-    "primevue": "^4.5.5",
-    "release-it": "^19.0.6",
-    "rolldown": "1.0.0-beta.47",
-    "ts-node": "^10.9.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.0.0",
-    "vite": "^8.0.10",
-    "vitest": "^4.0.9",
-    "vue-router": "^5.0.6"
-  },
-  "dependencies": {
-    "@fastify/cors": "^11.1.0",
-    "@fastify/formbody": "^8.0.2",
-    "@fastify/middie": "^9.0.0",
-    "@fastify/static": "^8.3.0",
-    "@larksuiteoapi/node-sdk": "^1.55.0",
-    "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.4.1",
-    "fastify": "^5.6.1",
-    "jose": "^6.1.2",
-    "oidc-provider": "^9.5.2",
-    "pg": "^8.16.3",
-    "redis": "^5.9.0",
-    "vue": "^3.5.0",
-    "zod": "^4.1.12"
+    "typescript": "^5.0.0"
   }
 }

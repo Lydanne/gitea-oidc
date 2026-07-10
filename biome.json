@@ -8,7 +8,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!public/admin/assets"]
+    "includes": ["**", "!packages/server-core/public/admin/assets"]
   },
   "formatter": {
     "enabled": true,
@@ -125,7 +125,7 @@
   },
   "overrides": [
     {
-      "includes": ["admin-src/**/*.vue"],
+      "includes": ["apps/admin-web/**/*.vue"],
       "linter": {
         "rules": {
           "correctness": {

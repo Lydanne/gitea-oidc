@@ -9,12 +9,12 @@ description: >-
 
 # Gitea OIDC Auth Provider
 
-Use this skill for work touching `src/providers/`, `src/core/AuthCoordinator.ts`,
-`src/core/PermissionChecker.ts`, auth-related types, or provider tests.
+Use this skill for work touching `packages/server-core/src/providers/`, `packages/server-core/src/core/AuthCoordinator.ts`,
+`packages/server-core/src/core/PermissionChecker.ts`, auth-related types, or provider tests.
 
 ## Workflow
 
-1. Read the relevant provider plus `src/types/auth.ts` and `src/core/AuthCoordinator.ts`.
+1. Read the relevant provider plus `packages/server-core/src/types/auth.ts` and `packages/server-core/src/core/AuthCoordinator.ts`.
 2. Check whether the provider needs routes, static assets, webhooks, or middleware.
    Declare permissions with `PluginPermission`.
 3. Keep provider names stable and URL-safe. Routes are mounted under `/auth/{provider.name}`.

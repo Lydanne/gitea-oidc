@@ -176,3 +176,8 @@ jwks.json
 oidc.db
 oidc.db-shm
 oidc.db-wal
+
+# Workspace build outputs
+apps/admin-web/dist/
+apps/idp-server/dist/
+packages/server-core/dist/

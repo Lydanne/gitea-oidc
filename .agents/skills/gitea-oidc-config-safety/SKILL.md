@@ -10,7 +10,8 @@ production-hardening work.
 
 ## Workflow
 
-1. Read `src/config.ts`, `src/schemas/configSchema.ts`, and the relevant docs or example config.
+1. Read `packages/server-core/src/config.ts`,
+   `packages/server-core/src/schemas/configSchema.ts`, and the relevant docs or example config.
 2. Keep TypeScript interfaces, Zod schemas, defaults, examples, and docs synchronized.
 3. Preserve JS config precedence over JSON config.
 4. Treat secrets as write-only user inputs; do not log or commit real values.

@@ -28,6 +28,12 @@ jobs:
       - name: Run markdown linting
         run: pnpm run lint:md
 
+      - name: Run code linting
+        run: pnpm run lint
+
+      - name: Run type checks
+        run: pnpm run typecheck
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -50,7 +56,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
+        run: pnpm --dir packages/server-core rebuild better-sqlite3
 
       - name: Run tests
         run: pnpm test
@@ -82,7 +88,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
+        run: pnpm --dir packages/server-core rebuild better-sqlite3
 
       - name: Build application
         run: pnpm run build:prod

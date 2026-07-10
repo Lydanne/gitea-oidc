@@ -1,10 +1,6 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
-      - master
   workflow_dispatch:
     inputs:
       release_type:
@@ -41,7 +37,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
+        run: pnpm --dir packages/server-core rebuild better-sqlite3
 
       # - name: Run linting
       #   run: npx markdownlint README.md
@@ -72,7 +68,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
+        run: pnpm --dir packages/server-core rebuild better-sqlite3
 
       - name: Build application
         run: pnpm run build:prod
@@ -84,7 +80,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist/
+          path: |
+            apps/idp-server/dist/
+            packages/server-core/dist/
+            packages/server-core/public/
           retention-days: 1
 
   release:
@@ -96,7 +95,6 @@ jobs:
     permissions:
       contents: write
       packages: write
-    if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit && !contains(github.event.head_commit.message, 'chore: ')) }}"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -118,7 +116,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
+        run: pnpm --dir packages/server-core rebuild better-sqlite3
 
       - name: Setup Git
         run: |
@@ -149,7 +147,7 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION=$(node -p "require('./packages/server-core/package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
   docker:
@@ -159,13 +157,13 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit && !contains(github.event.head_commit.message, 'chore: ')) }}"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: v${{ needs.release.outputs.version }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

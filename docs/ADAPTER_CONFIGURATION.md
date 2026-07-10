@@ -392,7 +392,7 @@ maxmemory-policy allkeys-lru
 
 - [Redis 适配器详细指南](./REDIS_ADAPTER_GUIDE.md)
 - [生产环境配置](./PRODUCTION_SETUP.md)
-- [SQLite 适配器测试](../src/adapters/__tests__/SqliteOidcAdapter.test.ts)
+- [SQLite 适配器测试](../packages/server-core/src/adapters/__tests__/SqliteOidcAdapter.test.ts)
 
 ## 总结
 

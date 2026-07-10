@@ -2,13 +2,12 @@
 
 ## 元数据
 
-- 状态：draft
+- 状态：accepted
 - 创建日期：2026-07-10
-- 来源：AI 辅助生成，等待维护者确认
-- 关联模块：`src/server.ts`、`src/sdk/`、`src/routes/adminRoutes.ts`、
-  `admin-src/`、`src/adapters/`、`src/config.ts`
+- 来源：AI 辅助生成，维护者已确认继续实现
+- 关联模块：`packages/server-core/`、`apps/idp-server/`、`apps/admin-web/`
 - 关联任务：应用管理、应用模板、Node SDK、框架连接器和 CLI 重构
-- 预计处理：确认后按阶段实现，并将稳定设计迁移到 `docs/dev/`
+- 预计处理：按阶段实现，并将稳定设计迁移到 `docs/dev/`
 
 ## 背景
 
@@ -16,7 +15,7 @@
 Express/Nest 辅助代码和 Vue 组件发布在同一个 `gitea-oidc` 包中。
 这造成以下问题：
 
-- `src/sdk/client.ts` 实际是 Provider API 代理，不是完整的 OIDC 登录客户端。
+- `packages/server-core/src/sdk/client.ts` 实际是 Provider API 代理，不是完整的 OIDC 登录客户端。
 - Express 和 Nest 代码只把 Bearer Token 转发给 userinfo，没有覆盖 discovery、
   Authorization Code、PKCE、state、nonce、callback、session、refresh 和 logout。
 - 没有 Fastify 连接器，也没有未支持框架可复用的 Node 协议核心。
@@ -486,7 +485,7 @@ NestJS 包不得复用 Express options 或依赖 Express 连接器。未支持�
 
 ## Provider API SDK
 
-现有 `src/sdk/client.ts` 应迁移为 `@gitea-oidc/provider-api` 的
+现有 `packages/server-core/src/sdk/client.ts` 应迁移为 `@gitea-oidc/provider-api` 的
 `ProviderApiClient`，与 OIDC 登录 SDK 保持独立。
 
 - 删除全局可变的 `setAccessToken()` 状态，改为每次调用传 Token，或注入异步
@@ -636,14 +635,17 @@ SDK 以 ESM 为主，并在支持 `require(esm)` 的目标 Node 版本中做真�
 
 ### P1：只建立 Monorepo 边界
 
-- 先创建可发布且包名仍为 `gitea-oidc` 的 `packages/legacy`，迁移现有 exports、README、
-  `files` 和服务端入口，并通过真实 tarball 消费测试。
-- 在 legacy 包可替代当前根包后，再把根 workspace 设为 private。
-- 移动 `admin-src` 到 `apps/admin-web`。
-- 建立 `apps/idp-server` 和 `packages/server-core`。
-- 把 `createIdentityServer()` 与 `listen()`、signal、`process.exit` 分离。
-- 保留 `gitea-oidc` 兼容入口和当前运行行为。
-- 暂不修改存储、Provider 和认证业务逻辑。
+- [x] 将当前可发布包迁入 `packages/server-core`，包名仍为 `gitea-oidc`，并保留所有 exports。
+- [x] 在兼容包可替代根包后，把根 workspace 改为 private 编排包。
+- [x] 移动 `admin-src` 到 `apps/admin-web`，采用包内构建和显式静态资源装配。
+- [x] 建立 `apps/idp-server` 生产进程入口。
+- [x] 把 `createIdentityServer()` 与 `listen()`、signal、`process.exit` 分离。
+- [x] 保留 `gitea-oidc` 兼容入口和当前运行行为。
+- [x] 不修改存储、Provider 和认证业务逻辑。
+
+P1 实施时把兼容 facade 与服务核心暂时放在同一个 `packages/server-core` package，而没有额外
+创建依赖私有 core 的 `packages/legacy`。这是为了确保公开 JS 和声明文件不会泄露未发布的
+workspace 依赖；待 npm scope 和新 SDK 包名确认、声明 bundling 门禁建立后再拆 facade。
 
 ### P2：完成第一个产品纵向闭环
 

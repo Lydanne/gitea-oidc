@@ -152,38 +152,29 @@ pnpm test:coverage
 
 ```bash
 gitea-oidc/
-├── src/
-│   ├── server.ts               # Fastify + oidc-provider 入口
-│   ├── config.ts               # 配置加载与合并
-│   ├── core/                   # 认证核心
-│   │   ├── AuthCoordinator.ts
-│   │   └── PermissionChecker.ts
-│   ├── adapters/               # OIDC 持久化适配器
-│   │   ├── OidcAdapterFactory.ts
-│   │   ├── SqliteOidcAdapter.ts
-│   │   └── RedisOidcAdapter.ts
-│   ├── stores/                 # OAuth State / 认证结果存储
-│   │   └── MemoryStateStore.ts
-│   ├── providers/              # 认证提供者插件
-│   │   ├── LocalAuthProvider.ts
-│   │   └── FeishuAuthProvider.ts
-│   ├── repositories/           # 用户仓储
-│   │   ├── MemoryUserRepository.ts
-│   │   ├── SqliteUserRepository.ts
-│   │   └── PgsqlUserRepository.ts
-│   ├── schemas/                # Zod 配置 Schema
-│   ├── types/                  # 类型定义
-│   ├── utils/                  # 工具与日志
-│   └── __tests__/              # 单元测试
-├── docs/                       # 文档
-├── admin-src/                   # 内置 Vue 管理台源码
-├── public/                     # 静态页面（首页、会话过期页等）
+├── apps/
+│   ├── admin-web/              # Vue 管理台应用
+│   └── idp-server/             # 生产服务进程入口
+├── packages/
+│   └── server-core/            # gitea-oidc 兼容包与认证服务核心
+│       ├── src/
+│       │   ├── identityServer.ts # 创建 Fastify/OIDC 运行时，不监听端口
+│       │   ├── server.ts       # 兼容 start() 与进程信号入口
+│       │   ├── core/           # 认证核心
+│       │   ├── adapters/       # OIDC 持久化适配器
+│       │   ├── providers/      # 认证提供者插件
+│       │   ├── repositories/   # 用户与 Provider token 仓储
+│       │   └── sdk/            # 待迁移的兼容 SDK
+│       └── public/             # 服务包内静态资源
+├── docs/                       # 用户与开发者文档
 ├── example.gitea-oidc.config.json  # JSON 配置示例
-├── gitea-oidc.config.js        # JS 配置示例（支持动态配置）
 ├── Dockerfile                  # Docker 镜像构建
 ├── pnpm-lock.yaml
-└── vitest.config.ts            # Vitest 配置
+└── pnpm-workspace.yaml         # Workspace 边界
 ```
+
+根 `package.json` 只负责编排。公开 npm 包仍名为 `gitea-oidc`，位于
+`packages/server-core/`；生产镜像从 `apps/idp-server/` 启动。
 
 ## 🔧 配置说明
 

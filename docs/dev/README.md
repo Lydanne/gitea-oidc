@@ -7,6 +7,7 @@
 - [认证插件系统设计文档](./AUTH_PLUGIN_DESIGN.md)
 - [插件动态路由开发指南](./PLUGIN_ROUTES_GUIDE.md)
 - [Provider API 设计](./PROVIDER_API_DESIGN.md)
+- [Monorepo 架构与包边界](./MONOREPO_ARCHITECTURE.md)
 
 ## 发布与维护
 

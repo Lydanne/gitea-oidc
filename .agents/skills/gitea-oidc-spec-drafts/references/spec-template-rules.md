@@ -25,7 +25,7 @@
 
 Good TODO:
 
-- `- [ ] 在 src/schemas/configSchema.ts 增加 Redis URL 校验`
+- `- [ ] 在 packages/server-core/src/schemas/configSchema.ts 增加 Redis URL 校验`
 - `- [ ] 为 Redis 配置错误补充 Vitest 用例`
 
 Weak TODO:

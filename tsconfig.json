@@ -1,19 +1,4 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ES2022",
-    "lib": ["ES2022"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "moduleResolution": "bundler",
-    "declaration": true,
-    "types": ["vitest/globals"]
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/**/__tests__"]
+  "files": [],
+  "references": [{ "path": "./packages/server-core" }, { "path": "./apps/idp-server" }]
 }

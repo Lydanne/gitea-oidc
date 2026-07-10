@@ -69,8 +69,6 @@ if [ ! -f "${CONFIG_FILE}" ]; then
 fi
 
 HTPASSWD_FILE="${PROJECT_ROOT}/.htpasswd"
-PUBLIC_DIR="${PROJECT_ROOT}/public"
-
 # 停止并删除已存在的容器
 if docker ps -a --format 'table {{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo -e "${YELLOW}🛑 停止并删除已存在的容器...${NC}"
@@ -100,7 +98,6 @@ docker run -d \
     -p "${HOST_PORT}:${CONTAINER_PORT}" \
     -v "${CONFIG_FILE}:${CONTAINER_CONFIG_FILE}" \
     -v "${HTPASSWD_FILE}:/app/.htpasswd" \
-    -v "${PUBLIC_DIR}:/app/public" \
     -v "${PROJECT_ROOT}/gitea-server/data:/app/gitea-server/data" \
     --restart unless-stopped \
     "${FULL_IMAGE_NAME}"

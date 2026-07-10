@@ -18,10 +18,10 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm run build:prod
 
 # 重新编译原生依赖
-RUN npm rebuild better-sqlite3
+RUN pnpm --dir packages/server-core rebuild better-sqlite3
 
 ENV NODE_ENV=production
 
 EXPOSE 3000
 
-CMD ["node", "dist/server.js"]
+CMD ["node", "apps/idp-server/dist/main.js"]

@@ -1,5 +1,7 @@
 packages:
-  - .
+  - apps/*
+  - packages/*
+  - examples/*
 
 allowBuilds:
   bcrypt: true

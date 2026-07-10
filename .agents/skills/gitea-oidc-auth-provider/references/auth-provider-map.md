@@ -2,14 +2,14 @@
 
 ## Key Files
 
-- `src/types/auth.ts`: `AuthProvider`, `AuthContext`, `AuthResult`, plugin route/static/webhook
+- `packages/server-core/src/types/auth.ts`: `AuthProvider`, `AuthContext`, `AuthResult`, plugin route/static/webhook
   interfaces, permissions, and auth error codes.
-- `src/core/AuthCoordinator.ts`: provider registration, permission checks, route mounting,
+- `packages/server-core/src/core/AuthCoordinator.ts`: provider registration, permission checks, route mounting,
   OAuth state lifecycle, and interaction completion.
-- `src/core/PermissionChecker.ts`: allowed plugin capabilities.
-- `src/providers/LocalAuthProvider.ts`: htpasswd-style password login implementation.
-- `src/providers/FeishuAuthProvider.ts`: OAuth 2.0 provider, callback route, static icon, webhook handling.
-- `src/repositories/*UserRepository.ts`: provider identity to internal user mapping.
+- `packages/server-core/src/core/PermissionChecker.ts`: allowed plugin capabilities.
+- `packages/server-core/src/providers/LocalAuthProvider.ts`: htpasswd-style password login implementation.
+- `packages/server-core/src/providers/FeishuAuthProvider.ts`: OAuth 2.0 provider, callback route, static icon, webhook handling.
+- `packages/server-core/src/repositories/*UserRepository.ts`: provider identity to internal user mapping.
 
 ## Provider Checklist
 

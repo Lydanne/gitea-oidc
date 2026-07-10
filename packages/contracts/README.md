@@ -6,8 +6,8 @@ Gitea OIDC 应用控制面、Node SDK、框架连接器和管理端共用的公�
 ## 当前发布状态
 
 该包目前仍是 monorepo 内部的预发布 contract，`package.json` 保持 `private: true`，供管理端、
-应用域和后续连接器共同验证。完成 Node SDK 与多包发布编排后才会开放外部安装；当前不要把下面
-命令写入生产项目。
+应用域、Node SDK、连接器和 CLI 共同验证。完成统一版本与多包发布编排后才会开放外部安装；当前
+不要把下面命令写入生产项目。
 
 ```bash
 pnpm add @gitea-oidc/contracts zod
@@ -22,10 +22,11 @@ pnpm add @gitea-oidc/contracts zod
 
 - `packages/applications`：在领域服务和仓储边界解析公开 DTO。
 - `apps/admin-web`：复用 schema 版本、请求和响应类型，不复制服务端类型。
-- 后续 Node SDK、框架连接器和 CLI：只依赖公开 contract，不导入服务端或数据库实现。
+- Node SDK、框架连接器和 CLI：只依赖公开 contract，不导入服务端或数据库实现。
 
-依赖方向固定为 `contracts -> applications -> server-core -> idp-server`，管理台从
-`contracts` 读取类型并把构建产物装配到 `server-core`。先构建 contract，再构建应用域和管理台：
+服务端方向固定为 `contracts -> application-templates -> applications -> server-core ->
+idp-server`；业务接入方向固定为 `contracts -> node -> connector-core -> framework connector`。
+管理台从 `contracts` 读取类型并把构建产物装配到 `server-core`。
 
 ```bash
 pnpm build:contracts
@@ -54,6 +55,11 @@ import {
 const connection = parseApplicationConnectionV1(await response.json());
 
 const credential: ApplicationCredentialV1 = {
+  schemaVersion: 1,
+  applicationId: connection.applicationId,
+  oidcClientId: connection.oidcClientId,
+  issuer: connection.issuer,
+  clientId: connection.clientId,
   kind: "client_secret",
   clientSecret: process.env.OIDC_CLIENT_SECRET ?? "",
 };
@@ -63,6 +69,10 @@ const credential: ApplicationCredentialV1 = {
 `clientSecret` 或其他未知字段时，解析会失败，而不是把该字段带入可重复保存、日志或展示的
 connection 对象。明文 Secret 只能放在 `ApplicationCredentialV1` 或创建响应的
 `credentialDelivery` 中。
+
+`ApplicationCredentialV1` 必须携带 `applicationId`、`oidcClientId`、`issuer` 和
+`clientId` 绑定字段。CLI 和 SDK 必须将这些字段与 connection 精确比较，不能接受裸
+`clientSecret`，也不能把某个应用的 credential 与另一个 connection 混用。
 
 ## 创建自定义应用
 
@@ -97,7 +107,13 @@ V1 创建响应的 `credentialDelivery` 只支持 `direct`，其中包含仅展�
 `already_delivered`。调用方必须明确提示凭据不会再次显示，不能把该响应误当成首次创建结果。
 
 创建接口必须设置 `Cache-Control: no-store`，并禁止把完整创建响应写入日志、审计、指标或
-错误信息。生产和预发布回调 URI 只能使用 HTTPS；开发环境仅对 loopback 地址放宽 HTTP。
+错误信息。Redirect URI 和 Post Logout Redirect URI 均禁止 query 与 fragment。生产和预发布
+回调 URI 只能使用 HTTPS；开发环境仅对 loopback 地址放宽 HTTP。
+
+`RotateApplicationCredentialRequestV1` 使用 schema 版本和 Application 乐观版本号；
+`RotateApplicationCredentialResponseV1` 只接受非 system 的 confidential Client，并继续使用
+一次性、与 connection 完整绑定的 direct credential。响应丢失时应先读取当前 Application version，
+再发起一次新的轮换，不能重放或重新读取上一份明文。
 
 ## 结构化接入说明
 

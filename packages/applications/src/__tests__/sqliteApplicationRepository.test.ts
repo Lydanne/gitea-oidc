@@ -9,12 +9,14 @@ import {
   ApplicationConflictError,
   ApplicationRepositoryClosedError,
   ApplicationStorageCorruptionError,
+  ApplicationValidationError,
 } from "../errors.js";
 import { SqliteApplicationRepository } from "../sqliteApplicationRepository.js";
 import type { CreateCustomApplicationRequestV1 } from "../types.js";
 
 const directories: string[] = [];
 const repositories: SqliteApplicationRepository[] = [];
+const CONNECTION_ISSUER = "https://id.example.com";
 
 function createDatabasePath(): string {
   const directory = mkdtempSync(join(tmpdir(), "gitea-oidc-applications-"));
@@ -23,7 +25,10 @@ function createDatabasePath(): string {
 }
 
 function createRepository(dbPath: string): SqliteApplicationRepository {
-  const repository = new SqliteApplicationRepository({ dbPath });
+  const repository = new SqliteApplicationRepository({
+    dbPath,
+    connectionIssuer: CONNECTION_ISSUER,
+  });
   repositories.push(repository);
   return repository;
 }
@@ -31,7 +36,7 @@ function createRepository(dbPath: string): SqliteApplicationRepository {
 function createService(repository: SqliteApplicationRepository): ApplicationService {
   return new ApplicationService({
     repository,
-    issuer: "https://id.example.com",
+    issuer: CONNECTION_ISSUER,
     secretEncryptor: new ApplicationSecretEncryptor({
       keyId: "applications-v1",
       masterKey: Buffer.alloc(32, 4),
@@ -82,6 +87,88 @@ describe("SqliteApplicationRepository", () => {
     });
     expect(replay.replayed).toBe(true);
     expect(await secondService.listAuditEvents(created.response.application.id)).toHaveLength(2);
+  });
+
+  it("原子迁移未版本化 aggregate 并补齐 connection issuer", async () => {
+    const dbPath = createDatabasePath();
+    const firstRepository = createRepository(dbPath);
+    const service = createService(firstRepository);
+    const created = await service.createCustomApplication(createRequest("legacy-app"), {
+      idempotencyKey: "legacy-idempotency-key",
+    });
+    await firstRepository.close();
+
+    const legacyDatabase = new Database(dbPath);
+    const row = legacyDatabase
+      .prepare("SELECT data FROM application_aggregates WHERE id = ?")
+      .get(created.response.application.id) as { data: string };
+    const legacyAggregate = JSON.parse(row.data) as Record<string, unknown>;
+    delete legacyAggregate.connectionIssuer;
+    const legacyClients = legacyAggregate.clients;
+    const legacySecrets = legacyAggregate.secrets;
+    legacyDatabase
+      .prepare("UPDATE application_aggregates SET data = ? WHERE id = ?")
+      .run(JSON.stringify(legacyAggregate), created.response.application.id);
+    legacyDatabase.prepare("DELETE FROM application_repository_metadata").run();
+    legacyDatabase.close();
+
+    const migratedRepository = createRepository(dbPath);
+    const migratedService = createService(migratedRepository);
+    await expect(
+      migratedService.getApplicationConnection(created.response.application.id),
+    ).resolves.toMatchObject({ issuer: CONNECTION_ISSUER });
+    await expect(
+      migratedService.createCustomApplication(createRequest("legacy-app"), {
+        idempotencyKey: "legacy-idempotency-key",
+      }),
+    ).resolves.toMatchObject({ replayed: true });
+    await expect(
+      migratedService.listAuditEvents(created.response.application.id),
+    ).resolves.toHaveLength(2);
+    await migratedRepository.close();
+
+    const migratedDatabase = new Database(dbPath, { readonly: true });
+    const migratedRow = migratedDatabase
+      .prepare("SELECT data FROM application_aggregates WHERE id = ?")
+      .get(created.response.application.id) as { data: string };
+    expect(JSON.parse(migratedRow.data)).toMatchObject({
+      connectionIssuer: CONNECTION_ISSUER,
+      clients: legacyClients,
+      secrets: legacySecrets,
+    });
+    expect(
+      migratedDatabase
+        .prepare("SELECT schema_version FROM application_repository_metadata WHERE singleton = 1")
+        .pluck()
+        .get(),
+    ).toBe(1);
+    migratedDatabase.close();
+
+    const reopenedRepository = createRepository(dbPath);
+    await expect(
+      createService(reopenedRepository).getApplicationConnection(created.response.application.id),
+    ).resolves.toMatchObject({ issuer: CONNECTION_ISSUER });
+  });
+
+  it("拒绝未知的应用仓储 schema 版本", async () => {
+    const dbPath = createDatabasePath();
+    const repository = createRepository(dbPath);
+    await repository.close();
+    const database = new Database(dbPath);
+    database
+      .prepare(
+        "UPDATE application_repository_metadata SET schema_version = 999 WHERE singleton = 1",
+      )
+      .run();
+    database.close();
+
+    expect(
+      () =>
+        new SqliteApplicationRepository({
+          dbPath,
+          connectionIssuer: CONNECTION_ISSUER,
+        }),
+    ).toThrow(ApplicationStorageCorruptionError);
   });
 
   it("callback 抛错时回滚 aggregate 与 client index", async () => {
@@ -164,6 +251,40 @@ describe("SqliteApplicationRepository", () => {
         transaction.findByClientId(second.response.client.clientId),
       ),
     ).resolves.toMatchObject({ application: { id: second.response.application.id, version: 1 } });
+  });
+
+  it("V1 持久化边界拒绝一个 Application 携带多个 Client", async () => {
+    const repository = createRepository(createDatabasePath());
+    const service = createService(repository);
+    const created = await service.createCustomApplication(createRequest("single-client"), {
+      idempotencyKey: "single-client-idempotency",
+    });
+
+    await expect(
+      repository.transaction(async (transaction) => {
+        const aggregate = await transaction.findById(created.response.application.id);
+        if (aggregate === undefined) throw new Error("missing aggregate");
+        await transaction.update(
+          {
+            ...aggregate,
+            application: { ...aggregate.application, version: 2 },
+            clients: [
+              ...aggregate.clients,
+              {
+                ...aggregate.clients[0]!,
+                id: "second-client-id",
+                clientId: "second-client-id",
+              },
+            ],
+          },
+          1,
+        );
+      }),
+    ).rejects.toBeInstanceOf(ApplicationValidationError);
+    await expect(service.getApplication(created.response.application.id)).resolves.toMatchObject({
+      application: { version: 1 },
+      clients: [{ id: created.response.client.id }],
+    });
   });
 
   it("读取损坏 JSON 时显式失败而不是静默接受", async () => {

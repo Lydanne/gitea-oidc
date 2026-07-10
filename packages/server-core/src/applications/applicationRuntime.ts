@@ -1,3 +1,4 @@
+import { applicationTemplateCatalog } from "@gitea-oidc/application-templates";
 import {
   ApplicationSecretEncryptor,
   ApplicationService,
@@ -29,9 +30,20 @@ export interface ApplicationManagementFacade {
     request: unknown,
     context: { idempotencyKey: string; actor: { type: "user"; id: string } },
   ): Promise<{ replayed: boolean; response: unknown }>;
+  createTemplateApplication(
+    request: unknown,
+    context: { idempotencyKey: string; actor: { type: "user"; id: string } },
+  ): Promise<{ replayed: boolean; response: unknown }>;
+  listApplicationTemplates(): readonly unknown[];
+  previewApplicationTemplate(request: unknown): unknown;
   listApplicationDetails(): Promise<unknown[]>;
   getApplication(id: string): Promise<unknown>;
   getApplicationConnection(id: string): Promise<unknown>;
+  getApplicationIntegrationGuide(id: string): Promise<unknown>;
+  rotateApplicationSecret(
+    id: string,
+    context: { expectedVersion: number; actor: { type: "user"; id: string } },
+  ): Promise<unknown>;
   enableApplication(
     id: string,
     context: { expectedVersion: number; actor: { type: "user"; id: string } },
@@ -68,6 +80,7 @@ export async function createApplicationRuntime(
       ? new MemoryApplicationRepository()
       : new SqliteApplicationRepository({
           dbPath: applicationsConfig.repository.sqlite?.dbPath ?? "./applications.db",
+          connectionIssuer: config.oidc.issuer,
         });
   const secretEncryptor = ApplicationSecretEncryptor.fromBase64({
     keyId: applicationsConfig.secretEncryption.keyId,
@@ -83,6 +96,8 @@ export async function createApplicationRuntime(
     allowProviderApi: false,
     // Resource Indicators 尚未装配前，创建 API 必须拒绝宣称 Resource Server 能力。
     allowedResources: [],
+    templateCatalog: applicationTemplateCatalog,
+    templateClaimScopes: config.oidc.claims,
   });
   const projector = new OidcClientProjector(repository, secretEncryptor);
 
@@ -128,9 +143,15 @@ export async function createApplicationRuntime(
     applicationService: {
       createCustomApplication: (request, context) =>
         service.createCustomApplication(request as never, context),
+      createTemplateApplication: (request, context) =>
+        service.createTemplateApplication(request as never, context),
+      listApplicationTemplates: () => service.listApplicationTemplates(),
+      previewApplicationTemplate: (request) => service.previewApplicationTemplate(request as never),
       listApplicationDetails: () => service.listApplicationDetails(),
       getApplication: (id) => service.getApplication(id),
       getApplicationConnection: (id) => service.getApplicationConnection(id),
+      getApplicationIntegrationGuide: (id) => service.getApplicationIntegrationGuide(id),
+      rotateApplicationSecret: (id, context) => service.rotateApplicationSecret(id, context),
       enableApplication: (id, context) => service.enableApplication(id, context),
       disableApplication: (id, context) => service.disableApplication(id, context),
       completeDisableApplication: (id, context) => service.completeDisableApplication(id, context),

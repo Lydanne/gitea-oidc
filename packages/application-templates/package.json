@@ -1,0 +1,42 @@
+{
+  "name": "@gitea-oidc/application-templates",
+  "version": "0.0.0",
+  "description": "Versioned built-in application templates for Gitea OIDC",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "prebuild": "pnpm --filter @gitea-oidc/contracts build",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "pretypecheck": "pnpm --filter @gitea-oidc/contracts build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "pnpm --filter @gitea-oidc/contracts build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@gitea-oidc/contracts": "workspace:*",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import Button from "primevue/button";
 import Message from "primevue/message";
-import type { CreateCustomApplicationOutcomeResponseV1 } from "../types/admin";
+import type { CreateApplicationOutcomeResponse } from "../types/admin";
 
-defineProps<{ result: CreateCustomApplicationOutcomeResponseV1 }>();
+withDefaults(
+  defineProps<{
+    result: CreateApplicationOutcomeResponse;
+    rotated?: boolean;
+  }>(),
+  { rotated: false },
+);
 
 defineEmits<{
   copy: [value: string, label: string];
@@ -18,7 +24,7 @@ defineEmits<{
       :closable="false"
     >
       该幂等请求已经成功创建应用，Client Secret 只在首次响应中交付，当前不会再次返回。
-      如果首次响应丢失，请禁用此应用并创建新应用；后续版本将提供安全的密钥轮换。
+      如果首次响应丢失，请回到应用列表轮换密钥；列表中的当前版本可用于安全重试。
     </Message>
     <Message
       v-else-if="result.credentialDelivery.credential.kind === 'none'"
@@ -28,7 +34,12 @@ defineEmits<{
       公共客户端不会生成 Client Secret，请使用下方连接参数和 PKCE S256 接入。
     </Message>
     <Message v-else severity="warn" :closable="false">
-      一次性凭据只会显示这一次。请立即复制并保存到安全的密钥管理系统，关闭后无法再次查看。
+      <template v-if="rotated">
+        旧 Client Secret 已立即失效。新凭据只显示这一次，请立即保存到安全的密钥管理系统。
+      </template>
+      <template v-else>
+        一次性凭据只会显示这一次。请立即复制并保存到安全的密钥管理系统，关闭后无法再次查看。
+      </template>
     </Message>
 
     <dl class="connection-details">

@@ -98,6 +98,9 @@ export const issuerUrlSchema = absoluteHttpUrlSchema.superRefine((value, context
 
 export const redirectUriSchema = absoluteHttpUrlSchema.superRefine((value, context) => {
   const url = parseUrl(value);
+  if (url?.search) {
+    context.addIssue({ code: "custom", message: "redirect URI 不能包含 query" });
+  }
   if (url?.protocol === "http:" && !isLoopbackHostname(url.hostname)) {
     context.addIssue({ code: "custom", message: "HTTP redirect URI 仅允许 loopback 地址" });
   }

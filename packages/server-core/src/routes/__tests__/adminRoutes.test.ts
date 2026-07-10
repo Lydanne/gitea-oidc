@@ -1639,7 +1639,15 @@ describe("registerAdminRoutes", () => {
           application: { id: "app-1" },
           credentialDelivery: {
             kind: "direct",
-            credential: { kind: "client_secret", clientSecret: "one-time-secret" },
+            credential: {
+              schemaVersion: 1,
+              applicationId: "app-1",
+              oidcClientId: "oidc-client-1",
+              issuer: "https://id.example.com",
+              clientId: "client-1",
+              kind: "client_secret",
+              clientSecret: "one-time-secret",
+            },
           },
         },
       }),
@@ -1691,6 +1699,190 @@ describe("registerAdminRoutes", () => {
     expect(reply.header).toHaveBeenCalledWith("Cache-Control", "no-store");
     expect(reply.header).toHaveBeenCalledWith("Pragma", "no-cache");
     expect(reply.code).toHaveBeenCalledWith(201);
+  });
+
+  it("lists templates, creates a template application and returns its repeatable guide", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const templates = [
+      {
+        reference: { id: "gitea", version: 1 },
+        name: "Gitea",
+        description: "Gitea OIDC",
+        supportedVersions: ["1.26"],
+        form: { fields: [] },
+      },
+    ];
+    const guide = { schemaVersion: 1, title: "Gitea 1.26 OIDC 接入说明", nodes: [] };
+    const applicationService = {
+      listApplicationTemplates: vi.fn().mockReturnValue(templates),
+      previewApplicationTemplate: vi.fn().mockReturnValue({
+        schemaVersion: 1,
+        template: { id: "gitea", version: 1 },
+      }),
+      createTemplateApplication: vi.fn().mockResolvedValue({
+        replayed: false,
+        response: { application: { id: "app-1", source: { kind: "template" } } },
+      }),
+      getApplicationIntegrationGuide: vi.fn().mockResolvedValue(guide),
+    };
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: applicationService as any,
+      oidcClientLifecycle: createOidcClientLifecycle(),
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const listHandler = app.get.mock.calls.find(
+      (call) => call[0] === "/admin/api/application-templates",
+    )?.[1];
+    const createHandler = app.post.mock.calls.find(
+      (call) => call[0] === "/admin/api/applications/from-template",
+    )?.[1];
+    const previewHandler = app.post.mock.calls.find(
+      (call) => call[0] === "/admin/api/application-templates/preview",
+    )?.[1];
+    const guideHandler = app.get.mock.calls.find(
+      (call) => call[0] === "/admin/api/applications/:id/integration-guide",
+    )?.[1];
+    const readReply = { code: vi.fn().mockReturnThis(), header: vi.fn(), send: vi.fn() };
+
+    await expect(
+      listHandler({ headers: adminCookieHeader(session.id) }, readReply),
+    ).resolves.toEqual(templates);
+    const body = {
+      schemaVersion: 1,
+      template: { id: "gitea", version: 1 },
+      application: { name: "Gitea" },
+      templateInput: { targetVersion: "1.26" },
+    };
+    const createReply = {
+      code: vi.fn().mockReturnThis(),
+      header: vi.fn().mockReturnThis(),
+      send: vi.fn().mockReturnThis(),
+    };
+    const previewBody = {
+      schemaVersion: 1,
+      template: { id: "gitea", version: 1 },
+      templateInput: { targetVersion: "1.26" },
+    };
+    await expect(
+      previewHandler({ headers: adminMutationHeaders(session.id), body: previewBody }, createReply),
+    ).resolves.toMatchObject({ template: { id: "gitea", version: 1 } });
+    await createHandler(
+      {
+        headers: {
+          ...adminMutationHeaders(session.id),
+          "idempotency-key": "create-template-app-1",
+        },
+        body,
+      },
+      createReply,
+    );
+    await expect(
+      guideHandler({ headers: adminCookieHeader(session.id), params: { id: "app-1" } }, readReply),
+    ).resolves.toBe(guide);
+
+    expect(applicationService.createTemplateApplication).toHaveBeenCalledWith(body, {
+      idempotencyKey: "create-template-app-1",
+      actor: { type: "user", id: "admin-1" },
+    });
+    expect(applicationService.previewApplicationTemplate).toHaveBeenCalledWith(previewBody);
+    expect(applicationService.getApplicationIntegrationGuide).toHaveBeenCalledWith("app-1");
+    expect(createReply.code).toHaveBeenCalledWith(201);
+    expect(readReply.header).toHaveBeenCalledWith("Cache-Control", "no-store");
+  });
+
+  it("strictly validates and rotates an application Client Secret with no-store headers", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const rotated = {
+      schemaVersion: 1,
+      application: { id: "app-1", version: 4 },
+      credentialDelivery: {
+        kind: "direct",
+        credential: { kind: "client_secret", clientSecret: "one-time-rotated-secret" },
+      },
+    };
+    const applicationService = {
+      rotateApplicationSecret: vi.fn().mockResolvedValue(rotated),
+    };
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: applicationService as any,
+      oidcClientLifecycle: createOidcClientLifecycle(),
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const handler = app.post.mock.calls.find(
+      (call) => call[0] === "/admin/api/applications/:id/rotate-secret",
+    )?.[1];
+    const reply = {
+      code: vi.fn().mockReturnThis(),
+      header: vi.fn().mockReturnThis(),
+      send: vi.fn().mockReturnThis(),
+    };
+
+    await expect(
+      handler(
+        {
+          headers: adminMutationHeaders(session.id),
+          params: { id: "app-1" },
+          body: { schemaVersion: 1, expectedVersion: 3 },
+        },
+        reply,
+      ),
+    ).resolves.toBe(rotated);
+    expect(applicationService.rotateApplicationSecret).toHaveBeenCalledWith("app-1", {
+      expectedVersion: 3,
+      actor: { type: "user", id: "admin-1" },
+    });
+    expect(reply.header).toHaveBeenCalledWith("Cache-Control", "no-store");
+    expect(reply.header).toHaveBeenCalledWith("Pragma", "no-cache");
+
+    const invalidReply = {
+      code: vi.fn().mockReturnThis(),
+      header: vi.fn().mockReturnThis(),
+      send: vi.fn().mockReturnThis(),
+    };
+    await handler(
+      {
+        headers: adminMutationHeaders(session.id),
+        params: { id: "app-1" },
+        body: { schemaVersion: 1, expectedVersion: 4, clientSecret: "injected" },
+      },
+      invalidReply,
+    );
+    expect(invalidReply.code).toHaveBeenCalledWith(400);
+    expect(applicationService.rotateApplicationSecret).toHaveBeenCalledTimes(1);
   });
 
   it("disables an application with optimistic version and revokes every client", async () => {

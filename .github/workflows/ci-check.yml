@@ -19,11 +19,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.13
           cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit:all
 
       - name: Run markdown linting
         run: pnpm run lint:md
@@ -38,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [22]
+        node-version: [22.13]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -81,7 +84,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.13
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -98,3 +101,36 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t gitea-oidc:test .
+
+  integration-pack-node20:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup workspace Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK and connector packages
+        run: pnpm build:node-sqlite && pnpm build:connectors && pnpm build:cli
+
+      - name: Setup minimum SDK Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: 'pnpm'
+
+      - name: Rebuild native modules
+        run: pnpm --dir packages/oidc-client-sqlite rebuild better-sqlite3
+
+      - name: Verify SDK and connector tarballs
+        run: node scripts/check-integration-packs.mjs

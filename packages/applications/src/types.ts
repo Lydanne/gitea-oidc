@@ -1,23 +1,41 @@
+import type { ParsedApplicationTemplateSnapshot } from "@gitea-oidc/application-templates";
 import type {
   ApplicationConnectionV1,
   ApplicationCredentialV1,
+  ApplicationDetailsV1,
+  ApplicationSecretSummaryV1,
+  ApplicationTemplatePreviewV1,
   ApplicationV1,
   CreateCustomApplicationReceiptV1,
   CreateCustomApplicationRequestV1,
   CreateCustomApplicationResponseV1,
+  CreateTemplateApplicationReceiptV1,
+  CreateTemplateApplicationRequestV1,
+  CreateTemplateApplicationResponseV1,
   IntegrationGuideV1,
   OidcClientV1,
+  PreviewApplicationTemplateRequestV1,
+  RotateApplicationCredentialResponseV1,
 } from "@gitea-oidc/contracts";
+import { parseApplicationDetailsV1 } from "@gitea-oidc/contracts";
 
 export type {
   ApplicationConnectionV1,
   ApplicationCredentialV1,
+  ApplicationDetailsV1,
+  ApplicationSecretSummaryV1,
+  ApplicationTemplatePreviewV1,
   ApplicationV1,
   CreateCustomApplicationReceiptV1,
   CreateCustomApplicationRequestV1,
   CreateCustomApplicationResponseV1,
   IntegrationGuideV1,
   OidcClientV1,
+  PreviewApplicationTemplateRequestV1,
+  RotateApplicationCredentialResponseV1,
+  CreateTemplateApplicationReceiptV1,
+  CreateTemplateApplicationRequestV1,
+  CreateTemplateApplicationResponseV1,
 };
 
 export interface EncryptedApplicationSecret {
@@ -34,27 +52,12 @@ export interface EncryptedApplicationSecret {
   expiresAt?: string;
 }
 
-export interface ApplicationSecretSummary {
-  id: string;
-  oidcClientId: string;
-  keyId: string;
-  fingerprint: string;
-  status: EncryptedApplicationSecret["status"];
-  deliveredAt: string;
-  createdAt: string;
-  expiresAt?: string;
-}
-
 export interface StoredApplicationAggregate {
   application: ApplicationV1;
+  connectionIssuer: string;
   clients: OidcClientV1[];
   secrets: EncryptedApplicationSecret[];
-}
-
-export interface ApplicationDetailsV1 {
-  application: ApplicationV1;
-  clients: OidcClientV1[];
-  secrets: ApplicationSecretSummary[];
+  templateSnapshot?: ParsedApplicationTemplateSnapshot;
 }
 
 export type ApplicationAuditEventType =
@@ -63,7 +66,8 @@ export type ApplicationAuditEventType =
   | "application.disable_started"
   | "application.enabled"
   | "application.disabled"
-  | "client_secret.created";
+  | "client_secret.created"
+  | "client_secret.rotated";
 
 export interface ApplicationAuditActor {
   type: "system" | "user";
@@ -73,7 +77,7 @@ export interface ApplicationAuditActor {
 export interface ApplicationAuditSnapshot {
   application?: ApplicationV1;
   clients?: OidcClientV1[];
-  secret?: ApplicationSecretSummary;
+  secret?: ApplicationSecretSummaryV1;
 }
 
 export interface ApplicationAuditEvent {
@@ -101,6 +105,8 @@ export interface CreateCustomApplicationContext extends ApplicationMutationConte
   idempotencyKey: string;
 }
 
+export type CreateTemplateApplicationContext = CreateCustomApplicationContext;
+
 export interface UpdateApplicationContext extends ApplicationMutationContext {
   expectedVersion: number;
 }
@@ -115,6 +121,16 @@ export type CreateCustomApplicationOutcome =
   | {
       replayed: true;
       response: ApplicationCreationReceiptV1;
+    };
+
+export type CreateTemplateApplicationOutcome =
+  | {
+      replayed: false;
+      response: CreateTemplateApplicationResponseV1;
+    }
+  | {
+      replayed: true;
+      response: CreateTemplateApplicationReceiptV1;
     };
 
 export interface OidcClientProjectionDto {
@@ -146,8 +162,8 @@ export interface ApplicationAuthorizationPolicyDto {
   allowedResources: string[];
 }
 
-export function toSecretSummary(secret: EncryptedApplicationSecret): ApplicationSecretSummary {
-  const summary: ApplicationSecretSummary = {
+export function toSecretSummary(secret: EncryptedApplicationSecret): ApplicationSecretSummaryV1 {
+  const summary: ApplicationSecretSummaryV1 = {
     id: secret.id,
     oidcClientId: secret.oidcClientId,
     keyId: secret.keyId,
@@ -165,9 +181,9 @@ export function toSecretSummary(secret: EncryptedApplicationSecret): Application
 }
 
 export function toApplicationDetails(aggregate: StoredApplicationAggregate): ApplicationDetailsV1 {
-  return {
+  return parseApplicationDetailsV1({
     application: structuredClone(aggregate.application),
     clients: structuredClone(aggregate.clients),
     secrets: aggregate.secrets.map(toSecretSummary),
-  };
+  });
 }

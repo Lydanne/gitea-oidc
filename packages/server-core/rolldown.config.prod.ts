@@ -1,7 +1,11 @@
 import { builtinModules } from "node:module";
 import { defineConfig } from "rolldown";
 
-const bundledWorkspacePackages = new Set(["@gitea-oidc/applications", "@gitea-oidc/contracts"]);
+const bundledWorkspacePackages = new Set([
+  "@gitea-oidc/application-templates",
+  "@gitea-oidc/applications",
+  "@gitea-oidc/contracts",
+]);
 
 /**
  * 生产环境 Rolldown 配置

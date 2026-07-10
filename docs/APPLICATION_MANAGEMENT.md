@@ -1,8 +1,9 @@
 # 应用管理接入指南
 
-应用管理把 OIDC Client 从纯静态 `clients[]` 配置迁移为后台控制面。管理员可以在管理后台创建
-自定义应用、一次获取接入凭据，并启用或停用应用。当前能力属于 P2：只支持自定义应用和单实例
-SQLite 部署；Gitea 模板、Node SDK、框架连接器和 CLI 尚未开放。
+应用管理把 OIDC Client 从纯静态 `clients[]` 配置迁移为后台控制面。管理员可以通过版本化模板或
+自定义 OIDC 配置创建应用、预览派生配置、一次获取接入凭据、轮换 Client Secret，并启用或停用
+应用。控制面当前仍只支持单实例 SQLite 部署；Node SDK、框架连接器和 CLI 已在 monorepo 中形成
+私有预览包，尚未发布到 npm。
 
 ## 启用前提
 
@@ -101,22 +102,42 @@ export default {
 
 1. 使用 `admin.allowedGroups` 允许的管理员登录 `${server.url}${admin.basePath}`。
 2. 打开“应用”页面，默认路径为 `/admin/applications`。
-3. 创建自定义应用，选择环境、Client 类型、Redirect URI、scopes 和是否启用 Refresh Token。
-4. 下载 `*.gitea-oidc.connection.json`；它是可重复获取的公开接入描述，不包含任何 Secret。
-5. confidential Client 还要立即下载 `*.gitea-oidc.credential.json`，并把文件内容转存到业务应用的
+3. 选择“使用模板”或“自定义 OIDC”。模板表单和预览均由服务端的精确模板版本驱动；自定义模式
+   需要选择环境、Client 类型、Redirect URI、scopes 和是否启用 Refresh Token。
+4. 提交前检查模板预览中的 Issuer、Redirect URI、scopes、PKCE 和结构化接入步骤。
+5. 下载 `*.gitea-oidc.connection.json`；它是可重复获取的公开接入描述，不包含任何 Secret。
+6. confidential Client 还要立即下载 `*.gitea-oidc.credential.json`，并把文件内容转存到业务应用的
    Secret Manager。
-6. 使用公开 connection 和一次性 credential 配置业务应用的 OIDC 客户端。
+7. 使用公开 connection 和一次性 credential 配置业务应用的 OIDC 客户端。
 
 生产和预发布 Redirect URI 必须使用 HTTPS。开发环境只允许 loopback 地址使用 HTTP，URI 不能
-包含通配符、fragment 或用户凭据。所有应用必须包含 `openid` scope；公共 Client 不生成
+包含 query、通配符、fragment 或用户凭据。所有应用必须包含 `openid` scope；公共 Client 不生成
 Client Secret，并强制使用 PKCE S256。
 
 第三方自定义应用默认使用显式 consent。只有受信任的 first-party 应用才能配置
 `skip_for_trusted`，当前后台表单不会把普通自定义应用提升为 first-party。
 
-禁用自定义应用时，服务会先封锁关联 Client 的新授权记录写入，再持久化 `disabling` 状态并撤销
-已有 Grant、Code 和 Token；撤销完成后才进入 `disabled`。如果进程在中途退出，下次启动会继续
-恢复未完成的撤销。system application 不参与该管理流程。
+禁用非 system 应用（自定义或模板）时，服务会先封锁关联 Client 的新授权记录写入，再持久化
+`disabling` 状态并撤销已有 Grant、Code 和 Token；撤销完成后才进入 `disabled`。如果进程在中途
+退出，下次启动会继续恢复未完成的撤销。system application 不参与该管理流程。
+
+## 使用 Gitea 模板
+
+内置目录当前提供精确引用 `gitea@1`，声明目标版本 `1.24`、`1.25` 和 `1.26`。管理员填写 Gitea
+Base URL、认证源名称、目标版本、部署环境和可选的 group claim 后，服务端会派生并校验：
+
+- Gitea 固定回调地址；
+- 与当前部署 claim 配置一致的 OIDC scopes；
+- Gitea 的 PKCE 兼容策略；
+- 管理后台字段、discovery URL 和 `gitea admin auth add-oauth` 命令说明。
+
+创建时会把模板解析结果保存为不可变版本快照。即使模板目录以后升级或移除，应用的公开 connection
+和接入说明仍从创建时快照重复生成，不会静默漂移。模板只生成结构化纯文本说明，不保存或拼接真实
+Client Secret。
+
+`supportedVersions` 是代码中的兼容目标，不等同于真实实例认证。当前自动测试覆盖输入约束、回调
+派生、scope/claim 映射、快照稳定性和命令参数合同；在生产采用某个 Gitea 版本前，仍应使用该版本
+实例完成一次真实登录、退出和组映射验收。
 
 ## 一次性凭据语义
 
@@ -124,12 +145,43 @@ confidential Client 的明文 Client Secret 只出现在首次创建响应中。
 `Idempotency-Key` 的安全重放只返回 `already_delivered`，不会再次展示密钥。创建响应必须按
 敏感数据处理，不能写入日志、审计、指标或错误上报。
 
-如果首次响应丢失，当前版本不能重新下载或轮换 Secret。应禁用该应用并重新创建；不要尝试从
-`applications.db` 或管理 API 读取密文。public Client 不使用 Client Secret。
+如果首次创建响应丢失，Secret 不能重新下载。管理员应在应用列表点击“轮换密钥”：服务会在一个
+事务中撤销旧的 active Secret、创建新 Secret、递增 Application version 并写入脱敏审计，新明文
+仍只在本次响应中返回。旧 Secret 在事务提交后立即失效。
+
+轮换使用乐观版本号，并与同一应用的启用、禁用操作串行执行。如果轮换请求的网络响应丢失，先刷新
+应用列表获取当前 version，再执行一次轮换即可恢复；不要从 `applications.db`、审计或管理 API
+读取密文。system application 只能通过部署配置轮换，public Client 不使用 Client Secret。
 
 公开 connection 不属于一次性凭据。管理员可以随时在应用列表点击“配置”重新下载，服务端通过
 `GET ${admin.basePath}/api/applications/:id/connection` 从当前 Application/Client 状态重新生成；
 该响应不会包含明文、密文、fingerprint 或其他凭据字段。
+
+## 使用 SDK、连接器和 CLI
+
+monorepo 当前提供以下私有预览包：
+
+- `@gitea-oidc/node`：框架无关的 Authorization Code + PKCE 核心，包含 discovery、state、nonce、
+  transaction、Session、Refresh Token 并发控制和退出；
+- `@gitea-oidc/node-sqlite`：加密 SQLite transaction/session store 和跨进程 refresh lock；
+- `@gitea-oidc/express`：Express 4/5 固定路由、中间件和认证投影；
+- `@gitea-oidc/fastify`：Fastify 5 plugin、hook 和认证投影；
+- `@gitea-oidc/nestjs`：NestJS 10/11 动态模块、Guard 和参数装饰器，支持 Express/Fastify adapter；
+- `@gitea-oidc/cli`：connection 严格校验、脱敏打印、discovery 诊断和项目初始化。
+
+业务应用只需要公开 connection 和与其四个绑定字段完全一致的一次性 credential，不需要管理 API
+权限。CLI 默认 dry-run，不读取 Secret、不写文件；`init --write` 只有在交互确认、目标 env 文件已
+被 Git 忽略且凭据输入满足安全约束时才写入 `0600` 文件。当前未实现 setup code，不能通过 CLI
+远程领取 Secret。
+
+生产代码使用 `@gitea-oidc/node` 时必须注入持久化 transaction/session store 和跨实例 refresh
+lock；单机部署可以直接使用 `@gitea-oidc/node-sqlite`。内存实现仅供单进程开发测试。框架连接器
+固定暴露 `GET /oidc/login`、
+`GET /oidc/callback` 和同源 `POST /oidc/logout`，不会把 Access Token、Refresh Token、ID Token
+或内部 Session ID 投影到业务请求。
+
+在这些包正式发布前，只能在本仓库 workspace 内验证。各包的完整示例和生命周期约束见对应
+`packages/*/README.md`。
 
 ## SQLite 单实例与持久化
 
@@ -160,6 +212,10 @@ docker run -d --name gitea-oidc -p 3000:3000 \
 
 应用主密钥应留在外部 Secret Manager，不要写入 volume。备份和恢复时必须使用同一把主密钥。
 
+从未版本化的旧应用库首次升级时，服务会使用当前规范化的 `oidc.issuer`，在单个 SQLite 事务内
+校验聚合、补齐 connection issuer 并写入仓储 schema 版本。升级前应先做一致性备份；未知版本、
+索引不一致或无法通过当前严格 schema 的记录会阻止启动，不会被静默丢弃。
+
 ## 备份与恢复
 
 最简单的一致性备份方式是先停止唯一实例，再归档整个数据 volume：
@@ -183,16 +239,18 @@ curl https://id.example.com/oidc/.well-known/openid-configuration
 
 随后在管理后台确认应用列表可读，并使用测试 Client 完成一次授权码流程。
 
-## 当前 P2 边界
+## 当前边界
 
-当前已经提供自定义应用、ApplicationRepository、Secret 加密、审计、Client Adapter、
-`clientSource` 整源切换、一次性直接凭据和管理页面。以下能力尚未完成：
+当前已经提供自定义应用、Gitea 版本化模板、ApplicationRepository、Secret 加密与轮换、审计、
+Client Adapter、`clientSource` 整源切换、一次性直接凭据、管理页面、Node SDK、加密 SQLite
+客户端存储、三个框架连接器和本地接入 CLI。仍未完成的能力包括：
 
-- Gitea 等版本化应用模板及专属配置向导。
-- `@gitea-oidc/node`、Express、Fastify、NestJS 连接器。
-- setup code、CLI `init` 和 `doctor`。
-- Client Secret 轮换、撤销和外部 KMS 轮换协议。
-- 多实例共享 ApplicationRepository。
+- setup code 及安全的远程凭据领取协议；
+- 外部 KMS 主密钥轮换和历史密文迁移；
+- 多实例共享 ApplicationRepository；
+- npm 多包版本和发布编排；
+- Gitea `1.24`、`1.25`、`1.26` 的真实实例兼容矩阵认证。
 
-在这些能力发布前，业务应用应使用成熟的标准 OIDC 客户端库消费管理后台给出的 Issuer、
-Client ID、Client Secret、Redirect URI、scopes 和 PKCE 策略。
+正式发布连接器前，外部业务应用仍应使用成熟的标准 OIDC 客户端库消费管理后台给出的 Issuer、
+Client ID、Client Secret、Redirect URI、scopes 和 PKCE 策略；本仓库内部消费者可以使用预览包
+参与集成验证。

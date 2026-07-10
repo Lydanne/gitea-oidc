@@ -1,14 +1,25 @@
+import {
+  ApplicationTemplatePreviewV1Schema,
+  ApplicationTemplateSummaryV1Schema,
+  parseApplicationConnectionV1,
+  parseApplicationDetailsListV1,
+  parseApplicationDetailsV1,
+  parseCreateCustomApplicationOutcomeResponseV1,
+  parseCreateTemplateApplicationOutcomeResponseV1,
+  parseIntegrationGuideV1,
+  parseRotateApplicationCredentialResponseV1,
+} from "@gitea-oidc/contracts";
 import { adminRuntimeConfig, toAdminPath } from "../runtimeConfig";
 import type {
   AdminSession,
   AdminUser,
   AdminUserPayload,
-  ApplicationConnectionV1,
-  ApplicationDetails,
-  CreateCustomApplicationOutcomeResponseV1,
   CreateCustomApplicationRequestV1,
+  CreateTemplateApplicationRequestV1,
+  PreviewApplicationTemplateRequestV1,
   ProviderState,
   ProviderToken,
+  RotateApplicationCredentialRequestV1,
   UserStatus,
 } from "../types/admin";
 
@@ -62,41 +73,108 @@ export const fetchProviderState = () => adminApiRequest<ProviderState>("/provide
 export const fetchProviderTokens = () => adminApiRequest<ProviderToken[]>("/tokens");
 
 /** 获取应用与 OIDC Client 列表。 */
-export const fetchAdminApplications = () => adminApiRequest<ApplicationDetails[]>("/applications");
+export const fetchAdminApplications = async () => {
+  const response = await adminApiRequest<unknown>("/applications");
+  return response === null ? null : parseApplicationDetailsListV1(response);
+};
+
+/** 获取服务端已注册的精确版本应用模板。 */
+export const fetchAdminApplicationTemplates = async () => {
+  const response = await adminApiRequest<unknown>("/application-templates");
+  return response === null ? null : ApplicationTemplateSummaryV1Schema.array().parse(response);
+};
+
+/** 无副作用预览模板派生的回调、Scope、PKCE 和接入说明。 */
+export const previewAdminApplicationTemplate = async (
+  payload: PreviewApplicationTemplateRequestV1,
+) => {
+  const response = await adminApiRequest<unknown>("/application-templates/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return response === null ? null : ApplicationTemplatePreviewV1Schema.parse(response);
+};
 
 /** 获取可重复下载且不含 Secret 的公开连接配置。 */
-export const fetchAdminApplicationConnection = (applicationId: string) =>
-  adminApiRequest<ApplicationConnectionV1>(
+export const fetchAdminApplicationConnection = async (applicationId: string) => {
+  const response = await adminApiRequest<unknown>(
     `/applications/${encodeURIComponent(applicationId)}/connection`,
   );
+  return response === null ? null : parseApplicationConnectionV1(response);
+};
+
+/** 获取可重复读取且不含 Secret 的结构化接入说明。 */
+export const fetchAdminApplicationIntegrationGuide = async (applicationId: string) => {
+  const response = await adminApiRequest<unknown>(
+    `/applications/${encodeURIComponent(applicationId)}/integration-guide`,
+  );
+  return response === null ? null : parseIntegrationGuideV1(response);
+};
 
 /** 创建自定义应用；调用方负责为同一次逻辑提交复用幂等键。 */
-export const createAdminApplication = (
+export const createAdminApplication = async (
   payload: CreateCustomApplicationRequestV1,
   idempotencyKey: string,
-) =>
-  adminApiRequest<CreateCustomApplicationOutcomeResponseV1>("/applications", {
+) => {
+  const response = await adminApiRequest<unknown>("/applications", {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(payload),
   });
+  return response === null ? null : parseCreateCustomApplicationOutcomeResponseV1(response);
+};
+
+/** 从精确模板版本创建应用；调用方负责复用同一次逻辑提交的幂等键。 */
+export const createAdminTemplateApplication = async (
+  payload: CreateTemplateApplicationRequestV1,
+  idempotencyKey: string,
+) => {
+  const response = await adminApiRequest<unknown>("/applications/from-template", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(payload),
+  });
+  return response === null ? null : parseCreateTemplateApplicationOutcomeResponseV1(response);
+};
 
 /** 启用应用。 */
-export const enableAdminApplication = (applicationId: string, expectedVersion: number) =>
-  adminApiRequest<ApplicationDetails>(`/applications/${encodeURIComponent(applicationId)}/enable`, {
-    method: "POST",
-    body: JSON.stringify({ expectedVersion }),
-  });
+export const enableAdminApplication = async (applicationId: string, expectedVersion: number) => {
+  const response = await adminApiRequest<unknown>(
+    `/applications/${encodeURIComponent(applicationId)}/enable`,
+    {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion }),
+    },
+  );
+  return response === null ? null : parseApplicationDetailsV1(response);
+};
 
 /** 禁用应用。 */
-export const disableAdminApplication = (applicationId: string, expectedVersion: number) =>
-  adminApiRequest<ApplicationDetails>(
+export const disableAdminApplication = async (applicationId: string, expectedVersion: number) => {
+  const response = await adminApiRequest<unknown>(
     `/applications/${encodeURIComponent(applicationId)}/disable`,
     {
       method: "POST",
       body: JSON.stringify({ expectedVersion }),
     },
   );
+  return response === null ? null : parseApplicationDetailsV1(response);
+};
+
+/** 原子替换 confidential Client Secret；新凭据只在本次响应中返回。 */
+export const rotateAdminApplicationSecret = async (
+  applicationId: string,
+  payload: RotateApplicationCredentialRequestV1,
+) => {
+  const response = await adminApiRequest<unknown>(
+    `/applications/${encodeURIComponent(applicationId)}/rotate-secret`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+  return response === null ? null : parseRotateApplicationCredentialResponseV1(response);
+};
 
 /** 创建后台用户。 */
 export const createAdminUser = (payload: AdminUserPayload) =>

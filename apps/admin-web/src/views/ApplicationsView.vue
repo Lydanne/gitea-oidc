@@ -5,31 +5,45 @@ import DataTable from "primevue/datatable";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
 import Message from "primevue/message";
+import SelectButton from "primevue/selectbutton";
 import Toolbar from "primevue/toolbar";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import { computed, onMounted, ref } from "vue";
 import {
   createAdminApplication,
+  createAdminTemplateApplication,
   disableAdminApplication,
   enableAdminApplication,
   fetchAdminApplicationConnection,
+  fetchAdminApplicationIntegrationGuide,
   fetchAdminApplications,
+  fetchAdminApplicationTemplates,
+  previewAdminApplicationTemplate,
+  rotateAdminApplicationSecret,
 } from "../api/adminApi";
 import ApplicationCredentialDetails from "../components/ApplicationCredentialDetails.vue";
 import ApplicationFormFields from "../components/ApplicationFormFields.vue";
+import ApplicationTemplateFormFields from "../components/ApplicationTemplateFormFields.vue";
+import IntegrationGuideDetails from "../components/IntegrationGuideDetails.vue";
 import StatusTag from "../components/StatusTag.vue";
 import { useAdminDashboardContext } from "../composables/adminDashboardContext";
 import type {
   ApplicationDetails,
   ApplicationForm,
   ApplicationStatusV1,
-  CreateCustomApplicationOutcomeResponseV1,
+  ApplicationTemplatePreviewV1,
+  ApplicationTemplateSummaryV1,
+  CreateApplicationOutcomeResponse,
   CreateCustomApplicationRequestV1,
+  CreateTemplateApplicationRequestV1,
+  IntegrationGuideV1,
   TagSeverity,
+  TemplateApplicationForm,
 } from "../types/admin";
 
 type ApplicationEnvironment = "development" | "staging" | "production";
+type ApplicationCreateMode = "template" | "custom";
 
 const environmentOptions: Array<{ label: string; value: ApplicationEnvironment }> = [
   { label: "开发环境", value: "development" },
@@ -42,26 +56,66 @@ const createBlankForm = (): ApplicationForm => ({
   slug: "",
   environment: "development",
   clientType: "confidential",
-  redirectUris: "http://localhost:3000/auth/callback",
+  redirectUris: "http://localhost:3000/oidc/callback",
   scopes: "openid profile email",
   refreshToken: false,
 });
+
+const createBlankTemplateForm = (
+  availableTemplates: readonly ApplicationTemplateSummaryV1[] = [],
+): TemplateApplicationForm => {
+  const template = [...availableTemplates].sort((left, right) => {
+    const nameOrder = left.name.localeCompare(right.name);
+    return nameOrder === 0 ? right.reference.version - left.reference.version : nameOrder;
+  })[0];
+  return {
+    name: "",
+    slug: "",
+    templateKey: template ? `${template.reference.id}@${template.reference.version}` : "",
+    templateInput: Object.fromEntries(
+      (template?.form.fields ?? []).map((field) => [field.name, field.defaultValue ?? ""]),
+    ),
+  };
+};
+
+const createModeOptions: Array<{ label: string; value: ApplicationCreateMode }> = [
+  { label: "使用模板", value: "template" },
+  { label: "自定义 OIDC", value: "custom" },
+];
 
 const confirm = useConfirm();
 const toast = useToast();
 const { setError } = useAdminDashboardContext();
 const applications = ref<ApplicationDetails[]>([]);
+const templates = ref<ApplicationTemplateSummaryV1[]>([]);
 const loading = ref(false);
 const keyword = ref("");
 const createDialogVisible = ref(false);
 const credentialDialogVisible = ref(false);
+const guideDialogVisible = ref(false);
+const previewDialogVisible = ref(false);
 const saving = ref(false);
 const busyApplicationId = ref("");
+const rotatingApplicationId = ref("");
 const downloadingApplicationId = ref("");
+const loadingGuideApplicationId = ref("");
 const formError = ref("");
 const applicationForm = ref<ApplicationForm>(createBlankForm());
-const createdResult = ref<CreateCustomApplicationOutcomeResponseV1 | null>(null);
+const templateForm = ref<TemplateApplicationForm>(createBlankTemplateForm());
+const createMode = ref<ApplicationCreateMode>("template");
+const createdResult = ref<CreateApplicationOutcomeResponse | null>(null);
+const credentialOperation = ref<"create" | "rotate">("create");
+const selectedGuide = ref<IntegrationGuideV1 | null>(null);
+const templatePreview = ref<ApplicationTemplatePreviewV1 | null>(null);
+const previewing = ref(false);
 const lastSubmission = ref<{ payload: string; idempotencyKey: string } | null>(null);
+
+const selectedTemplate = computed(() =>
+  templates.value.find(
+    (template) =>
+      `${template.reference.id}@${template.reference.version}` === templateForm.value.templateKey,
+  ),
+);
 
 /** 应用名称、slug 或 client_id 的本地搜索结果。 */
 const visibleApplications = computed(() => {
@@ -134,8 +188,14 @@ const buildCreatePayload = (): CreateCustomApplicationRequestV1 => {
     if (parsed.protocol !== "https:" && !allowsDevelopmentHttp) {
       throw new Error("Redirect URI 必须使用 HTTPS，开发环境仅允许 HTTP loopback 地址");
     }
-    if (parsed.hash || parsed.username || parsed.password || redirectUri.includes("*")) {
-      throw new Error("Redirect URI 不能包含通配符、fragment 或用户凭据");
+    if (
+      parsed.search ||
+      parsed.hash ||
+      parsed.username ||
+      parsed.password ||
+      redirectUri.includes("*")
+    ) {
+      throw new Error("Redirect URI 不能包含 query、通配符、fragment 或用户凭据");
     }
   }
 
@@ -167,6 +227,65 @@ const buildCreatePayload = (): CreateCustomApplicationRequestV1 => {
   };
 };
 
+/** 根据服务端 form descriptor 构建只引用精确模板版本的创建请求。 */
+const buildTemplateCreatePayload = (): CreateTemplateApplicationRequestV1 => {
+  const template = selectedTemplate.value;
+  if (!template) throw new Error("请选择一个可用的应用模板");
+
+  const name = templateForm.value.name.trim();
+  const slug = templateForm.value.slug.trim();
+  if (!name) throw new Error("应用名称不能为空");
+  if (name.length > 120) throw new Error("应用名称不能超过 120 个字符");
+  if (slug && (slug.length > 80 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(slug))) {
+    throw new Error("slug 只能包含小写字母、数字和单个连字符");
+  }
+
+  const templateInput: Record<string, string> = {};
+  for (const field of template.form.fields) {
+    const value = (templateForm.value.templateInput[field.name] ?? "").trim();
+    if (field.required && !value) {
+      throw new Error(`${field.label}不能为空`);
+    }
+    if (value) templateInput[field.name] = value;
+  }
+
+  return {
+    schemaVersion: 1,
+    template: template.reference,
+    application: { name, ...(slug ? { slug } : {}) },
+    templateInput,
+    credentialDelivery: "direct",
+  };
+};
+
+const previewTemplateApplication = async () => {
+  formError.value = "";
+  let payload: CreateTemplateApplicationRequestV1;
+  try {
+    payload = buildTemplateCreatePayload();
+  } catch (error) {
+    formError.value = error instanceof Error ? error.message : String(error);
+    return;
+  }
+
+  previewing.value = true;
+  try {
+    const preview = await previewAdminApplicationTemplate({
+      schemaVersion: 1,
+      template: payload.template,
+      templateInput: payload.templateInput,
+    });
+    if (!preview) return;
+    templatePreview.value = preview;
+    previewDialogVisible.value = true;
+  } catch (error) {
+    formError.value = error instanceof Error ? error.message : String(error);
+    handleError(error, "预览模板失败");
+  } finally {
+    previewing.value = false;
+  }
+};
+
 /** 将未知异常同步到页面错误区和操作提示。 */
 const handleError = (error: unknown, summary = "操作失败") => {
   const message = error instanceof Error ? error.message : String(error);
@@ -187,9 +306,19 @@ const loadApplications = async () => {
   }
 };
 
+const loadTemplates = async () => {
+  try {
+    templates.value = (await fetchAdminApplicationTemplates()) ?? [];
+  } catch (error) {
+    handleError(error, "加载应用模板失败");
+  }
+};
+
 /** 打开全新的创建表单并清除旧的幂等上下文。 */
 const openCreateDialog = () => {
   applicationForm.value = createBlankForm();
+  templateForm.value = createBlankTemplateForm(templates.value);
+  createMode.value = templates.value.length > 0 ? "template" : "custom";
   formError.value = "";
   lastSubmission.value = null;
   createDialogVisible.value = true;
@@ -198,15 +327,15 @@ const openCreateDialog = () => {
 /** 创建应用，同一份载荷失败重试时复用同一个幂等键。 */
 const createApplication = async () => {
   formError.value = "";
-  let payload: CreateCustomApplicationRequestV1;
+  let payload: CreateCustomApplicationRequestV1 | CreateTemplateApplicationRequestV1;
   try {
-    payload = buildCreatePayload();
+    payload = createMode.value === "template" ? buildTemplateCreatePayload() : buildCreatePayload();
   } catch (error) {
     formError.value = error instanceof Error ? error.message : String(error);
     return;
   }
 
-  const serializedPayload = JSON.stringify(payload);
+  const serializedPayload = JSON.stringify({ mode: createMode.value, payload });
   if (lastSubmission.value?.payload !== serializedPayload) {
     lastSubmission.value = {
       payload: serializedPayload,
@@ -216,10 +345,20 @@ const createApplication = async () => {
 
   saving.value = true;
   try {
-    const result = await createAdminApplication(payload, lastSubmission.value.idempotencyKey);
+    const result =
+      createMode.value === "template"
+        ? await createAdminTemplateApplication(
+            payload as CreateTemplateApplicationRequestV1,
+            lastSubmission.value.idempotencyKey,
+          )
+        : await createAdminApplication(
+            payload as CreateCustomApplicationRequestV1,
+            lastSubmission.value.idempotencyKey,
+          );
     if (!result) return;
 
     createdResult.value = result;
+    credentialOperation.value = "create";
     createDialogVisible.value = false;
     credentialDialogVisible.value = true;
     lastSubmission.value = null;
@@ -286,6 +425,53 @@ const confirmDisable = (details: ApplicationDetails) => {
   });
 };
 
+const canRotateApplicationSecret = (details: ApplicationDetails) =>
+  details.application.source.kind !== "system" &&
+  details.clients[0]?.clientType === "confidential" &&
+  ["active", "disabled"].includes(details.application.status);
+
+/** 轮换响应丢失时刷新当前 version，管理员可以直接再次轮换恢复。 */
+const rotateApplicationSecret = async (details: ApplicationDetails) => {
+  rotatingApplicationId.value = details.application.id;
+  try {
+    const result = await rotateAdminApplicationSecret(details.application.id, {
+      schemaVersion: 1,
+      expectedVersion: details.application.version,
+    });
+    if (!result) return;
+
+    createdResult.value = result;
+    credentialOperation.value = "rotate";
+    credentialDialogVisible.value = true;
+    await loadApplications();
+    toast.add({ severity: "success", summary: "Client Secret 已轮换", life: 2600 });
+  } catch (error) {
+    await loadApplications();
+    const message = error instanceof Error ? error.message : String(error);
+    setError(message);
+    toast.add({
+      severity: "error",
+      summary: "轮换结果未确认",
+      detail: `${message}。列表已刷新；如果服务端已提交，请使用最新版本再次轮换。`,
+      life: 5200,
+    });
+  } finally {
+    rotatingApplicationId.value = "";
+  }
+};
+
+const confirmRotateApplicationSecret = (details: ApplicationDetails) => {
+  confirm.require({
+    header: "轮换 Client Secret",
+    message: `确认轮换应用 ${details.application.name} 的 Client Secret？旧密钥会立即失效。`,
+    icon: "pi pi-key",
+    acceptLabel: "轮换密钥",
+    rejectLabel: "取消",
+    acceptClass: "p-button-danger",
+    accept: () => rotateApplicationSecret(details),
+  });
+};
+
 /** 复制连接参数或一次性凭据，不在日志中输出内容。 */
 const copyValue = async (value: string, label: string) => {
   try {
@@ -332,6 +518,20 @@ const downloadApplicationConnection = async (details: ApplicationDetails) => {
   }
 };
 
+const showApplicationGuide = async (details: ApplicationDetails) => {
+  loadingGuideApplicationId.value = details.application.id;
+  try {
+    const guide = await fetchAdminApplicationIntegrationGuide(details.application.id);
+    if (!guide) return;
+    selectedGuide.value = guide;
+    guideDialogVisible.value = true;
+  } catch (error) {
+    handleError(error, "加载接入说明失败");
+  } finally {
+    loadingGuideApplicationId.value = "";
+  }
+};
+
 const downloadCreatedConnection = () => {
   const result = createdResult.value;
   if (!result) return;
@@ -341,7 +541,13 @@ const downloadCreatedConnection = () => {
 /** 一次性 credential 文件只在创建响应仍驻留内存时允许下载。 */
 const downloadCreatedCredential = () => {
   const result = createdResult.value;
-  if (!result || result.credentialDelivery.kind !== "direct") return;
+  if (
+    !result ||
+    result.credentialDelivery.kind !== "direct" ||
+    result.credentialDelivery.credential.kind !== "client_secret"
+  ) {
+    return;
+  }
   downloadJson(
     result.credentialDelivery.credential,
     `${result.application.slug || result.application.id}.gitea-oidc.credential.json`,
@@ -355,6 +561,7 @@ const closeCredentialDialog = () => {
 
 const clearCreatedResult = () => {
   createdResult.value = null;
+  credentialOperation.value = "create";
 };
 
 const getStatusLabel = (status: ApplicationStatusV1) =>
@@ -378,7 +585,16 @@ const getStatusSeverity = (status: ApplicationStatusV1): TagSeverity =>
 const getEnvironmentLabel = (environment: ApplicationEnvironment) =>
   environmentOptions.find((option) => option.value === environment)?.label ?? environment;
 
-onMounted(loadApplications);
+const getSourceLabel = (application: ApplicationDetails["application"]) => {
+  if (application.source.kind === "template") {
+    return `${application.source.templateId}@${application.source.templateVersion}`;
+  }
+  return application.source.kind === "custom" ? "自定义" : "系统配置";
+};
+
+onMounted(() => {
+  void Promise.all([loadApplications(), loadTemplates()]);
+});
 </script>
 
 <template>
@@ -430,6 +646,11 @@ onMounted(loadApplications);
           {{ getEnvironmentLabel(data.application.environment) }}
         </template>
       </Column>
+      <Column header="来源" style="min-width: 8rem">
+        <template #body="{ data }">
+          {{ getSourceLabel(data.application) }}
+        </template>
+      </Column>
       <Column header="Client" style="min-width: 18rem">
         <template #body="{ data }">
           <div v-if="data.clients[0]" class="stacked-cell">
@@ -457,7 +678,7 @@ onMounted(loadApplications);
           />
         </template>
       </Column>
-      <Column header="操作" style="min-width: 17rem">
+      <Column header="操作" style="min-width: 32rem">
         <template #body="{ data }">
           <div class="row-actions">
             <Button
@@ -469,6 +690,27 @@ onMounted(loadApplications);
               :loading="downloadingApplicationId === data.application.id"
               :aria-label="`下载应用 ${data.application.name} 的公开连接配置`"
               @click="downloadApplicationConnection(data)"
+            />
+            <Button
+              icon="pi pi-book"
+              label="接入说明"
+              size="small"
+              severity="secondary"
+              outlined
+              :loading="loadingGuideApplicationId === data.application.id"
+              :aria-label="`查看应用 ${data.application.name} 的接入说明`"
+              @click="showApplicationGuide(data)"
+            />
+            <Button
+              v-if="canRotateApplicationSecret(data)"
+              icon="pi pi-key"
+              label="轮换密钥"
+              size="small"
+              severity="danger"
+              outlined
+              :loading="rotatingApplicationId === data.application.id"
+              :aria-label="`轮换应用 ${data.application.name} 的 Client Secret`"
+              @click="confirmRotateApplicationSecret(data)"
             />
             <span v-if="data.application.source.kind === 'system'" class="public-client-note">
               配置管理
@@ -518,7 +760,7 @@ onMounted(loadApplications);
   <Dialog
     v-model:visible="createDialogVisible"
     modal
-    header="创建自定义应用"
+    header="创建应用"
     :draggable="false"
     :style="{ width: 'min(760px, calc(100vw - 32px))' }"
   >
@@ -526,10 +768,50 @@ onMounted(loadApplications);
       {{ formError }}
     </Message>
 
-    <ApplicationFormFields v-model="applicationForm" @submit="createApplication" />
+    <div class="application-create-mode">
+      <span>创建方式</span>
+      <SelectButton
+        v-model="createMode"
+        :options="createModeOptions"
+        option-label="label"
+        option-value="value"
+        :allow-empty="false"
+      />
+      <small v-if="createMode === 'template'" class="field-help">
+        模板会生成经过约束的 OIDC Client，并在创建后给出 Gitea 管理后台与 CLI 配置说明。
+      </small>
+      <small v-else class="field-help">
+        自定义模式适合未内置支持的系统，请自行确认回调、Scope 与 PKCE 兼容性。
+      </small>
+    </div>
+
+    <ApplicationTemplateFormFields
+      v-if="createMode === 'template' && templates.length > 0"
+      v-model="templateForm"
+      :templates="templates"
+      @submit="createApplication"
+    />
+    <Message
+      v-else-if="createMode === 'template'"
+      severity="warn"
+      :closable="false"
+      class="form-message"
+    >
+      当前服务端没有可用模板，请切换到自定义 OIDC。
+    </Message>
+    <ApplicationFormFields v-else v-model="applicationForm" @submit="createApplication" />
 
     <template #footer>
       <Button label="取消" severity="secondary" outlined @click="createDialogVisible = false" />
+      <Button
+        v-if="createMode === 'template'"
+        icon="pi pi-eye"
+        label="预览配置"
+        severity="secondary"
+        outlined
+        :loading="previewing"
+        @click="previewTemplateApplication"
+      />
       <Button
         icon="pi pi-check"
         label="创建应用"
@@ -540,9 +822,34 @@ onMounted(loadApplications);
   </Dialog>
 
   <Dialog
+    v-model:visible="previewDialogVisible"
+    modal
+    header="模板配置预览"
+    :draggable="false"
+    :style="{ width: 'min(860px, calc(100vw - 32px))' }"
+    @after-hide="templatePreview = null"
+  >
+    <dl v-if="templatePreview" class="connection-details">
+      <dt>Issuer</dt>
+      <dd><code>{{ templatePreview.issuer }}</code></dd>
+      <dt>Redirect URI</dt>
+      <dd><code>{{ templatePreview.client.redirectUris.join("\n") }}</code></dd>
+      <dt>Scopes</dt>
+      <dd><code>{{ templatePreview.client.scopes.join(" ") }}</code></dd>
+      <dt>PKCE</dt>
+      <dd><code>{{ templatePreview.client.pkcePolicy }}</code></dd>
+    </dl>
+    <IntegrationGuideDetails
+      v-if="templatePreview"
+      :guide="templatePreview.integrationGuide"
+      @copy="copyValue"
+    />
+  </Dialog>
+
+  <Dialog
     v-model:visible="credentialDialogVisible"
     modal
-    header="保存应用接入配置"
+    :header="credentialOperation === 'rotate' ? '保存新的 Client Secret' : '保存应用接入配置'"
     :closable="false"
     :close-on-escape="false"
     :dismissable-mask="false"
@@ -550,7 +857,17 @@ onMounted(loadApplications);
     :style="{ width: 'min(780px, calc(100vw - 32px))' }"
     @after-hide="clearCreatedResult"
   >
-    <ApplicationCredentialDetails v-if="createdResult" :result="createdResult" @copy="copyValue" />
+    <ApplicationCredentialDetails
+      v-if="createdResult"
+      :result="createdResult"
+      :rotated="credentialOperation === 'rotate'"
+      @copy="copyValue"
+    />
+    <IntegrationGuideDetails
+      v-if="createdResult"
+      :guide="createdResult.integrationGuide"
+      @copy="copyValue"
+    />
 
     <template #footer>
       <Button
@@ -561,7 +878,10 @@ onMounted(loadApplications);
         @click="downloadCreatedConnection"
       />
       <Button
-        v-if="createdResult?.credentialDelivery.kind === 'direct'"
+        v-if="
+          createdResult?.credentialDelivery.kind === 'direct' &&
+          createdResult.credentialDelivery.credential.kind === 'client_secret'
+        "
         icon="pi pi-key"
         label="下载一次性凭据"
         severity="warn"
@@ -575,5 +895,16 @@ onMounted(loadApplications);
         @click="closeCredentialDialog"
       />
     </template>
+  </Dialog>
+
+  <Dialog
+    v-model:visible="guideDialogVisible"
+    modal
+    header="应用接入说明"
+    :draggable="false"
+    :style="{ width: 'min(860px, calc(100vw - 32px))' }"
+    @after-hide="selectedGuide = null"
+  >
+    <IntegrationGuideDetails v-if="selectedGuide" :guide="selectedGuide" @copy="copyValue" />
   </Dialog>
 </template>

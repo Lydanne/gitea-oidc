@@ -1,0 +1,49 @@
+{
+  "name": "@gitea-oidc/cli",
+  "version": "0.0.0",
+  "description": "Local integration CLI for Gitea OIDC applications",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "gitea-oidc": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "prebuild": "pnpm --filter @gitea-oidc/contracts build",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "postbuild": "node ./scripts/finalize-build.mjs",
+    "pretypecheck": "pnpm --filter @gitea-oidc/contracts build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "pnpm --filter @gitea-oidc/contracts build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@gitea-oidc/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

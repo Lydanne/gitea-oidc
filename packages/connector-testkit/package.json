@@ -1,0 +1,49 @@
+{
+  "name": "@gitea-oidc/connector-testkit",
+  "version": "0.0.0",
+  "description": "Private conformance testkit for Gitea OIDC framework connectors",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "prebuild": "pnpm --filter @gitea-oidc/connector-core build",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "pretypecheck": "pnpm --filter @gitea-oidc/connector-core build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "pnpm --filter @gitea-oidc/connector-core build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@gitea-oidc/connector-core": "workspace:*",
+    "@gitea-oidc/node": "workspace:*"
+  },
+  "peerDependencies": {
+    "vitest": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

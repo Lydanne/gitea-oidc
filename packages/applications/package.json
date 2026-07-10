@@ -12,14 +12,15 @@
     }
   },
   "scripts": {
-    "prebuild": "pnpm --filter @gitea-oidc/contracts build",
+    "prebuild": "pnpm --filter @gitea-oidc/contracts build && pnpm --filter @gitea-oidc/application-templates build",
     "build": "tsc -p tsconfig.json",
-    "pretypecheck": "pnpm --filter @gitea-oidc/contracts build",
+    "pretypecheck": "pnpm --filter @gitea-oidc/contracts build && pnpm --filter @gitea-oidc/application-templates build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "pretest": "pnpm --filter @gitea-oidc/contracts build",
+    "pretest": "pnpm --filter @gitea-oidc/contracts build && pnpm --filter @gitea-oidc/application-templates build",
     "test": "vitest run"
   },
   "dependencies": {
+    "@gitea-oidc/application-templates": "workspace:*",
     "@gitea-oidc/contracts": "workspace:*",
     "better-sqlite3": "^12.4.1",
     "zod": "^4.1.12"
@@ -28,7 +29,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.0.9"
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=22.0.0"

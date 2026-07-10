@@ -1,10 +1,20 @@
 import type {
   ApplicationConnectionV1,
+  ApplicationDetailsV1,
+  ApplicationSecretSummaryV1,
   ApplicationStatusV1,
+  ApplicationTemplatePreviewV1,
+  ApplicationTemplateSummaryV1,
   ApplicationV1,
   CreateCustomApplicationOutcomeResponseV1,
   CreateCustomApplicationRequestV1,
+  CreateTemplateApplicationOutcomeResponseV1,
+  CreateTemplateApplicationRequestV1,
+  IntegrationGuideV1,
   OidcClientV1,
+  PreviewApplicationTemplateRequestV1,
+  RotateApplicationCredentialRequestV1,
+  RotateApplicationCredentialResponseV1,
 } from "@gitea-oidc/contracts";
 
 /** 管理台主导航视图。 */
@@ -106,24 +116,9 @@ export interface AdminSession {
   };
 }
 
-/** 应用密钥的可重复读取摘要，不包含任何明文凭据。 */
-export interface ApplicationSecretSummary {
-  id: string;
-  oidcClientId: string;
-  keyId: string;
-  fingerprint: string;
-  status: "active" | "revoked" | "expired";
-  deliveredAt: string;
-  createdAt: string;
-  expiresAt?: string;
-}
-
-/** 应用管理接口返回的应用详情。 */
-export interface ApplicationDetails {
-  application: ApplicationV1;
-  clients: OidcClientV1[];
-  secrets: ApplicationSecretSummary[];
-}
+/** 应用管理接口返回的严格共享 contract。 */
+export type ApplicationDetails = ApplicationDetailsV1;
+export type ApplicationSecretSummary = ApplicationSecretSummaryV1;
 
 /** 自定义应用创建表单，仅包含当前管理台开放的配置。 */
 export interface ApplicationForm {
@@ -136,13 +131,36 @@ export interface ApplicationForm {
   refreshToken: boolean;
 }
 
+/** 由模板 form descriptor 驱动的通用创建表单。 */
+export interface TemplateApplicationForm {
+  name: string;
+  slug: string;
+  templateKey: string;
+  templateInput: Record<string, string>;
+}
+
+export type CreateApplicationOutcomeResponse =
+  | CreateCustomApplicationOutcomeResponseV1
+  | CreateTemplateApplicationOutcomeResponseV1
+  | RotateApplicationCredentialResponseV1;
+
 export type {
   ApplicationConnectionV1,
+  ApplicationDetailsV1,
+  ApplicationSecretSummaryV1,
+  ApplicationTemplatePreviewV1,
+  ApplicationTemplateSummaryV1,
   ApplicationV1,
   ApplicationStatusV1,
   CreateCustomApplicationOutcomeResponseV1,
   CreateCustomApplicationRequestV1,
+  CreateTemplateApplicationOutcomeResponseV1,
+  CreateTemplateApplicationRequestV1,
+  IntegrationGuideV1,
   OidcClientV1,
+  PreviewApplicationTemplateRequestV1,
+  RotateApplicationCredentialRequestV1,
+  RotateApplicationCredentialResponseV1,
 };
 
 /** 用户状态下拉选项。 */

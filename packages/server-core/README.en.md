@@ -51,7 +51,10 @@ user repositories, and pluggable OIDC persistence adapters.
   - Local password authentication (htpasswd format, bcrypt/MD5/SHA)
   - Feishu (Lark) OAuth 2.0 login
 - **Unified login page** combining multiple providers
-- **Optional custom application management** with one-time OIDC Client credentials
+- **Optional application control plane** with custom applications, a versioned Gitea template,
+  one-time credentials, and Client Secret rotation
+- **Private preview integration packages** for native Node.js, SQLite session storage, Express 4/5,
+  Fastify 5, NestJS 10/11, and a local setup CLI (not published to npm yet)
 - **Flexible user repositories**:
   - In-memory
   - SQLite
@@ -77,9 +80,17 @@ At a high level:
   - Configures `oidc-provider` and mounts it at `/oidc`
   - Integrates the authentication system (unified login, OAuth state, callbacks)
 - `packages/contracts/`
-  - Owns the versioned wire contracts shared by application management and future connectors
+  - Owns versioned connection, credential, template, rotation, and management response contracts
+- `packages/application-templates/`
+  - Owns versioned built-in templates and immutable creation snapshots
 - `packages/applications/`
-  - Owns applications, OIDC Clients, encrypted secrets, auditing, and the SQLite repository
+  - Owns applications, OIDC Clients, encrypted/rotatable secrets, auditing, and SQLite persistence
+- `packages/oidc-client/` and `packages/oidc-client-sqlite/`
+  - Provide the framework-neutral OIDC relying-party core and encrypted production SQLite stores
+- `packages/express/`, `packages/fastify/`, and `packages/nestjs/`
+  - Adapt the shared OIDC and HTTP connector cores to supported frameworks
+- `packages/cli/`
+  - Validates exported connection files, diagnoses discovery, and safely initializes local projects
 - `apps/idp-server/src/main.ts`
   - Owns the production process lifecycle and graceful shutdown
 - `packages/server-core/src/core/AuthCoordinator.ts`

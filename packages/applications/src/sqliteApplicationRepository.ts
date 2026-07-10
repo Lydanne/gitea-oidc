@@ -1,5 +1,6 @@
 import { chmodSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { issuerUrlSchema } from "@gitea-oidc/contracts";
 import Database from "better-sqlite3";
 import {
   ApplicationConflictError,
@@ -12,6 +13,7 @@ import {
 import {
   ApplicationAuditEventSchema,
   ApplicationIdempotencyRecordSchema,
+  migrateStoredApplicationAggregate,
   parseApplicationAuditEvent,
   parseApplicationIdempotencyRecord,
   parseStoredApplicationAggregate,
@@ -53,8 +55,12 @@ interface ClientIndexRow {
 
 export interface SqliteApplicationRepositoryOptions {
   dbPath: string;
+  /** 用于把未版本化旧数据库中的 aggregate 迁移为带 issuer 的当前格式。 */
+  connectionIssuer: string;
   busyTimeoutMs?: number;
 }
+
+const APPLICATION_STORAGE_VERSION = 1;
 
 function isConstraintError(error: unknown): boolean {
   return (
@@ -330,8 +336,14 @@ export class SqliteApplicationRepository implements ApplicationRepository {
 
   public constructor(options: SqliteApplicationRepositoryOptions) {
     const busyTimeoutMs = options.busyTimeoutMs ?? 5_000;
+    const connectionIssuer = issuerUrlSchema.safeParse(options.connectionIssuer);
     if (options.dbPath.trim() === "") {
       throw new ApplicationValidationError("SQLite dbPath 不能为空");
+    }
+    if (!connectionIssuer.success) {
+      throw new ApplicationValidationError("SQLite connectionIssuer 必须是有效的 OIDC issuer", {
+        cause: connectionIssuer.error,
+      });
     }
     if (!Number.isSafeInteger(busyTimeoutMs) || busyTimeoutMs < 0 || busyTimeoutMs > 60_000) {
       throw new ApplicationValidationError("SQLite busyTimeoutMs 必须是 0 到 60000 的整数");
@@ -370,7 +382,12 @@ export class SqliteApplicationRepository implements ApplicationRepository {
         );
         CREATE INDEX IF NOT EXISTS idx_application_audit_application
           ON application_audit(application_id, occurred_at);
+        CREATE TABLE IF NOT EXISTS application_repository_metadata (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          schema_version INTEGER NOT NULL
+        );
       `);
+      this.initializeStorage(connectionIssuer.data);
       this.restrictDatabasePermissions();
     } catch (error) {
       this.db.close();
@@ -462,6 +479,54 @@ export class SqliteApplicationRepository implements ApplicationRepository {
       () => undefined,
     );
     return this.closePromise;
+  }
+
+  private initializeStorage(connectionIssuer: string): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const schemaVersion = this.db
+        .prepare(
+          `SELECT schema_version
+           FROM application_repository_metadata
+           WHERE singleton = 1`,
+        )
+        .pluck()
+        .get() as number | undefined;
+      if (schemaVersion !== undefined && schemaVersion !== APPLICATION_STORAGE_VERSION) {
+        throw new ApplicationStorageCorruptionError("Application repository metadata");
+      }
+      if (schemaVersion === undefined) {
+        const rows = this.db
+          .prepare("SELECT id, slug, version, data FROM application_aggregates ORDER BY id ASC")
+          .all() as AggregateRow[];
+        const update = this.db.prepare("UPDATE application_aggregates SET data = ? WHERE id = ?");
+        for (const row of rows) {
+          const migration = migrateStoredApplicationAggregate(row.data, connectionIssuer);
+          if (
+            migration.aggregate.application.id !== row.id ||
+            migration.aggregate.application.slug !== row.slug ||
+            migration.aggregate.application.version !== row.version
+          ) {
+            throw new ApplicationStorageCorruptionError("Application aggregate index");
+          }
+          if (migration.migrated) {
+            update.run(JSON.stringify(migration.aggregate), row.id);
+          }
+        }
+        this.db
+          .prepare(
+            `INSERT INTO application_repository_metadata (singleton, schema_version)
+             VALUES (1, ?)`,
+          )
+          .run(APPLICATION_STORAGE_VERSION);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      if (this.db.inTransaction) {
+        this.db.exec("ROLLBACK");
+      }
+      throw error;
+    }
   }
 
   private restrictDatabasePermissions(): void {

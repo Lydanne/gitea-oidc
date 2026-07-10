@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   APPLICATION_CONNECTION_SCHEMA_VERSION,
+  APPLICATION_CREDENTIAL_SCHEMA_VERSION,
   type ApplicationConnectionV1,
+  ApplicationTemplateSummaryV1Schema,
   type ApplicationV1,
   CUSTOM_APPLICATION_SCHEMA_VERSION,
   INTEGRATION_GUIDE_SCHEMA_VERSION,
@@ -9,14 +11,23 @@ import {
   type OidcClientV1,
   parseApplicationConnectionV1,
   parseApplicationCredentialV1,
+  parseApplicationDetailsListV1,
   parseCreateCustomApplicationRequestV1,
+  parseCreateTemplateApplicationRequestV1,
+  parsePreviewApplicationTemplateRequestV1,
+  parseRotateApplicationCredentialRequestV1,
   safeParseApplicationConnectionV1,
+  safeParseApplicationDetailsV1,
   safeParseApplicationV1,
   safeParseCreateCustomApplicationOutcomeResponseV1,
   safeParseCreateCustomApplicationRequestV1,
   safeParseCreateCustomApplicationResponseV1,
+  safeParseCreateTemplateApplicationOutcomeResponseV1,
+  safeParseCreateTemplateApplicationRequestV1,
   safeParseIntegrationGuideV1,
   safeParseOidcClientV1,
+  safeParseRotateApplicationCredentialRequestV1,
+  safeParseRotateApplicationCredentialResponseV1,
 } from "../index.js";
 
 const application: ApplicationV1 = {
@@ -73,6 +84,20 @@ const connection: ApplicationConnectionV1 = {
     packageName: "@gitea-oidc/node",
     minimumVersion: "0.1.0",
   },
+};
+
+const credentialBinding = {
+  schemaVersion: APPLICATION_CREDENTIAL_SCHEMA_VERSION,
+  applicationId: connection.applicationId,
+  oidcClientId: connection.oidcClientId,
+  issuer: connection.issuer,
+  clientId: connection.clientId,
+} as const;
+
+const credential = {
+  ...credentialBinding,
+  kind: "client_secret" as const,
+  clientSecret: "one-time-secret-value",
 };
 
 const integrationGuide: IntegrationGuideV1 = {
@@ -134,6 +159,11 @@ describe("ApplicationConnectionV1", () => {
     ["non-loopback HTTP issuer", { issuer: "http://id.example.com" }],
     ["non-loopback HTTP callback", { redirectUris: ["http://app.example.com/callback"] }],
     ["callback fragment", { redirectUris: ["https://app.example.com/callback#fragment"] }],
+    ["callback query", { redirectUris: ["https://app.example.com/callback?tenant=one"] }],
+    [
+      "post logout callback query",
+      { postLogoutRedirectUris: ["https://app.example.com/signed-out?tenant=one"] },
+    ],
     ["callback userinfo", { redirectUris: ["https://user@app.example.com/callback"] }],
     ["callback wildcard", { redirectUris: ["https://*.example.com/callback"] }],
     ["trimmed callback", { redirectUris: [" https://app.example.com/callback"] }],
@@ -163,11 +193,70 @@ describe("ApplicationCredentialV1", () => {
   it("keeps one-time credentials separate from connection metadata", () => {
     expect(
       parseApplicationCredentialV1({
+        ...credential,
+      }),
+    ).toEqual(credential);
+    expect(parseApplicationCredentialV1({ ...credentialBinding, kind: "none" })).toEqual({
+      ...credentialBinding,
+      kind: "none",
+    });
+  });
+
+  it("rejects a bare client secret without connection binding", () => {
+    expect(() =>
+      parseApplicationCredentialV1({
         kind: "client_secret",
         clientSecret: "one-time-secret-value",
       }),
-    ).toEqual({ kind: "client_secret", clientSecret: "one-time-secret-value" });
-    expect(parseApplicationCredentialV1({ kind: "none" })).toEqual({ kind: "none" });
+    ).toThrow();
+  });
+});
+
+describe("ApplicationDetailsV1", () => {
+  const secret = {
+    id: "secret-1",
+    oidcClientId: client.id,
+    keyId: "applications-v1",
+    fingerprint: `hmac-sha256:${"a".repeat(24)}`,
+    status: "active" as const,
+    deliveredAt: "2026-07-10T08:00:00.000Z",
+    createdAt: "2026-07-10T08:00:00.000Z",
+  };
+
+  it("parses the shared single-Client management response", () => {
+    expect(
+      parseApplicationDetailsListV1([{ application, clients: [client], secrets: [secret] }]),
+    ).toEqual([{ application, clients: [client], secrets: [secret] }]);
+  });
+
+  it("rejects multiple Clients, foreign Secrets and public active Secrets", () => {
+    expect(
+      safeParseApplicationDetailsV1({
+        application,
+        clients: [client, { ...client, id: "client-2", clientId: "client-2" }],
+        secrets: [secret],
+      }).success,
+    ).toBe(false);
+    expect(
+      safeParseApplicationDetailsV1({
+        application,
+        clients: [client],
+        secrets: [{ ...secret, oidcClientId: "foreign-client" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      safeParseApplicationDetailsV1({
+        application,
+        clients: [
+          {
+            ...client,
+            clientType: "public",
+            tokenEndpointAuthMethod: "none",
+          },
+        ],
+        secrets: [secret],
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -234,7 +323,7 @@ describe("custom application DTOs", () => {
       connection,
       credentialDelivery: {
         kind: "direct",
-        credential: { kind: "client_secret", clientSecret: "one-time-secret-value" },
+        credential,
       },
       integrationGuide,
     });
@@ -248,7 +337,10 @@ describe("custom application DTOs", () => {
       application,
       client: { ...client, applicationId: "another-app" },
       connection,
-      credentialDelivery: { kind: "direct", credential: { kind: "none" } },
+      credentialDelivery: {
+        kind: "direct",
+        credential: { ...credentialBinding, kind: "none" },
+      },
       integrationGuide,
     });
 
@@ -274,7 +366,7 @@ describe("custom application DTOs", () => {
       connection: { ...connection, ...connectionOverride },
       credentialDelivery: {
         kind: "direct",
-        credential: { kind: "client_secret", clientSecret: "one-time-secret-value" },
+        credential,
       },
       integrationGuide,
     });
@@ -293,12 +385,28 @@ describe("custom application DTOs", () => {
       connection,
       credentialDelivery: {
         kind: "direct",
-        credential: { kind: "client_secret", clientSecret },
+        credential: { ...credential, clientSecret },
       },
       integrationGuide: {
         ...integrationGuide,
         nodes: [{ kind: "field", label: "Client Secret", value: clientSecret }],
       },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a credential bound to another connection", () => {
+    const result = safeParseCreateCustomApplicationResponseV1({
+      schemaVersion: CUSTOM_APPLICATION_SCHEMA_VERSION,
+      application,
+      client,
+      connection,
+      credentialDelivery: {
+        kind: "direct",
+        credential: { ...credential, oidcClientId: "another-client" },
+      },
+      integrationGuide,
     });
 
     expect(result.success).toBe(false);
@@ -338,6 +446,75 @@ describe("custom application DTOs", () => {
   });
 });
 
+describe("credential rotation DTOs", () => {
+  it("requires an exact schema version and optimistic application version", () => {
+    expect(
+      parseRotateApplicationCredentialRequestV1({
+        schemaVersion: 1,
+        expectedVersion: 2,
+      }),
+    ).toEqual({ schemaVersion: 1, expectedVersion: 2 });
+    expect(
+      safeParseRotateApplicationCredentialRequestV1({
+        schemaVersion: 1,
+        expectedVersion: 2,
+        clientSecret: "must-not-be-accepted",
+      }).success,
+    ).toBe(false);
+    expect(
+      safeParseRotateApplicationCredentialRequestV1({
+        schemaVersion: 99,
+        expectedVersion: 2,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts only confidential non-system direct-delivery responses", () => {
+    expect(
+      safeParseRotateApplicationCredentialResponseV1({
+        schemaVersion: CUSTOM_APPLICATION_SCHEMA_VERSION,
+        application,
+        client,
+        connection,
+        credentialDelivery: { kind: "direct", credential },
+        integrationGuide,
+      }).success,
+    ).toBe(true);
+    expect(
+      safeParseRotateApplicationCredentialResponseV1({
+        schemaVersion: CUSTOM_APPLICATION_SCHEMA_VERSION,
+        application: { ...application, source: { kind: "system" } },
+        client,
+        connection,
+        credentialDelivery: { kind: "direct", credential },
+        integrationGuide,
+      }).success,
+    ).toBe(false);
+    expect(
+      safeParseRotateApplicationCredentialResponseV1({
+        schemaVersion: CUSTOM_APPLICATION_SCHEMA_VERSION,
+        application,
+        client: {
+          ...client,
+          clientType: "public",
+          tokenEndpointAuthMethod: "none",
+          pkcePolicy: "required",
+        },
+        connection: {
+          ...connection,
+          clientType: "public",
+          clientAuthMethod: "none",
+        },
+        credentialDelivery: {
+          kind: "direct",
+          credential: { ...credentialBinding, kind: "none" },
+        },
+        integrationGuide,
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("ApplicationV1", () => {
   it("does not expose arbitrary template input or snapshots", () => {
     expect(
@@ -350,6 +527,108 @@ describe("ApplicationV1", () => {
       safeParseApplicationV1({
         ...application,
         templateSnapshot: { credential: "must-not-leak" },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("template application DTOs", () => {
+  it("parses an exact template reference and JSON-safe input", () => {
+    const parsed = parseCreateTemplateApplicationRequestV1({
+      schemaVersion: 1,
+      template: { id: "gitea", version: 1 },
+      application: { name: "研发 Gitea" },
+      templateInput: {
+        giteaBaseUrl: "https://git.example.com",
+        targetVersion: "1.26",
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      template: { id: "gitea", version: 1 },
+      credentialDelivery: "direct",
+    });
+    expect(
+      parsePreviewApplicationTemplateRequestV1({
+        schemaVersion: 1,
+        template: { id: "gitea", version: 1 },
+        templateInput: parsed.templateInput,
+      }),
+    ).toMatchObject({ template: { id: "gitea", version: 1 } });
+  });
+
+  it("validates a generic immutable form descriptor", () => {
+    expect(
+      ApplicationTemplateSummaryV1Schema.safeParse({
+        reference: { id: "gitea", version: 1 },
+        name: "Gitea",
+        description: "Gitea OIDC 模板",
+        supportedVersions: ["1.26"],
+        form: {
+          fields: [
+            { kind: "url", name: "baseUrl", label: "Base URL", required: true },
+            {
+              kind: "select",
+              name: "version",
+              label: "版本",
+              required: true,
+              options: [{ label: "1.26", value: "1.26" }],
+            },
+          ],
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects prototype-pollution keys and non-JSON template input", () => {
+    expect(
+      safeParseCreateTemplateApplicationRequestV1({
+        schemaVersion: 1,
+        template: { id: "gitea", version: 1 },
+        application: { name: "研发 Gitea" },
+        templateInput: JSON.parse('{"__proto__":{"polluted":true}}'),
+      }).success,
+    ).toBe(false);
+    expect(
+      safeParseCreateTemplateApplicationRequestV1({
+        schemaVersion: 1,
+        template: { id: "gitea", version: 1 },
+        application: { name: "研发 Gitea" },
+        templateInput: { callback: () => undefined },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires template source and matching connection reference in the response", () => {
+    const templateApplication = {
+      ...application,
+      source: { kind: "template" as const, templateId: "gitea", templateVersion: 1 },
+    };
+    const templateConnection = {
+      ...connection,
+      template: { id: "gitea", version: 1 },
+    };
+    const valid = safeParseCreateTemplateApplicationOutcomeResponseV1({
+      schemaVersion: 1,
+      application: templateApplication,
+      client,
+      connection: templateConnection,
+      credentialDelivery: {
+        kind: "direct",
+        credential,
+      },
+      integrationGuide,
+    });
+    expect(valid.success).toBe(true);
+
+    expect(
+      safeParseCreateTemplateApplicationOutcomeResponseV1({
+        schemaVersion: 1,
+        application,
+        client,
+        connection,
+        credentialDelivery: { kind: "direct", credential },
+        integrationGuide,
       }).success,
     ).toBe(false);
   });

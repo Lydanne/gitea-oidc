@@ -36,14 +36,15 @@ pnpm run release -- prerelease --preReleaseId=beta
 
 发布流程包含以下步骤：
 
-1. 构建生产版本（`pnpm run build:prod`）
-2. 运行 `pnpm test:pack`，确认 tarball 只包含发布白名单文件且所有 exports 存在
-3. 递增 `packages/server-core/package.json` 中的版本号
-4. 提交 Git 变更并打标签
-5. 推送代码与标签到 GitHub
-6. 创建 GitHub Release
-7. 发布到 npm
-8. 触发 Docker 镜像构建与推送（由 GitHub Actions 完成）
+1. 运行 `pnpm audit:all`，阻断包含已知漏洞的完整依赖树
+2. 构建生产版本（`pnpm run build:prod`）
+3. 运行 `pnpm test:pack`，确认 tarball 只包含发布白名单文件且所有 exports 存在
+4. 递增 `packages/server-core/package.json` 中的版本号
+5. 提交 Git 变更并打标签
+6. 推送代码与标签到 GitHub
+7. 创建 GitHub Release
+8. 发布到 npm
+9. 触发 Docker 镜像构建与推送（由 GitHub Actions 完成）
 
 ---
 
@@ -67,10 +68,11 @@ pnpm run release -- prerelease --preReleaseId=beta
 
 - `lint`
   - 检出代码
-  - 使用 Node.js 22 和 pnpm 安装依赖
+  - 使用 Node.js 22.13 和 pnpm 安装依赖
+  - 运行完整依赖审计 `pnpm audit:all`
   - 运行 Markdown、Biome 和 TypeScript 检查
 - `test`
-  - 在 Node.js 22 下安装依赖
+  - 在 Node.js 22.13 下安装依赖
   - 运行 `pnpm test` 与 `pnpm test:coverage`
 - `build`
   - 安装依赖
@@ -90,7 +92,7 @@ pnpm run release -- prerelease --preReleaseId=beta
 工作流主要包含四个 Job：
 
 1. `test`
-   - 在 Node.js 22 下安装依赖
+   - 在 Node.js 22.13 下安装依赖
    - 重建 `better-sqlite3` 等原生模块
    - 运行单元测试
 2. `build`（依赖 `test`）
@@ -100,6 +102,7 @@ pnpm run release -- prerelease --preReleaseId=beta
    - 上传 `packages/server-core/dist/`、`packages/server-core/public/` 和
      `apps/idp-server/dist/` 作为 artifact
 3. `release`（依赖 `build`）
+   - 在 npm 鉴权前运行完整依赖审计，并由 `release-it` 发布钩子再次校验
    - 使用 `release-it` 完成版本号递增、Git 标签、GitHub Release 和 npm 发布
    - 输出新版本号（从 `packages/server-core/package.json` 读取）
 4. `docker`（依赖 `release`）

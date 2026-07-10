@@ -133,7 +133,10 @@ function createTestMasterKey(): Buffer {
 async function seedDynamicApplication(tempDir: string) {
   const applicationsDbPath = join(tempDir, "applications.db");
   const masterKey = createTestMasterKey();
-  const repository = new SqliteApplicationRepository({ dbPath: applicationsDbPath });
+  const repository = new SqliteApplicationRepository({
+    dbPath: applicationsDbPath,
+    connectionIssuer: "https://id.example.com/oidc",
+  });
   try {
     const service = new ApplicationService({
       repository,
@@ -573,6 +576,7 @@ describe("server dynamic applications", () => {
       const pending = await beginDynamicConsent(app, clientId, "disabled-during-consent");
       const controlRepository = new SqliteApplicationRepository({
         dbPath: fixture.applicationsDbPath,
+        connectionIssuer: config.oidc.issuer,
       });
       try {
         const controlService = new ApplicationService({

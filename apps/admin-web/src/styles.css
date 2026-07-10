@@ -418,6 +418,18 @@ select {
   gap: 16px;
 }
 
+.application-create-mode {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.application-create-mode > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .application-form .field-full {
   grid-column: 1 / -1;
 }
@@ -508,6 +520,96 @@ select {
 .public-client-note {
   color: var(--muted);
   font-size: 13px;
+}
+
+.integration-guide {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.integration-guide header,
+.integration-guide h2,
+.integration-guide h3,
+.integration-guide h4,
+.integration-guide h5,
+.integration-guide p,
+.integration-guide figure,
+.integration-guide dl {
+  margin: 0;
+}
+
+.integration-guide h2 {
+  font-size: 20px;
+}
+
+.integration-guide h3 {
+  margin-top: 8px;
+  font-size: 16px;
+}
+
+.integration-guide h4,
+.integration-guide h5 {
+  font-size: 14px;
+}
+
+.integration-guide p,
+.guide-steps {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.guide-field {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.35fr) minmax(0, 1fr);
+  gap: 8px 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.guide-field dt {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.guide-field dd {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.guide-field code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.guide-code {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.guide-code figcaption {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.guide-code pre {
+  width: 100%;
+  max-height: 360px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f7f7;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 .details {
@@ -633,6 +735,10 @@ select {
   .connection-details dd {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .guide-field {
+    grid-template-columns: 1fr;
   }
 
   .details dt {

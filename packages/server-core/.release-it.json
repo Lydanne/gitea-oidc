@@ -1,5 +1,5 @@
 {
-  "$schema": "https://unpkg.com/release-it@19/schema/release-it.json",
+  "$schema": "https://unpkg.com/release-it@20/schema/release-it.json",
   "plugins": {
     "@release-it/conventional-changelog": {
       "preset": "angular",
@@ -23,6 +23,6 @@
     "publish": true
   },
   "hooks": {
-    "before:init": "pnpm --dir ../.. build:prod && pnpm test:pack"
+    "before:init": "pnpm --dir ../.. audit:all && pnpm --dir ../.. build:prod && pnpm test:pack"
   }
 }

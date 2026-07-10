@@ -1,4 +1,14 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  type ApplicationTemplateSummary,
+  parseApplicationTemplateSnapshot,
+  ResolvedApplicationTemplateSchema,
+  type TemplateCatalog,
+} from "@gitea-oidc/application-templates";
+import {
+  APPLICATION_CREDENTIAL_SCHEMA_VERSION,
+  ApplicationTemplatePreviewV1Schema,
+} from "@gitea-oidc/contracts";
 import type { ApplicationSecretEncryptor } from "./applicationSecretEncryptor.js";
 import {
   ApplicationConflictError,
@@ -14,20 +24,30 @@ import type {
   ApplicationConnectionV1,
   ApplicationCreationReceiptV1,
   ApplicationDetailsV1,
+  ApplicationTemplatePreviewV1,
   ApplicationV1,
   CreateCustomApplicationContext,
   CreateCustomApplicationOutcome,
   CreateCustomApplicationRequestV1,
   CreateCustomApplicationResponseV1,
+  CreateTemplateApplicationContext,
+  CreateTemplateApplicationOutcome,
+  CreateTemplateApplicationRequestV1,
+  CreateTemplateApplicationResponseV1,
   IntegrationGuideV1,
   OidcClientV1,
+  PreviewApplicationTemplateRequestV1,
+  RotateApplicationCredentialResponseV1,
   StoredApplicationAggregate,
   UpdateApplicationContext,
 } from "./types.js";
 import { toApplicationDetails, toSecretSummary } from "./types.js";
 import {
   type NormalizedCreateCustomApplicationRequest,
+  type NormalizedCreateTemplateApplicationRequest,
   validateAndNormalizeCreateCustomRequest,
+  validateAndNormalizeCreateTemplateRequest,
+  validateAndNormalizePreviewTemplateRequest,
   validateIssuer,
 } from "./validation.js";
 
@@ -38,6 +58,8 @@ export interface ApplicationServiceOptions {
   supportedScopes?: Iterable<string>;
   allowProviderApi?: boolean;
   allowedResources?: Iterable<string>;
+  templateCatalog?: TemplateCatalog;
+  templateClaimScopes?: Readonly<Record<string, readonly string[]>>;
   now?: () => Date;
 }
 
@@ -102,6 +124,8 @@ export class ApplicationService {
   private readonly supportedScopes: Set<string>;
   private readonly allowProviderApi: boolean;
   private readonly allowedResources: Set<string>;
+  private readonly templateCatalog?: TemplateCatalog;
+  private readonly templateClaimScopes?: Readonly<Record<string, readonly string[]>>;
   private readonly now: () => Date;
 
   public constructor(options: ApplicationServiceOptions) {
@@ -113,6 +137,8 @@ export class ApplicationService {
     );
     this.allowProviderApi = options.allowProviderApi ?? false;
     this.allowedResources = new Set(options.allowedResources ?? []);
+    this.templateCatalog = options.templateCatalog;
+    this.templateClaimScopes = options.templateClaimScopes;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -121,14 +147,7 @@ export class ApplicationService {
     context: CreateCustomApplicationContext,
   ): Promise<CreateCustomApplicationOutcome> {
     const normalized = validateAndNormalizeCreateCustomRequest(request);
-    if (
-      context.idempotencyKey.length < 8 ||
-      context.idempotencyKey.length > 200 ||
-      context.idempotencyKey.trim() !== context.idempotencyKey ||
-      hasControlCharacters(context.idempotencyKey)
-    ) {
-      throw new ApplicationValidationError("幂等键必须是 8 到 200 个无控制字符的非空字符");
-    }
+    this.assertIdempotencyKey(context.idempotencyKey);
 
     const keyHash = hash(context.idempotencyKey);
     const requestHash = hash(stableJson(normalized));
@@ -206,6 +225,7 @@ export class ApplicationService {
           : undefined;
       const aggregate: StoredApplicationAggregate = {
         application,
+        connectionIssuer: this.issuer,
         clients: [client],
         secrets: createdSecret === undefined ? [] : [createdSecret.encrypted],
       };
@@ -231,14 +251,235 @@ export class ApplicationService {
       }
 
       const base = this.buildResponseBase(aggregate);
+      const credentialBinding = {
+        schemaVersion: APPLICATION_CREDENTIAL_SCHEMA_VERSION,
+        applicationId: base.connection.applicationId,
+        oidcClientId: base.connection.oidcClientId,
+        issuer: base.connection.issuer,
+        clientId: base.connection.clientId,
+      };
       const response: CreateCustomApplicationResponseV1 = {
         ...base,
         credentialDelivery: {
           kind: "direct",
           credential:
             createdSecret === undefined
-              ? { kind: "none" }
-              : { kind: "client_secret", clientSecret: createdSecret.plaintext },
+              ? { ...credentialBinding, kind: "none" }
+              : {
+                  ...credentialBinding,
+                  kind: "client_secret",
+                  clientSecret: createdSecret.plaintext,
+                },
+        },
+      };
+      return { replayed: false, response };
+    });
+  }
+
+  public listApplicationTemplates(): readonly ApplicationTemplateSummary[] {
+    return this.templateCatalog?.list() ?? [];
+  }
+
+  public previewApplicationTemplate(
+    request: PreviewApplicationTemplateRequestV1,
+  ): ApplicationTemplatePreviewV1 {
+    const normalized = validateAndNormalizePreviewTemplateRequest(request);
+    if (this.templateCatalog === undefined) {
+      throw new ApplicationValidationError("当前部署未启用应用模板");
+    }
+
+    try {
+      const preview = this.templateCatalog.preview(normalized.template, normalized.templateInput, {
+        issuer: this.issuer,
+        ...(this.templateClaimScopes === undefined
+          ? {}
+          : { claimScopes: this.templateClaimScopes }),
+      });
+      const resolution = ResolvedApplicationTemplateSchema.parse(preview.resolution);
+      const projection = validateAndNormalizeCreateCustomRequest({
+        schemaVersion: 1,
+        application: {
+          name: "模板预览",
+          environment: resolution.application.environment,
+          ...(resolution.application.owner === undefined
+            ? {}
+            : { owner: resolution.application.owner }),
+          trustLevel: resolution.application.trustLevel,
+          consentPolicy: resolution.application.consentPolicy,
+        },
+        client: {
+          clientType: resolution.client.clientType,
+          redirectUris: resolution.client.redirectUris,
+          postLogoutRedirectUris: resolution.client.postLogoutRedirectUris,
+          scopes: resolution.client.allowedScopes,
+          resources: resolution.client.allowedResources,
+          refreshToken: resolution.client.capabilities.refreshToken,
+          providerApi: resolution.client.capabilities.providerApi,
+          resourceServer: resolution.client.capabilities.resourceServer,
+          pkcePolicy: resolution.client.pkcePolicy,
+        },
+        credentialDelivery: "direct",
+      });
+      this.validateRequestedCapabilities(projection);
+      return ApplicationTemplatePreviewV1Schema.parse({
+        schemaVersion: 1,
+        template: resolution.template,
+        issuer: resolution.issuer,
+        normalizedInput: preview.normalizedInput,
+        application: resolution.application,
+        client: {
+          clientType: resolution.client.clientType,
+          redirectUris: resolution.client.redirectUris,
+          postLogoutRedirectUris: resolution.client.postLogoutRedirectUris,
+          scopes: resolution.client.allowedScopes,
+          resources: resolution.client.allowedResources,
+          pkcePolicy: resolution.client.pkcePolicy,
+          capabilities: resolution.client.capabilities,
+        },
+        integrationGuide: resolution.integrationGuide,
+        warnings: resolution.warnings,
+      });
+    } catch (error) {
+      if (error instanceof ApplicationValidationError) {
+        throw error;
+      }
+      throw new ApplicationValidationError("模板版本或模板输入无效", { cause: error });
+    }
+  }
+
+  public async createTemplateApplication(
+    request: CreateTemplateApplicationRequestV1,
+    context: CreateTemplateApplicationContext,
+  ): Promise<CreateTemplateApplicationOutcome> {
+    const normalized = validateAndNormalizeCreateTemplateRequest(request);
+    this.assertIdempotencyKey(context.idempotencyKey);
+    const keyHash = hash(context.idempotencyKey);
+    const requestHash = hash(stableJson(normalized));
+    return this.repository.transaction(async (transaction) => {
+      const previous = await transaction.findIdempotencyRecord(keyHash);
+      if (previous !== undefined) {
+        if (previous.requestHash !== requestHash) {
+          throw new IdempotencyConflictError();
+        }
+        const aggregate = await transaction.findById(previous.applicationId);
+        if (aggregate === undefined) {
+          throw new ApplicationConflictError("幂等记录引用的应用不存在");
+        }
+        if (
+          aggregate.application.source.kind !== "template" ||
+          aggregate.application.source.templateId !== normalized.template.id ||
+          aggregate.application.source.templateVersion !== normalized.template.version
+        ) {
+          throw new ApplicationConflictError("幂等记录引用的应用模板与原请求不一致");
+        }
+        return { replayed: true, response: this.buildReceipt(aggregate) };
+      }
+
+      const { templateSnapshot, resolvedClient, validatedProjection } =
+        this.resolveTemplateCreation(normalized);
+
+      const now = this.now().toISOString();
+      const applicationId = randomUUID();
+      const requestedSlug = validatedProjection.application.slug;
+      let slug = requestedSlug ?? normalizeSlug(validatedProjection.application.name);
+      if ((await transaction.findBySlug(slug)) !== undefined) {
+        if (requestedSlug !== undefined) {
+          throw new ApplicationConflictError(`应用 slug 已存在: ${slug}`);
+        }
+        slug = `${slug}-${applicationId.slice(0, 8)}`;
+      }
+
+      const application: ApplicationV1 = {
+        id: applicationId,
+        name: validatedProjection.application.name,
+        slug,
+        ...(validatedProjection.application.description === undefined
+          ? {}
+          : { description: validatedProjection.application.description }),
+        status: "active",
+        source: {
+          kind: "template",
+          templateId: templateSnapshot.template.id,
+          templateVersion: templateSnapshot.template.version,
+        },
+        trustLevel: validatedProjection.application.trustLevel,
+        consentPolicy: validatedProjection.application.consentPolicy,
+        environment: validatedProjection.application.environment,
+        ...(validatedProjection.application.owner === undefined
+          ? {}
+          : { owner: validatedProjection.application.owner }),
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const client: OidcClientV1 = {
+        id: randomUUID(),
+        applicationId,
+        clientId: `app_${randomBytes(18).toString("base64url")}`,
+        clientType: resolvedClient.clientType,
+        tokenEndpointAuthMethod: resolvedClient.tokenEndpointAuthMethod,
+        grantTypes: [...resolvedClient.grantTypes],
+        responseTypes: ["code"],
+        redirectUris: [...resolvedClient.redirectUris],
+        postLogoutRedirectUris: [...resolvedClient.postLogoutRedirectUris],
+        allowedScopes: [...resolvedClient.allowedScopes],
+        allowedResources: [...resolvedClient.allowedResources],
+        pkcePolicy: resolvedClient.pkcePolicy,
+        capabilities: { providerApi: resolvedClient.capabilities.providerApi },
+        status: "active",
+      };
+      const createdSecret =
+        client.clientType === "confidential"
+          ? this.secretEncryptor.createSecret({ oidcClientId: client.id, now: new Date(now) })
+          : undefined;
+      const aggregate: StoredApplicationAggregate = {
+        application,
+        connectionIssuer: this.issuer,
+        clients: [client],
+        secrets: createdSecret === undefined ? [] : [createdSecret.encrypted],
+        templateSnapshot,
+      };
+      await transaction.insert(aggregate);
+      await transaction.insertIdempotencyRecord({
+        keyHash,
+        requestHash,
+        applicationId,
+        createdAt: now,
+      });
+      await transaction.appendAuditEvent(
+        this.auditEvent("application.created", aggregate, defaultActor(context.actor), now),
+      );
+      if (createdSecret !== undefined) {
+        await transaction.appendAuditEvent({
+          id: randomUUID(),
+          applicationId,
+          type: "client_secret.created",
+          actor: defaultActor(context.actor),
+          after: { secret: toSecretSummary(createdSecret.encrypted) },
+          occurredAt: now,
+        });
+      }
+
+      const base = this.buildResponseBase(aggregate);
+      const credentialBinding = {
+        schemaVersion: APPLICATION_CREDENTIAL_SCHEMA_VERSION,
+        applicationId: base.connection.applicationId,
+        oidcClientId: base.connection.oidcClientId,
+        issuer: base.connection.issuer,
+        clientId: base.connection.clientId,
+      };
+      const response: CreateTemplateApplicationResponseV1 = {
+        ...base,
+        credentialDelivery: {
+          kind: "direct",
+          credential:
+            createdSecret === undefined
+              ? { ...credentialBinding, kind: "none" }
+              : {
+                  ...credentialBinding,
+                  kind: "client_secret",
+                  clientSecret: createdSecret.plaintext,
+                },
         },
       };
       return { replayed: false, response };
@@ -304,6 +545,7 @@ export class ApplicationService {
         }).encrypted;
         const aggregate: StoredApplicationAggregate = {
           application,
+          connectionIssuer: this.issuer,
           clients: [client],
           secrets: [secret],
         };
@@ -345,6 +587,101 @@ export class ApplicationService {
     return this.repository.read(async (transaction) =>
       this.buildConnection(await this.requireApplication(transaction, id)),
     );
+  }
+
+  /** 返回可重复读取的结构化接入说明；模板说明来自创建时的不可变快照。 */
+  public async getApplicationIntegrationGuide(id: string): Promise<IntegrationGuideV1> {
+    return this.repository.read(async (transaction) => {
+      const aggregate = await this.requireApplication(transaction, id);
+      return this.buildGuide(aggregate, this.buildConnection(aggregate));
+    });
+  }
+
+  /**
+   * 原子替换 confidential Client Secret。响应仍是一次性交付；若网络响应丢失，管理员可以读取
+   * 新 version 后再次轮换，不需要删除整个 Application。
+   */
+  public async rotateApplicationSecret(
+    id: string,
+    context: UpdateApplicationContext,
+  ): Promise<RotateApplicationCredentialResponseV1> {
+    if (!Number.isSafeInteger(context.expectedVersion) || context.expectedVersion < 1) {
+      throw new ApplicationValidationError("expectedVersion 必须是正整数");
+    }
+    return this.repository.transaction(async (transaction) => {
+      const current = await this.requireApplication(transaction, id);
+      if (current.application.version !== context.expectedVersion) {
+        throw new ApplicationVersionConflictError(
+          id,
+          context.expectedVersion,
+          current.application.version,
+        );
+      }
+      if (current.application.source.kind === "system") {
+        throw new ApplicationConflictError("system Application 的密钥只能通过部署配置轮换");
+      }
+      if (!new Set(["active", "disabled"]).has(current.application.status)) {
+        throw new ApplicationConflictError("当前应用状态不允许轮换 Client Secret");
+      }
+      const client = current.clients[0];
+      if (client === undefined || client.clientType !== "confidential") {
+        throw new ApplicationConflictError("只有 confidential Client 可以轮换 Client Secret");
+      }
+
+      const now = this.now().toISOString();
+      const previousSecret = current.secrets
+        .filter((secret) => secret.oidcClientId === client.id && secret.status === "active")
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+      const createdSecret = this.secretEncryptor.createSecret({
+        oidcClientId: client.id,
+        now: new Date(now),
+      });
+      const updated: StoredApplicationAggregate = {
+        ...current,
+        application: {
+          ...current.application,
+          version: current.application.version + 1,
+          updatedAt: now,
+        },
+        secrets: [
+          ...current.secrets.map((secret) =>
+            secret.oidcClientId === client.id && secret.status === "active"
+              ? { ...secret, status: "revoked" as const }
+              : secret,
+          ),
+          createdSecret.encrypted,
+        ],
+      };
+      await transaction.update(updated, context.expectedVersion);
+      await transaction.appendAuditEvent({
+        id: randomUUID(),
+        applicationId: id,
+        type: "client_secret.rotated",
+        actor: defaultActor(context.actor),
+        ...(previousSecret === undefined
+          ? {}
+          : { before: { secret: toSecretSummary(previousSecret) } }),
+        after: { secret: toSecretSummary(createdSecret.encrypted) },
+        occurredAt: now,
+      });
+
+      const base = this.buildResponseBase(updated);
+      return {
+        ...base,
+        credentialDelivery: {
+          kind: "direct",
+          credential: {
+            schemaVersion: APPLICATION_CREDENTIAL_SCHEMA_VERSION,
+            applicationId: base.connection.applicationId,
+            oidcClientId: base.connection.oidcClientId,
+            issuer: base.connection.issuer,
+            clientId: base.connection.clientId,
+            kind: "client_secret",
+            clientSecret: createdSecret.plaintext,
+          },
+        },
+      };
+    });
   }
 
   public async enableApplication(
@@ -451,6 +788,90 @@ export class ApplicationService {
     return aggregate;
   }
 
+  private assertIdempotencyKey(idempotencyKey: string): void {
+    if (
+      idempotencyKey.length < 8 ||
+      idempotencyKey.length > 200 ||
+      idempotencyKey.trim() !== idempotencyKey ||
+      hasControlCharacters(idempotencyKey)
+    ) {
+      throw new ApplicationValidationError("幂等键必须是 8 到 200 个无控制字符的非空字符");
+    }
+  }
+
+  private resolveTemplateCreation(normalized: NormalizedCreateTemplateApplicationRequest) {
+    if (this.templateCatalog === undefined) {
+      throw new ApplicationValidationError("当前部署未启用应用模板");
+    }
+
+    let templateSnapshot: ReturnType<typeof parseApplicationTemplateSnapshot>;
+    try {
+      const resolution = this.templateCatalog.resolve(
+        normalized.template,
+        normalized.templateInput,
+        {
+          issuer: this.issuer,
+          ...(this.templateClaimScopes === undefined
+            ? {}
+            : { claimScopes: this.templateClaimScopes }),
+        },
+      );
+      templateSnapshot = parseApplicationTemplateSnapshot(resolution.snapshot);
+    } catch (error) {
+      throw new ApplicationValidationError("模板版本或模板输入无效", { cause: error });
+    }
+    if (
+      templateSnapshot.template.id !== normalized.template.id ||
+      templateSnapshot.template.version !== normalized.template.version ||
+      templateSnapshot.resolution.template.id !== normalized.template.id ||
+      templateSnapshot.resolution.template.version !== normalized.template.version
+    ) {
+      throw new ApplicationValidationError("模板解析结果与请求的模板版本不一致");
+    }
+
+    const resolvedApplication = templateSnapshot.resolution.application;
+    const resolvedClient = templateSnapshot.resolution.client;
+    const validatedProjection = validateAndNormalizeCreateCustomRequest({
+      schemaVersion: 1,
+      application: {
+        name: normalized.application.name,
+        ...(normalized.application.slug === undefined ? {} : { slug: normalized.application.slug }),
+        ...(normalized.application.description === undefined
+          ? {}
+          : { description: normalized.application.description }),
+        environment: resolvedApplication.environment,
+        ...(resolvedApplication.owner === undefined ? {} : { owner: resolvedApplication.owner }),
+        trustLevel: resolvedApplication.trustLevel,
+        consentPolicy: resolvedApplication.consentPolicy,
+      },
+      client: {
+        clientType: resolvedClient.clientType,
+        redirectUris: resolvedClient.redirectUris,
+        postLogoutRedirectUris: resolvedClient.postLogoutRedirectUris,
+        scopes: resolvedClient.allowedScopes,
+        resources: resolvedClient.allowedResources,
+        refreshToken: resolvedClient.capabilities.refreshToken,
+        providerApi: resolvedClient.capabilities.providerApi,
+        resourceServer: resolvedClient.capabilities.resourceServer,
+        pkcePolicy: resolvedClient.pkcePolicy,
+      },
+      credentialDelivery: "direct",
+    });
+    const expectedAuthMethod =
+      resolvedClient.clientType === "confidential" ? "client_secret_basic" : "none";
+    const expectedGrantTypes = resolvedClient.capabilities.refreshToken
+      ? ["authorization_code", "refresh_token"]
+      : ["authorization_code"];
+    if (
+      resolvedClient.tokenEndpointAuthMethod !== expectedAuthMethod ||
+      stableJson(resolvedClient.grantTypes) !== stableJson(expectedGrantTypes)
+    ) {
+      throw new ApplicationValidationError("模板解析结果的 OIDC Client 能力不一致");
+    }
+    this.validateRequestedCapabilities(validatedProjection);
+    return { templateSnapshot, resolvedClient, validatedProjection };
+  }
+
   private validateRequestedCapabilities(request: NormalizedCreateCustomApplicationRequest): void {
     const unsupportedScope = request.client.scopes.find(
       (scope) => !this.supportedScopes.has(scope),
@@ -548,6 +969,7 @@ export class ApplicationService {
       client.status !== "active" ||
       !secret ||
       stableJson({
+        issuer: aggregate.connectionIssuer,
         name: aggregate.application.name,
         environment: aggregate.application.environment,
         redirectUris: client.redirectUris,
@@ -560,6 +982,7 @@ export class ApplicationService {
         providerApi: client.capabilities.providerApi,
       }) !==
         stableJson({
+          issuer: this.issuer,
           name: input.name,
           environment: input.environment,
           redirectUris: input.redirectUris,
@@ -598,7 +1021,7 @@ export class ApplicationService {
       application: aggregate.application,
       client: aggregate.clients[0]!,
       connection,
-      integrationGuide: this.buildGuide(connection),
+      integrationGuide: this.buildGuide(aggregate, connection),
     };
   }
 
@@ -611,7 +1034,7 @@ export class ApplicationService {
       schemaVersion: 1,
       applicationId: aggregate.application.id,
       oidcClientId: client.id,
-      issuer: this.issuer,
+      issuer: aggregate.connectionIssuer,
       clientId: client.clientId,
       clientType: client.clientType,
       clientAuthMethod: client.tokenEndpointAuthMethod,
@@ -621,6 +1044,14 @@ export class ApplicationService {
       resources: client.allowedResources,
       flow: "authorization_code",
       pkce: { policy: client.pkcePolicy, methods: ["S256"] },
+      ...(aggregate.application.source.kind === "template"
+        ? {
+            template: {
+              id: aggregate.application.source.templateId,
+              version: aggregate.application.source.templateVersion,
+            },
+          }
+        : {}),
       capabilities: {
         refreshToken: client.grantTypes.includes("refresh_token"),
         providerApi: client.capabilities.providerApi,
@@ -636,7 +1067,16 @@ export class ApplicationService {
     };
   }
 
-  private buildGuide(connection: ApplicationConnectionV1): IntegrationGuideV1 {
+  private buildGuide(
+    aggregate: StoredApplicationAggregate,
+    connection: ApplicationConnectionV1,
+  ): IntegrationGuideV1 {
+    if (aggregate.application.source.kind === "template") {
+      if (aggregate.templateSnapshot === undefined) {
+        throw new ApplicationConflictError("模板应用缺少不可变模板快照");
+      }
+      return structuredClone(aggregate.templateSnapshot.resolution.integrationGuide);
+    }
     return {
       schemaVersion: 1,
       title: "自定义 OIDC 应用接入",

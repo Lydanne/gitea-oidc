@@ -2,18 +2,20 @@
 
 ## 元数据
 
-- 状态：accepted
+- 状态：accepted，主体实现已进入私有预览
 - 创建日期：2026-07-10
 - 来源：AI 辅助生成，维护者已确认继续实现
 - 关联模块：`packages/server-core/`、`apps/idp-server/`、`apps/admin-web/`
 - 关联任务：应用管理、应用模板、Node SDK、框架连接器和 CLI 重构
-- 预计处理：按阶段实现，并将稳定设计迁移到 `docs/` 和 `docs/dev/`；P2 未完成前保留本草案
+- 预计处理：稳定设计已迁移到 `docs/` 和 `docs/dev/`；保留本草案追踪 setup code、多包发布和
+  真实产品矩阵验收
 
 ## 背景
 
-当前项目把 OIDC Provider、管理后台、配置加载、仓储、Provider API SDK、
+以下内容记录重构启动时的历史问题，不再描述当前 workspace 状态。重构前，项目把 OIDC Provider、
+管理后台、配置加载、仓储、Provider API SDK、
 Express/Nest 辅助代码和 Vue 组件发布在同一个 `gitea-oidc` 包中。
-这造成以下问题：
+当时存在以下问题：
 
 - `packages/server-core/src/sdk/client.ts` 实际是 Provider API 代理，不是完整的 OIDC 登录客户端。
 - Express 和 Nest 代码只把 Bearer Token 转发给 userinfo，没有覆盖 discovery、
@@ -272,15 +274,28 @@ interface ApplicationConnectionV1 {
 
 type ApplicationCredentialV1 =
   | {
+      schemaVersion: 1;
+      applicationId: string;
+      oidcClientId: string;
+      issuer: string;
+      clientId: string;
       kind: "client_secret";
       clientSecret: string;
       expiresAt?: string;
     }
-  | { kind: "none" };
+  | {
+      schemaVersion: 1;
+      applicationId: string;
+      oidcClientId: string;
+      issuer: string;
+      clientId: string;
+      kind: "none";
+    };
 ```
 
 `ApplicationConnectionV1` 可重复获取，但永远不包含 `clientSecret`。
-`ApplicationCredentialV1` 只在创建或轮换时返回一次。
+`ApplicationCredentialV1` 只在创建或轮换时返回一次。CLI 和 SDK 必须把凭据中的四个绑定字段
+与 connection 精确比较；禁止接受裸 `clientSecret`，也禁止任意 credential 与 connection 混配。
 
 CLI setup code 使用高熵随机值、服务端只保存哈希并设置短 TTL。setup code 只授权领取单个
 OIDC Client 的待交付凭据，不能获得管理 API 权限。
@@ -566,23 +581,27 @@ POST   /api/integrations/setup/acknowledge
 
 ## CLI
 
-`@gitea-oidc/cli` 首阶段只处理应用开发者接入：
+`@gitea-oidc/cli` 当前文件接入阶段只处理应用开发者接入：
 
-- `init`：交互式粘贴一次性 setup code，选择或探测 Node 框架，生成最小配置。
-- `doctor`：检查 discovery、issuer、redirect URI、callback、Cookie/session 和连通性。
+- `init`：读取管理系统下载的 connection，选择或探测 Node 框架，生成最小配置。
+- `doctor`：在总时限内检查 discovery、issuer、同源 endpoint 和公网 DNS 解析。
 - `config validate`：校验连接描述和本地环境变量。
 - `config print --redact`：只打印脱敏配置。
 
-setup exchange 同时返回已创建应用的结构化接入说明，因此第一阶段 CLI 不需要管理 API 权限。
+当前阶段不实现 setup exchange，也不调用管理 API。后续 setup exchange 应同时返回已创建应用的
+结构化接入说明，因此 CLI 不需要管理 API 权限。
 模板列表、应用管理和 Secret 管理命令只有在后续引入明确的管理员浏览器登录或设备授权后
 才能增加，并通过共享的 `admin-client` 调用管理 API。
 
 安全边界：
 
 - setup code、Secret 和管理 Token 不接受命令行参数，避免 shell history 和进程列表泄漏。
-- CLI 通过 HTTPS 调用 setup exchange API，不直接改认证服务数据库或配置文件。
+- 后续 CLI 只能通过 HTTPS 调用 setup exchange API，不直接改认证服务数据库或配置文件。
 - 写文件前展示 diff 并确认，不覆盖用户文件。
-- Secret 文件权限设为 `0600`，并确保目标文件进入 `.gitignore`。
+- `--write` 在读取 Secret 前必须证明目标文件已进入 `.gitignore`。
+- credential 文件必须使用绑定 envelope，并通过 `O_NOFOLLOW`、POSIX UID 和 mode 校验。
+- dotenv 输出必须可无损 round-trip，并明确禁止通过 shell `source` 加载。
+- `doctor` 默认拒绝私有、loopback 和保留地址，可信内网需要显式 opt-in。
 - `.env.example` 只写变量名和占位符。
 - 所有输出默认脱敏，失败信息不回显 setup code。
 
@@ -608,7 +627,7 @@ Changesets 配置允许更新 private package 版本，server 使用 `server-vX.
 release 才构建同版本 Docker image。SDK 家族使用各公开包 tag。兼容期内的
 `packages/legacy` 与 server 同步版本并继续发布 `gitea-oidc`。
 
-Node SDK 暂定最低版本为 Node `>=20.19`，服务端保持 Node `>=22`。
+Node SDK 最低版本已确定为 Node `>=20.19.0`，服务端保持 Node `>=22.0.0`。
 SDK 以 ESM 为主，并在支持 `require(esm)` 的目标 Node 版本中做真实 CommonJS 消费测试；
 是否额外生成 CJS 构建由消费测试结果决定，不预先维护两套未经验证的输出。
 
@@ -650,34 +669,35 @@ workspace 依赖；待 npm scope 和新 SDK 包名确认、声明 bundling 门�
 ### P2：完成第一个产品纵向闭环
 
 - [x] 建立 `contracts` 和 `applications`。
-- [ ] 建立 `application-templates`，为 P4 的 Gitea 模板提供版本化边界。
+- [x] 建立 `application-templates`，为 Gitea 模板提供版本化边界。
 - [x] 实现 ApplicationRepository、Secret 加密、审计和 Client 专用 Adapter。
 - [x] 幂等导入 system Client，并增加 Client ID 冲突保护。
 - [x] 实现最小管理 API、custom 应用创建页面、一次性凭据交付状态和
   `ApplicationConnectionV1`。
 - [x] 使用显式 `clientSource=config|database` 做整源切换，禁止 hybrid 查询和双写。
 - [x] 按 Application consent 策略区分受信任应用和第三方应用。
-- [ ] 实现 `@gitea-oidc/node`。
+- [x] 实现 `@gitea-oidc/node`。
 - [ ] 用示例完成“创建 custom 应用 -> 一次获取凭据 -> Node 登录成功”。
 
 P2 当前只支持单实例 SQLite：`clientSource=database` 时 ApplicationRepository 和 OIDC Adapter
 都必须使用 SQLite，且 public Dynamic Client Registration 必须关闭。应用管理启用方式、32 字节
 独立主密钥、volume 和一致性备份要求已迁移到
-[应用管理接入指南](../APPLICATION_MANAGEMENT.md)。Gitea 模板、setup code、框架连接器和 CLI
-仍属于后续阶段，不能作为当前可用能力宣传。
+[应用管理接入指南](../APPLICATION_MANAGEMENT.md)。Gitea 模板、框架连接器和本地 CLI 已形成
+私有预览包；setup code、npm 发布和真实 Gitea 矩阵仍属于后续阶段。
 
 ### P3：框架连接器
 
-- 实现 Express、Fastify 和 NestJS 薄连接器。
-- 建立共享 connector conformance testkit。
-- 增加 Express、Fastify、Nest-Express 和 Nest-Fastify 真实示例与 E2E。
+- [x] 实现 Express、Fastify 和 NestJS 薄连接器。
+- [x] 建立共享 connector conformance testkit。
+- [ ] 增加 Express、Fastify、Nest-Express 和 Nest-Fastify 可运行示例；当前已有框架级 E2E。
 
 ### P4：Gitea 模板和 CLI
 
-- 实现版本化 Gitea 模板、预览和结构化配置说明。
-- 生成 Gitea 管理后台步骤和 CLI 命令模板。
-- 实现 setup code、CLI `init`、`doctor` 和配置校验。
-- 完成“创建 Gitea 应用 -> 按说明配置 -> 首次登录成功”的产品验收链。
+- [x] 实现版本化 Gitea 模板、预览和结构化配置说明。
+- [x] 生成 Gitea 管理后台步骤和 CLI 命令模板。
+- [x] 实现 CLI `init`、`doctor` 和配置校验。
+- [ ] 实现 setup code 安全领取协议。
+- [ ] 完成“创建 Gitea 应用 -> 按说明配置 -> 首次登录成功”的真实产品验收链。
 
 ### P5：迁移并淘汰静态 `clients[]`
 
@@ -745,43 +765,47 @@ public Client，不能上线 confidential Client 管理。`private_key_jwt` 作�
 ## 待确认决策
 
 - [ ] 长期产品品牌和 npm scope 是否使用 `@gitea-oidc/*`。
-- [ ] 框架无关包是否定名为 `@gitea-oidc/node`。
+- [x] 框架无关包定名为 `@gitea-oidc/node`。
 - [ ] 是否保留 `gitea-oidc` 服务端兼容包一个主版本。
-- [ ] SDK 最低 Node 版本是否采用 `>=20.19`，服务端继续采用 `>=22`。
+- [x] SDK 最低 Node 版本采用 `>=20.19`，服务端继续采用 `>=22`。
 - [ ] 生产 ApplicationRepository 是否首发 SQLite 和 PostgreSQL，Redis 仅作缓存。
 - [ ] confidential Client 的加密主密钥来源采用环境密钥环还是外部 KMS。
-- [ ] V1 是否明确采用单 active Secret 和立即轮换。
+- [x] V1 采用单 active Secret 和事务内立即轮换。
 - [ ] 新 SDK 家族是否在稳定前同步版本。
 
 ## TODO
 
 - [x] 完成当前单包的 P0 发布止血并新增 tarball 内容断言。
-- [ ] 为公开 package 和内部 package 建立依赖边界检查。
+- [x] 为公开 package 和内部 package 建立依赖边界检查。
 - [x] 固化 `ApplicationConnectionV1` 和 custom 应用创建 contract。
 - [ ] 固化跨管理 API、SDK 和 CLI 复用的错误 contract。
 - [x] 实现 Application、OidcClient、Secret 和 Audit 的 SQLite 持久化模型。
-- [ ] 实现版本化 Template 模型和模板快照。
+- [x] 实现版本化 Template 模型和模板快照。
 - [x] 实现 Client Adapter 投影和现有 `clients[]` 幂等导入协议。
 - [x] 实现 application disable 后按 `client_id` 撤销所有授权产物的能力。
 - [x] 将全局自动 consent 改为 Application 策略。
 - [ ] 完成 custom 应用与 Node SDK 的第一个纵向闭环。
-- [ ] 实现框架连接器共享 conformance testkit。
-- [ ] 实现 Gitea 模板、结构化说明和真实配置验收。
-- [ ] 实现安全的 setup code 和 CLI。
+- [x] 实现框架连接器共享 conformance testkit。
+- [x] 实现 Gitea 模板和结构化说明。
+- [ ] 使用真实 Gitea 实例完成配置与登录验收。
+- [x] 实现不持有管理权限的本地 CLI。
+- [ ] 实现安全的 setup code。
 - [ ] 建立 Changesets 多包发布流水线和兼容删除计划。
 
 ## 验收标准
 
-- [ ] 根目录是 private workspace，公开包没有反向依赖 server。
+- [x] 根目录是 private workspace，SDK 与连接器没有反向依赖 server。
 - [ ] 每个公开 tarball 只包含白名单文件，且不含 Secret、数据库、源码测试和临时文件。
-- [ ] 管理员能创建 custom 应用，并且 Secret 只在创建或轮换时展示一次。
+- [x] 管理员能创建 custom 应用，并且 Secret 只在创建或轮换时展示一次。
 - [ ] 管理员能使用 Gitea 模板获得可执行配置，并完成真实 Gitea 登录。
 - [ ] Node、Express、Fastify、Nest-Express 和 Nest-Fastify 通过同一组登录合约测试。
-- [ ] 未支持框架可以只用 `@gitea-oidc/node` 完成登录、session、refresh 和 logout。
-- [ ] 停用应用后，新的授权请求被拒绝，已有授权产物按策略撤销。
-- [ ] 模板升级不会静默改变已有应用。
-- [ ] CLI 不在参数、stdout、日志或可提交文件中泄漏凭据。
-- [ ] 现有静态 Client 可幂等导入，迁移前后的 `client_id` 和登录行为保持兼容。
+- [x] 未支持框架可以只用 `@gitea-oidc/node` 完成登录、session、refresh 和 logout。
+- [x] 停用应用后，新的授权请求被拒绝，已有授权产物按策略撤销。
+- [x] 模板升级不会静默改变已有应用。
+- [x] CLI 不在参数、stdout、日志或可提交文件中泄漏凭据。
+- [x] CLI 和 SDK 拒绝未绑定凭据及 credential/connection 混配。
+- [x] Redirect URI 与 Post Logout Redirect URI 均拒绝 query 和 fragment。
+- [x] 现有静态 Client 可幂等导入，迁移前后的 `client_id` 和登录行为保持兼容。
 - [ ] 旧包和子路径在约定的兼容周期内通过回归测试。
 - [ ] `pnpm lint:md`、相关单元测试、E2E、pack 和消费者安装测试通过。
 

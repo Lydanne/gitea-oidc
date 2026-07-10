@@ -1,4 +1,10 @@
-import { ApplicationV1Schema, OidcClientV1Schema } from "@gitea-oidc/contracts";
+import { ApplicationTemplateSnapshotSchema } from "@gitea-oidc/application-templates";
+import {
+  ApplicationSecretSummaryV1Schema,
+  ApplicationV1Schema,
+  issuerUrlSchema,
+  OidcClientV1Schema,
+} from "@gitea-oidc/contracts";
 import { z } from "zod";
 import { ApplicationStorageCorruptionError } from "./errors.js";
 import type {
@@ -25,17 +31,13 @@ const encryptedApplicationSecretSchema = z
   })
   .strict();
 
-const secretSummarySchema = encryptedApplicationSecretSchema.omit({
-  ciphertext: true,
-  iv: true,
-  authTag: true,
-});
-
 export const StoredApplicationAggregateSchema = z
   .object({
     application: ApplicationV1Schema,
-    clients: z.array(OidcClientV1Schema).min(1),
+    connectionIssuer: issuerUrlSchema,
+    clients: z.array(OidcClientV1Schema).length(1),
     secrets: z.array(encryptedApplicationSecretSchema),
+    templateSnapshot: ApplicationTemplateSnapshotSchema.optional(),
   })
   .strict()
   .superRefine((aggregate, context) => {
@@ -58,13 +60,84 @@ export const StoredApplicationAggregateSchema = z
         });
       }
     }
+
+    if (aggregate.application.source.kind === "template") {
+      if (aggregate.templateSnapshot === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["templateSnapshot"],
+          message: "模板应用必须持久化不可变模板快照",
+        });
+      } else if (
+        aggregate.templateSnapshot.template.id !== aggregate.application.source.templateId ||
+        aggregate.templateSnapshot.template.version !== aggregate.application.source.templateVersion
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["templateSnapshot", "template"],
+          message: "模板快照版本与 Application source 不一致",
+        });
+      } else {
+        const resolution = aggregate.templateSnapshot.resolution;
+        const client = aggregate.clients[0];
+        const sameStringSet = (left: readonly string[], right: readonly string[]) =>
+          left.length === right.length && left.every((value) => right.includes(value));
+        if (resolution.issuer !== aggregate.connectionIssuer) {
+          context.addIssue({
+            code: "custom",
+            path: ["templateSnapshot", "resolution", "issuer"],
+            message: "模板快照 issuer 与 Connection issuer 不一致",
+          });
+        }
+        if (
+          resolution.application.environment !== aggregate.application.environment ||
+          resolution.application.trustLevel !== aggregate.application.trustLevel ||
+          resolution.application.consentPolicy !== aggregate.application.consentPolicy ||
+          resolution.application.owner !== aggregate.application.owner
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["templateSnapshot", "resolution", "application"],
+            message: "模板快照的应用策略与持久化 Application 不一致",
+          });
+        }
+        if (
+          client === undefined ||
+          resolution.client.clientType !== client.clientType ||
+          resolution.client.tokenEndpointAuthMethod !== client.tokenEndpointAuthMethod ||
+          !sameStringSet(resolution.client.grantTypes, client.grantTypes) ||
+          !sameStringSet(resolution.client.responseTypes, client.responseTypes) ||
+          !sameStringSet(resolution.client.redirectUris, client.redirectUris) ||
+          !sameStringSet(resolution.client.postLogoutRedirectUris, client.postLogoutRedirectUris) ||
+          !sameStringSet(resolution.client.allowedScopes, client.allowedScopes) ||
+          !sameStringSet(resolution.client.allowedResources, client.allowedResources) ||
+          resolution.client.pkcePolicy !== client.pkcePolicy ||
+          resolution.client.capabilities.providerApi !== client.capabilities.providerApi ||
+          resolution.client.capabilities.refreshToken !==
+            client.grantTypes.includes("refresh_token") ||
+          resolution.client.capabilities.resourceServer !== client.allowedResources.length > 0
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["templateSnapshot", "resolution", "client"],
+            message: "模板快照的 Client 投影与持久化 OIDC Client 不一致",
+          });
+        }
+      }
+    } else if (aggregate.templateSnapshot !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["templateSnapshot"],
+        message: "非模板应用不能持久化模板快照",
+      });
+    }
   });
 
 const auditSnapshotSchema = z
   .object({
     application: ApplicationV1Schema.optional(),
     clients: z.array(OidcClientV1Schema).optional(),
-    secret: secretSummarySchema.optional(),
+    secret: ApplicationSecretSummaryV1Schema.optional(),
   })
   .strict();
 
@@ -79,6 +152,7 @@ export const ApplicationAuditEventSchema = z
       "application.enabled",
       "application.disabled",
       "client_secret.created",
+      "client_secret.rotated",
     ]),
     actor: z
       .object({
@@ -119,6 +193,43 @@ function parseWithSchema<T>(value: string, recordType: string, schema: z.ZodType
 
 export function parseStoredApplicationAggregate(value: string): StoredApplicationAggregate {
   return parseWithSchema(value, "Application aggregate", StoredApplicationAggregateSchema);
+}
+
+export interface StoredApplicationAggregateMigration {
+  aggregate: StoredApplicationAggregate;
+  migrated: boolean;
+}
+
+/** 只在无版本元数据的旧数据库初始化时补齐创建当时由运行时提供的 issuer。 */
+export function migrateStoredApplicationAggregate(
+  value: string,
+  connectionIssuer: string,
+): StoredApplicationAggregateMigration {
+  const parsed = parseJson(value, "Application aggregate");
+  const current = StoredApplicationAggregateSchema.safeParse(parsed);
+  if (current.success) {
+    return { aggregate: current.data, migrated: false };
+  }
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    "connectionIssuer" in parsed
+  ) {
+    throw new ApplicationStorageCorruptionError("Application aggregate", {
+      cause: current.error,
+    });
+  }
+  const migrated = StoredApplicationAggregateSchema.safeParse({
+    ...parsed,
+    connectionIssuer,
+  });
+  if (!migrated.success) {
+    throw new ApplicationStorageCorruptionError("Application aggregate", {
+      cause: migrated.error,
+    });
+  }
+  return { aggregate: migrated.data, migrated: true };
 }
 
 export function parseApplicationAuditEvent(value: string): ApplicationAuditEvent {

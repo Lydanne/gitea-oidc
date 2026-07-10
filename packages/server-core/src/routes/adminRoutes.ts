@@ -2,6 +2,7 @@
  * 内置后台管理路由
  */
 
+import { safeParseRotateApplicationCredentialRequestV1 } from "@gitea-oidc/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { readFileSync } from "fs";
 import type { Provider } from "oidc-provider";
@@ -88,9 +89,20 @@ interface ApplicationManagementService {
     request: unknown,
     context: { idempotencyKey: string; actor: { type: "user"; id: string } },
   ): Promise<{ replayed: boolean; response: unknown }>;
+  createTemplateApplication(
+    request: unknown,
+    context: { idempotencyKey: string; actor: { type: "user"; id: string } },
+  ): Promise<{ replayed: boolean; response: unknown }>;
+  listApplicationTemplates(): readonly unknown[];
+  previewApplicationTemplate(request: unknown): unknown;
   listApplicationDetails(): Promise<unknown[]>;
   getApplication(id: string): Promise<unknown>;
   getApplicationConnection(id: string): Promise<unknown>;
+  getApplicationIntegrationGuide(id: string): Promise<unknown>;
+  rotateApplicationSecret(
+    id: string,
+    context: { expectedVersion: number; actor: { type: "user"; id: string } },
+  ): Promise<unknown>;
   enableApplication(
     id: string,
     context: { expectedVersion: number; actor: { type: "user"; id: string } },
@@ -427,6 +439,28 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     }
   });
 
+  app.get(`${basePath}/api/application-templates`, async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+    return options.applicationService.listApplicationTemplates();
+  });
+
+  app.post(`${basePath}/api/application-templates/preview`, async (request, reply) => {
+    if (!(await requireAdminMutation(request, reply))) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+    try {
+      return options.applicationService.previewApplicationTemplate(request.body);
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
   app.post(`${basePath}/api/applications`, async (request, reply) => {
     const user = await requireAdminMutation(request, reply);
     if (!user) return;
@@ -442,6 +476,33 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
 
     try {
       const outcome = await options.applicationService.createCustomApplication(request.body, {
+        idempotencyKey,
+        actor: { type: "user", id: user.sub },
+      });
+      if (outcome.replayed) {
+        reply.header("Idempotency-Replayed", "true");
+      }
+      return reply.code(outcome.replayed ? 200 : 201).send(outcome.response);
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
+  app.post(`${basePath}/api/applications/from-template`, async (request, reply) => {
+    const user = await requireAdminMutation(request, reply);
+    if (!user) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+
+    const idempotencyKey = readSingleHeader(request, "idempotency-key");
+    if (!idempotencyKey) {
+      return reply.code(400).send({ error: "Idempotency-Key header is required" });
+    }
+
+    try {
+      const outcome = await options.applicationService.createTemplateApplication(request.body, {
         idempotencyKey,
         actor: { type: "user", id: user.sub },
       });
@@ -477,6 +538,44 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     const { id } = request.params as { id: string };
     try {
       return await options.applicationService.getApplicationConnection(id);
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
+  app.get(`${basePath}/api/applications/:id/integration-guide`, async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+    const { id } = request.params as { id: string };
+    try {
+      return await options.applicationService.getApplicationIntegrationGuide(id);
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
+  app.post(`${basePath}/api/applications/:id/rotate-secret`, async (request, reply) => {
+    const user = await requireAdminMutation(request, reply);
+    if (!user) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+    const parsedRequest = safeParseRotateApplicationCredentialRequestV1(request.body);
+    if (!parsedRequest.success) {
+      return reply.code(400).send({ error: "Invalid credential rotation request" });
+    }
+    const { id } = request.params as { id: string };
+    try {
+      return await runApplicationMutationExclusive(applicationMutationTails, id, () =>
+        options.applicationService!.rotateApplicationSecret(id, {
+          expectedVersion: parsedRequest.data.expectedVersion,
+          actor: { type: "user", id: user.sub },
+        }),
+      );
     } catch (error) {
       return sendApplicationError(reply, error);
     }

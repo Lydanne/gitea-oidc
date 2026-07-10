@@ -21,7 +21,10 @@ import {
   unorderedStringArraysEqual,
   uriAllowedForEnvironment,
 } from "./schemaPrimitives.js";
-import { CUSTOM_APPLICATION_SCHEMA_VERSION } from "./versions.js";
+import {
+  APPLICATION_CREDENTIAL_SCHEMA_VERSION,
+  CUSTOM_APPLICATION_SCHEMA_VERSION,
+} from "./versions.js";
 
 export const CustomApplicationInputV1Schema = z
   .object({
@@ -231,6 +234,16 @@ export const CreateCustomApplicationResponseV1Schema = z
       );
     }
 
+    for (const field of ["applicationId", "oidcClientId", "issuer", "clientId"] as const) {
+      if (response.credentialDelivery.credential[field] !== response.connection[field]) {
+        addIssue(
+          context,
+          ["credentialDelivery", "credential", field],
+          `Credential 的 ${field} 与 Connection 不匹配`,
+        );
+      }
+    }
+
     if (response.credentialDelivery.credential.kind === "client_secret") {
       const publicPayloadJson = JSON.stringify({
         application: response.application,
@@ -274,8 +287,23 @@ export const CreateCustomApplicationReceiptV1Schema = z
         kind: "direct",
         credential:
           receipt.client.clientType === "public"
-            ? { kind: "none" }
-            : { kind: "client_secret", clientSecret: "receipt-validation-placeholder" },
+            ? {
+                schemaVersion: APPLICATION_CREDENTIAL_SCHEMA_VERSION,
+                applicationId: receipt.connection.applicationId,
+                oidcClientId: receipt.connection.oidcClientId,
+                issuer: receipt.connection.issuer,
+                clientId: receipt.connection.clientId,
+                kind: "none",
+              }
+            : {
+                schemaVersion: APPLICATION_CREDENTIAL_SCHEMA_VERSION,
+                applicationId: receipt.connection.applicationId,
+                oidcClientId: receipt.connection.oidcClientId,
+                issuer: receipt.connection.issuer,
+                clientId: receipt.connection.clientId,
+                kind: "client_secret",
+                clientSecret: "receipt-validation-placeholder",
+              },
       },
     });
     if (!validation.success) {

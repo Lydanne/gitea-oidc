@@ -1,11 +1,23 @@
 import {
   type NormalizedCreateCustomApplicationRequestV1,
+  type NormalizedCreateTemplateApplicationRequestV1,
+  type NormalizedPreviewApplicationTemplateRequestV1,
   safeParseCreateCustomApplicationRequestV1,
+  safeParseCreateTemplateApplicationRequestV1,
+  safeParsePreviewApplicationTemplateRequestV1,
 } from "@gitea-oidc/contracts";
 import { ApplicationValidationError } from "./errors.js";
-import type { CreateCustomApplicationRequestV1 } from "./types.js";
+import type {
+  CreateCustomApplicationRequestV1,
+  CreateTemplateApplicationRequestV1,
+  PreviewApplicationTemplateRequestV1,
+} from "./types.js";
 
 export type NormalizedCreateCustomApplicationRequest = NormalizedCreateCustomApplicationRequestV1;
+export type NormalizedCreateTemplateApplicationRequest =
+  NormalizedCreateTemplateApplicationRequestV1;
+export type NormalizedPreviewApplicationTemplateRequest =
+  NormalizedPreviewApplicationTemplateRequestV1;
 
 export function validateAndNormalizeCreateCustomRequest(
   input: CreateCustomApplicationRequestV1,
@@ -16,6 +28,29 @@ export function validateAndNormalizeCreateCustomRequest(
     const path = firstIssue?.path.join(".") ?? "request";
     const message = firstIssue?.message ?? "请求格式无效";
     throw new ApplicationValidationError(`${path}: ${message}`, { cause: parsed.error });
+  }
+  return parsed.data;
+}
+
+export function validateAndNormalizeCreateTemplateRequest(
+  input: CreateTemplateApplicationRequestV1,
+): NormalizedCreateTemplateApplicationRequest {
+  const parsed = safeParseCreateTemplateApplicationRequestV1(input);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const path = firstIssue?.path.join(".") ?? "request";
+    const message = firstIssue?.message ?? "请求格式无效";
+    throw new ApplicationValidationError(`${path}: ${message}`, { cause: parsed.error });
+  }
+  return parsed.data;
+}
+
+export function validateAndNormalizePreviewTemplateRequest(
+  input: PreviewApplicationTemplateRequestV1,
+): NormalizedPreviewApplicationTemplateRequest {
+  const parsed = safeParsePreviewApplicationTemplateRequestV1(input);
+  if (!parsed.success) {
+    throw new ApplicationValidationError("模板预览请求格式无效", { cause: parsed.error });
   }
   return parsed.data;
 }

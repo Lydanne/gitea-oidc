@@ -6,7 +6,7 @@
 [![Release](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml)
 [![npm version](https://img.shields.io/npm/v/gitea-oidc)](https://www.npmjs.com/package/gitea-oidc)
 [![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/gitea-oidc)](https://hub.docker.com/r/lydamirror/gitea-oidc)
-![Node version](https://img.shields.io/badge/node-%3E%3D22.0.0-43853d?logo=node.js)
+![Node version](https://img.shields.io/badge/node-22.13.x-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
 [![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
@@ -35,7 +35,9 @@
 - ✅ 插件化认证架构
 - ✅ 多种认证方式（本地密码、飞书、可扩展）
 - ✅ 统一登录页面
-- ✅ 可选的自定义应用管理与一次性 Client 凭据
+- ✅ 可选的应用管理、Gitea 版本化模板和 Client Secret 轮换
+- ✅ Node SDK、Express、Fastify、NestJS 与 CLI 私有预览包
+- ✅ 单机生产可用的加密 SQLite 客户端 Session Store
 - ✅ OAuth State 管理（防 CSRF）
 - ✅ 用户仓储抽象层
 - ✅ 动态路由和静态资源
@@ -132,12 +134,12 @@ pnpm test:coverage
 - **[OIDC 适配器配置](./docs/ADAPTER_CONFIGURATION.md)** - SQLite、Redis、memory 适配器选择
 - **[飞书认证插件](./docs/FEISHU_PLUGIN_GUIDE.md)** - 飞书 OAuth 登录配置
 - **[管理后台与 Provider API](./docs/ADMIN_AND_PROVIDER_API.md)** - 后台、token 探活和 SDK 代理
-- **[应用管理接入](./docs/APPLICATION_MANAGEMENT.md)** - 自定义应用、主密钥和 SQLite 部署约束
+- **[应用管理接入](./docs/APPLICATION_MANAGEMENT.md)** - 模板、自定义应用、SDK 与 SQLite 部署约束
 - **[开发者文档](./docs/dev/README.md)** - 插件开发、架构和发布维护
 
 ## 技术栈
 
-- **Node.js 22+** - JavaScript 运行时环境
+- **Node.js 22.13.x** - 仓库开发与构建运行时
 - **Fastify 5.x** - 高性能 Node.js Web 框架
 - **oidc-provider 9.x** - OpenID Certified™ OIDC 服务器
 - **TypeScript 5.x** - 类型安全
@@ -159,7 +161,16 @@ gitea-oidc/
 │   └── idp-server/             # 生产服务进程入口
 ├── packages/
 │   ├── contracts/              # 应用和连接器共用的版本化 wire contract
+│   ├── application-templates/  # 版本化 Gitea 应用模板
 │   ├── applications/           # 应用、Client、Secret、审计和 SQLite 仓储
+│   ├── oidc-client/            # @gitea-oidc/node 框架无关 OIDC 核心
+│   ├── oidc-client-sqlite/     # 加密 SQLite stores 与 refresh lock
+│   ├── connector-core/         # 框架连接器共享 HTTP 核心
+│   ├── express/                # Express 4/5 连接器
+│   ├── fastify/                # Fastify 5 连接器
+│   ├── nestjs/                 # NestJS 10/11 连接器
+│   ├── cli/                    # 本地接入 CLI
+│   ├── connector-testkit/      # 私有连接器一致性测试
 │   └── server-core/            # gitea-oidc 兼容包与认证服务核心
 │       ├── src/
 │       │   ├── identityServer.ts # 创建 Fastify/OIDC 运行时，不监听端口
@@ -585,12 +596,13 @@ docker run -d -p 3000:3000 \
 - ✅ Redis 适配器（分布式部署）
 - ✅ 插件化认证架构
 - ✅ Webhook 支持
-- ✅ 自定义应用管理与一次性凭据交付
+- ✅ 模板与自定义应用管理、一次性凭据和 Client Secret 轮换
+- ✅ Node SDK、Express、Fastify、NestJS 和 CLI 私有预览实现
 
 计划中的功能：
 
 - ⏳ 添加更多认证插件（企业微信、钉钉、LDAP）
-- ⏳ 添加 Gitea 应用模板、Node SDK、框架连接器和 CLI
+- ⏳ 发布 SDK、框架连接器和 CLI，并完成 Gitea 真实版本矩阵认证
 - ⏳ 实现 MFA 支持
 - ⏳ 用户自助服务（密码重置、账号管理）
 

@@ -3,6 +3,7 @@ import type {
   AdminSession,
   AdminUser,
   AdminUserPayload,
+  ApplicationConnectionV1,
   ApplicationDetails,
   CreateCustomApplicationOutcomeResponseV1,
   CreateCustomApplicationRequestV1,
@@ -62,6 +63,12 @@ export const fetchProviderTokens = () => adminApiRequest<ProviderToken[]>("/toke
 
 /** 获取应用与 OIDC Client 列表。 */
 export const fetchAdminApplications = () => adminApiRequest<ApplicationDetails[]>("/applications");
+
+/** 获取可重复下载且不含 Secret 的公开连接配置。 */
+export const fetchAdminApplicationConnection = (applicationId: string) =>
+  adminApiRequest<ApplicationConnectionV1>(
+    `/applications/${encodeURIComponent(applicationId)}/connection`,
+  );
 
 /** 创建自定义应用；调用方负责为同一次逻辑提交复用幂等键。 */
 export const createAdminApplication = (

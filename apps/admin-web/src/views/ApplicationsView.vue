@@ -13,6 +13,7 @@ import {
   createAdminApplication,
   disableAdminApplication,
   enableAdminApplication,
+  fetchAdminApplicationConnection,
   fetchAdminApplications,
 } from "../api/adminApi";
 import ApplicationCredentialDetails from "../components/ApplicationCredentialDetails.vue";
@@ -56,6 +57,7 @@ const createDialogVisible = ref(false);
 const credentialDialogVisible = ref(false);
 const saving = ref(false);
 const busyApplicationId = ref("");
+const downloadingApplicationId = ref("");
 const formError = ref("");
 const applicationForm = ref<ApplicationForm>(createBlankForm());
 const createdResult = ref<CreateCustomApplicationOutcomeResponseV1 | null>(null);
@@ -299,6 +301,53 @@ const copyValue = async (value: string, label: string) => {
   }
 };
 
+/** 只在浏览器内生成临时 URL，下载结束后立即释放。 */
+const downloadJson = (value: unknown, filename: string) => {
+  const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], {
+    type: "application/json;charset=utf-8",
+  });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(objectUrl);
+};
+
+const connectionFilename = (application: ApplicationDetails["application"]) =>
+  `${application.slug || application.id}.gitea-oidc.connection.json`;
+
+/** 公开 connection 可重复下载，响应中不包含任何凭据。 */
+const downloadApplicationConnection = async (details: ApplicationDetails) => {
+  downloadingApplicationId.value = details.application.id;
+  try {
+    const connection = await fetchAdminApplicationConnection(details.application.id);
+    if (!connection) return;
+    downloadJson(connection, connectionFilename(details.application));
+    toast.add({ severity: "success", summary: "连接配置已下载", life: 1800 });
+  } catch (error) {
+    handleError(error, "下载连接配置失败");
+  } finally {
+    downloadingApplicationId.value = "";
+  }
+};
+
+const downloadCreatedConnection = () => {
+  const result = createdResult.value;
+  if (!result) return;
+  downloadJson(result.connection, connectionFilename(result.application));
+};
+
+/** 一次性 credential 文件只在创建响应仍驻留内存时允许下载。 */
+const downloadCreatedCredential = () => {
+  const result = createdResult.value;
+  if (!result || result.credentialDelivery.kind !== "direct") return;
+  downloadJson(
+    result.credentialDelivery.credential,
+    `${result.application.slug || result.application.id}.gitea-oidc.credential.json`,
+  );
+};
+
 /** 关闭一次性凭据弹窗后立即清除前端内存中的结果。 */
 const closeCredentialDialog = () => {
   credentialDialogVisible.value = false;
@@ -408,44 +457,56 @@ onMounted(loadApplications);
           />
         </template>
       </Column>
-      <Column header="操作" style="min-width: 8rem">
+      <Column header="操作" style="min-width: 17rem">
         <template #body="{ data }">
-          <span v-if="data.application.source.kind === 'system'" class="public-client-note">
-            配置管理
-          </span>
-          <Button
-            v-else-if="data.application.status === 'active'"
-            icon="pi pi-ban"
-            label="禁用"
-            size="small"
-            severity="warn"
-            outlined
-            :loading="busyApplicationId === data.application.id"
-            :aria-label="`禁用应用 ${data.application.name}`"
-            @click="confirmDisable(data)"
-          />
-          <Button
-            v-else-if="data.application.status === 'disabling'"
-            icon="pi pi-refresh"
-            label="重试撤销"
-            size="small"
-            severity="danger"
-            outlined
-            :loading="busyApplicationId === data.application.id"
-            :aria-label="`重试撤销应用 ${data.application.name} 的 OIDC 凭据`"
-            @click="updateApplicationStatus(data, false)"
-          />
-          <Button
-            v-else-if="data.application.status !== 'deleted'"
-            icon="pi pi-check"
-            label="启用"
-            size="small"
-            severity="success"
-            outlined
-            :loading="busyApplicationId === data.application.id"
-            :aria-label="`启用应用 ${data.application.name}`"
-            @click="updateApplicationStatus(data, true)"
-          />
+          <div class="row-actions">
+            <Button
+              icon="pi pi-download"
+              label="配置"
+              size="small"
+              severity="secondary"
+              outlined
+              :loading="downloadingApplicationId === data.application.id"
+              :aria-label="`下载应用 ${data.application.name} 的公开连接配置`"
+              @click="downloadApplicationConnection(data)"
+            />
+            <span v-if="data.application.source.kind === 'system'" class="public-client-note">
+              配置管理
+            </span>
+            <Button
+              v-else-if="data.application.status === 'active'"
+              icon="pi pi-ban"
+              label="禁用"
+              size="small"
+              severity="warn"
+              outlined
+              :loading="busyApplicationId === data.application.id"
+              :aria-label="`禁用应用 ${data.application.name}`"
+              @click="confirmDisable(data)"
+            />
+            <Button
+              v-else-if="data.application.status === 'disabling'"
+              icon="pi pi-refresh"
+              label="重试撤销"
+              size="small"
+              severity="danger"
+              outlined
+              :loading="busyApplicationId === data.application.id"
+              :aria-label="`重试撤销应用 ${data.application.name} 的 OIDC 凭据`"
+              @click="updateApplicationStatus(data, false)"
+            />
+            <Button
+              v-else-if="data.application.status !== 'deleted'"
+              icon="pi pi-check"
+              label="启用"
+              size="small"
+              severity="success"
+              outlined
+              :loading="busyApplicationId === data.application.id"
+              :aria-label="`启用应用 ${data.application.name}`"
+              @click="updateApplicationStatus(data, true)"
+            />
+          </div>
         </template>
       </Column>
       <template #empty>
@@ -492,6 +553,21 @@ onMounted(loadApplications);
     <ApplicationCredentialDetails v-if="createdResult" :result="createdResult" @copy="copyValue" />
 
     <template #footer>
+      <Button
+        icon="pi pi-download"
+        label="下载连接配置"
+        severity="secondary"
+        outlined
+        @click="downloadCreatedConnection"
+      />
+      <Button
+        v-if="createdResult?.credentialDelivery.kind === 'direct'"
+        icon="pi pi-key"
+        label="下载一次性凭据"
+        severity="warn"
+        outlined
+        @click="downloadCreatedCredential"
+      />
       <Button
         icon="pi pi-check"
         label="我已保存配置，关闭"

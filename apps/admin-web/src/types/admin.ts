@@ -1,4 +1,5 @@
 import type {
+  ApplicationConnectionV1,
   ApplicationStatusV1,
   ApplicationV1,
   CreateCustomApplicationOutcomeResponseV1,
@@ -136,6 +137,7 @@ export interface ApplicationForm {
 }
 
 export type {
+  ApplicationConnectionV1,
   ApplicationV1,
   ApplicationStatusV1,
   CreateCustomApplicationOutcomeResponseV1,

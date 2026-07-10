@@ -102,9 +102,10 @@ export default {
 1. 使用 `admin.allowedGroups` 允许的管理员登录 `${server.url}${admin.basePath}`。
 2. 打开“应用”页面，默认路径为 `/admin/applications`。
 3. 创建自定义应用，选择环境、Client 类型、Redirect URI、scopes 和是否启用 Refresh Token。
-4. 立即复制创建结果中的 Issuer、Client ID 和一次性凭据。
-5. 把 Client Secret 保存到业务应用的 Secret Manager，再按页面返回的公开连接参数配置 OIDC
-   客户端。
+4. 下载 `*.gitea-oidc.connection.json`；它是可重复获取的公开接入描述，不包含任何 Secret。
+5. confidential Client 还要立即下载 `*.gitea-oidc.credential.json`，并把文件内容转存到业务应用的
+   Secret Manager。
+6. 使用公开 connection 和一次性 credential 配置业务应用的 OIDC 客户端。
 
 生产和预发布 Redirect URI 必须使用 HTTPS。开发环境只允许 loopback 地址使用 HTTP，URI 不能
 包含通配符、fragment 或用户凭据。所有应用必须包含 `openid` scope；公共 Client 不生成
@@ -125,6 +126,10 @@ confidential Client 的明文 Client Secret 只出现在首次创建响应中。
 
 如果首次响应丢失，当前版本不能重新下载或轮换 Secret。应禁用该应用并重新创建；不要尝试从
 `applications.db` 或管理 API 读取密文。public Client 不使用 Client Secret。
+
+公开 connection 不属于一次性凭据。管理员可以随时在应用列表点击“配置”重新下载，服务端通过
+`GET ${admin.basePath}/api/applications/:id/connection` 从当前 Application/Client 状态重新生成；
+该响应不会包含明文、密文、fingerprint 或其他凭据字段。
 
 ## SQLite 单实例与持久化
 

@@ -1582,6 +1582,53 @@ describe("registerAdminRoutes", () => {
     expect(JSON.stringify(reply.send.mock.calls)).not.toContain("applications.db");
   });
 
+  it("returns a repeatable public connection document without credentials", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const connection = {
+      schemaVersion: 1,
+      issuer: "https://id.example.com",
+      clientId: "client-1",
+      redirectUris: ["https://app.example.com/callback"],
+    };
+    const applicationService = {
+      getApplicationConnection: vi.fn().mockResolvedValue(connection),
+    };
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: applicationService as any,
+      oidcClientLifecycle: createOidcClientLifecycle(),
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const handler = app.get.mock.calls.find(
+      (call) => call[0] === "/admin/api/applications/:id/connection",
+    )?.[1];
+    const reply = { code: vi.fn().mockReturnThis(), header: vi.fn(), send: vi.fn() };
+
+    await expect(
+      handler({ headers: adminCookieHeader(session.id), params: { id: "app-1" } }, reply),
+    ).resolves.toBe(connection);
+
+    expect(applicationService.getApplicationConnection).toHaveBeenCalledWith("app-1");
+    expect(reply.header).toHaveBeenCalledWith("Cache-Control", "no-store");
+    expect(JSON.stringify(connection)).not.toContain("clientSecret");
+  });
+
   it("creates an application with idempotency and no-store response headers", async () => {
     const app = createApp();
     const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };

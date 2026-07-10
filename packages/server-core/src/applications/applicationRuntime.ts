@@ -31,6 +31,7 @@ export interface ApplicationManagementFacade {
   ): Promise<{ replayed: boolean; response: unknown }>;
   listApplicationDetails(): Promise<unknown[]>;
   getApplication(id: string): Promise<unknown>;
+  getApplicationConnection(id: string): Promise<unknown>;
   enableApplication(
     id: string,
     context: { expectedVersion: number; actor: { type: "user"; id: string } },
@@ -129,6 +130,7 @@ export async function createApplicationRuntime(
         service.createCustomApplication(request as never, context),
       listApplicationDetails: () => service.listApplicationDetails(),
       getApplication: (id) => service.getApplication(id),
+      getApplicationConnection: (id) => service.getApplicationConnection(id),
       enableApplication: (id, context) => service.enableApplication(id, context),
       disableApplication: (id, context) => service.disableApplication(id, context),
       completeDisableApplication: (id, context) => service.completeDisableApplication(id, context),

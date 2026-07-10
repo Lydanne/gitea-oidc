@@ -54,6 +54,9 @@ describe("ApplicationService", () => {
     expect(outcome.response.credentialDelivery.kind).toBe("direct");
     if (outcome.response.credentialDelivery.kind !== "direct") throw new Error("expected direct");
     expect(outcome.response.credentialDelivery.credential).toMatchObject({ kind: "client_secret" });
+    const connection = await service.getApplicationConnection(outcome.response.application.id);
+    expect(connection).toEqual(outcome.response.connection);
+    expect(JSON.stringify(connection)).not.toContain("clientSecret");
     expect(
       JSON.stringify(await service.getApplication(outcome.response.application.id)),
     ).not.toContain("clientSecret");

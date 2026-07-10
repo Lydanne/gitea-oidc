@@ -144,7 +144,7 @@ export class ApplicationService {
         }
         return {
           replayed: true,
-          response: this.buildReceipt(aggregate, normalized),
+          response: this.buildReceipt(aggregate),
         };
       }
 
@@ -230,7 +230,7 @@ export class ApplicationService {
         });
       }
 
-      const base = this.buildResponseBase(aggregate, normalized);
+      const base = this.buildResponseBase(aggregate);
       const response: CreateCustomApplicationResponseV1 = {
         ...base,
         credentialDelivery: {
@@ -337,6 +337,13 @@ export class ApplicationService {
   public async getApplication(id: string): Promise<ApplicationDetailsV1> {
     return this.repository.read(async (transaction) =>
       toApplicationDetails(await this.requireApplication(transaction, id)),
+    );
+  }
+
+  /** 返回可重复下载的公开接入描述，永远不包含 Client Secret。 */
+  public async getApplicationConnection(id: string): Promise<ApplicationConnectionV1> {
+    return this.repository.read(async (transaction) =>
+      this.buildConnection(await this.requireApplication(transaction, id)),
     );
   }
 
@@ -584,13 +591,23 @@ export class ApplicationService {
 
   private buildResponseBase(
     aggregate: StoredApplicationAggregate,
-    request: NormalizedCreateCustomApplicationRequest,
   ): Omit<CreateCustomApplicationResponseV1, "credentialDelivery"> {
+    const connection = this.buildConnection(aggregate);
+    return {
+      schemaVersion: 1,
+      application: aggregate.application,
+      client: aggregate.clients[0]!,
+      connection,
+      integrationGuide: this.buildGuide(connection),
+    };
+  }
+
+  private buildConnection(aggregate: StoredApplicationAggregate): ApplicationConnectionV1 {
     const client = aggregate.clients[0];
     if (client === undefined) {
       throw new ApplicationConflictError("应用缺少 OIDC Client");
     }
-    const connection: ApplicationConnectionV1 = {
+    return {
       schemaVersion: 1,
       applicationId: aggregate.application.id,
       oidcClientId: client.id,
@@ -607,24 +624,14 @@ export class ApplicationService {
       capabilities: {
         refreshToken: client.grantTypes.includes("refresh_token"),
         providerApi: client.capabilities.providerApi,
-        resourceServer: request.client.resourceServer,
+        resourceServer: client.allowedResources.length > 0,
       },
-    };
-    return {
-      schemaVersion: 1,
-      application: aggregate.application,
-      client,
-      connection,
-      integrationGuide: this.buildGuide(connection),
     };
   }
 
-  private buildReceipt(
-    aggregate: StoredApplicationAggregate,
-    request: NormalizedCreateCustomApplicationRequest,
-  ): ApplicationCreationReceiptV1 {
+  private buildReceipt(aggregate: StoredApplicationAggregate): ApplicationCreationReceiptV1 {
     return {
-      ...this.buildResponseBase(aggregate, request),
+      ...this.buildResponseBase(aggregate),
       credentialDelivery: { kind: "already_delivered" },
     };
   }

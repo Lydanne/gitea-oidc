@@ -90,6 +90,7 @@ interface ApplicationManagementService {
   ): Promise<{ replayed: boolean; response: unknown }>;
   listApplicationDetails(): Promise<unknown[]>;
   getApplication(id: string): Promise<unknown>;
+  getApplicationConnection(id: string): Promise<unknown>;
   enableApplication(
     id: string,
     context: { expectedVersion: number; actor: { type: "user"; id: string } },
@@ -462,6 +463,20 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     const { id } = request.params as { id: string };
     try {
       return await options.applicationService.getApplication(id);
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
+  app.get(`${basePath}/api/applications/:id/connection`, async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+    const { id } = request.params as { id: string };
+    try {
+      return await options.applicationService.getApplicationConnection(id);
     } catch (error) {
       return sendApplicationError(reply, error);
     }

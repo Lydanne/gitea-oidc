@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { chmodSync, existsSync } from "fs";
 import type { Adapter } from "oidc-provider";
 import { resolve } from "path";
+import { assertOidcClientWriteAllowed } from "./oidcClientRevocationBarrier.js";
 
 interface SharedSqliteConnection {
   db: Database.Database;
@@ -47,6 +48,9 @@ export class SqliteOidcAdapter implements Adapter {
       CREATE INDEX IF NOT EXISTS idx_oidc_consumed ON oidc_store (consumed_at);
       CREATE INDEX IF NOT EXISTS idx_oidc_grant ON oidc_store (name, json_extract(value, '$.grantId'));
       CREATE INDEX IF NOT EXISTS idx_oidc_account ON oidc_store (json_extract(value, '$.accountId'));
+      CREATE INDEX IF NOT EXISTS idx_oidc_client ON oidc_store (json_extract(value, '$.clientId'));
+      CREATE INDEX IF NOT EXISTS idx_oidc_interaction_client
+        ON oidc_store (json_extract(value, '$.params.client_id'));
     `);
 
     const connection: SharedSqliteConnection = {
@@ -69,6 +73,7 @@ export class SqliteOidcAdapter implements Adapter {
   }
 
   async upsert(key: string, payload: any, expiresIn?: number): Promise<void> {
+    assertOidcClientWriteAllowed(payload);
     const expiresAt = expiresIn === undefined ? null : nowInSeconds() + expiresIn;
     this.db
       .prepare(
@@ -162,6 +167,19 @@ export class SqliteOidcAdapter implements Adapter {
     connection.db
       .prepare("DELETE FROM oidc_store WHERE json_extract(value, '$.accountId') = ?")
       .run(accountId);
+  }
+
+  /** 删除指定 Client 的全部 Grant、Code 和 Token 等 OIDC 记录。 */
+  static async revokeByClientId(dbPath: string, clientId: string): Promise<void> {
+    const connection = SqliteOidcAdapter.getConnection(dbPath);
+    connection.db
+      .prepare(
+        `DELETE FROM oidc_store
+         WHERE json_extract(value, '$.clientId') = ?
+            OR json_extract(value, '$.client_id') = ?
+            OR json_extract(value, '$.params.client_id') = ?`,
+      )
+      .run(clientId, clientId, clientId);
   }
 
   static async closeAll(): Promise<void> {

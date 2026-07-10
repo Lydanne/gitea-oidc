@@ -229,6 +229,66 @@ export const ProviderApiConfigSchema = z
   });
 
 /**
+ * 应用控制面配置。主密钥只允许在启用时校验，避免兼容模式被迫配置无用密钥。
+ */
+export const ApplicationsConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    clientSource: z.enum(["config", "database"]).default("config"),
+    repository: z
+      .object({
+        type: z.enum(["memory", "sqlite"]).default("sqlite"),
+        sqlite: z
+          .object({
+            dbPath: z.string().min(1).optional().default("./applications.db"),
+          })
+          .optional(),
+      })
+      .default({ type: "sqlite", sqlite: { dbPath: "./applications.db" } }),
+    secretEncryption: z
+      .object({
+        keyId: z
+          .string()
+          .regex(/^[A-Za-z0-9._-]{1,128}$/)
+          .default("applications-v1"),
+        masterKey: z.string().default(""),
+      })
+      .default({ keyId: "applications-v1", masterKey: "" }),
+  })
+  .superRefine((data, context) => {
+    if (!data.enabled) {
+      return;
+    }
+
+    const value = data.secretEncryption.masterKey.trim();
+    const isBase64 = /^[A-Za-z0-9+/_-]+={0,2}$/.test(value);
+    let decodedKey: Buffer | undefined;
+    if (isBase64) {
+      try {
+        decodedKey = Buffer.from(
+          value,
+          value.includes("-") || value.includes("_") ? "base64url" : "base64",
+        );
+      } catch {
+        decodedKey = undefined;
+      }
+    }
+    if (!isBase64 || decodedKey?.byteLength !== 32) {
+      context.addIssue({
+        code: "custom",
+        path: ["secretEncryption", "masterKey"],
+        message: "启用应用管理时必须配置 Base64/Base64URL 编码的 32 字节独立主密钥",
+      });
+    } else if (new Set(decodedKey.values()).size < 8) {
+      context.addIssue({
+        code: "custom",
+        path: ["secretEncryption", "masterKey"],
+        message: "应用密钥主密钥随机性不足，请使用安全随机源重新生成",
+      });
+    }
+  });
+
+/**
  * SQLite 适配器配置 Schema
  */
 export const SqliteAdapterConfigSchema = z.object({
@@ -288,40 +348,111 @@ export const JwksConfigSchema = z.object({
 /**
  * 完整配置 Schema
  */
-export const GiteaOidcConfigSchema = z.object({
-  server: ServerConfigSchema,
-  logging: LoggingConfigSchema,
-  oidc: OidcConfigSchema,
-  clients: z.array(ClientConfigSchema).min(1, "至少需要配置一个客户端"),
-  auth: AuthConfigSchema,
-  admin: AdminConfigSchema.default({
-    enabled: true,
-    basePath: "/admin",
-    allowedGroups: ["gitea-oidc-admins"],
-    sessionTtlSeconds: 3600,
-  }),
-  providerApi: ProviderApiConfigSchema.default({
-    enabled: false,
-    tokenEncryptionKey: "",
-    refreshSkewSeconds: 300,
-    probeIntervalSeconds: 300,
-    requestTimeoutMs: 10000,
-    responseBodyLimitBytes: 1048576,
-    sdkProxy: true,
-    allowedClientIds: [],
-    providers: {},
-  }),
-  adapter: OidcAdapterConfigSchema.optional().default({
-    type: "sqlite",
-    sqlite: {
-      dbPath: "./oidc.db",
-    },
-  }),
-  jwks: JwksConfigSchema.optional().default({
-    filePath: "./jwks.json",
-    keyId: "default-key",
-  }),
-});
+export const GiteaOidcConfigSchema = z
+  .object({
+    server: ServerConfigSchema,
+    logging: LoggingConfigSchema,
+    oidc: OidcConfigSchema,
+    clients: z.array(ClientConfigSchema).min(1, "至少需要配置一个客户端"),
+    auth: AuthConfigSchema,
+    admin: AdminConfigSchema.default({
+      enabled: true,
+      basePath: "/admin",
+      allowedGroups: ["gitea-oidc-admins"],
+      sessionTtlSeconds: 3600,
+    }),
+    providerApi: ProviderApiConfigSchema.default({
+      enabled: false,
+      tokenEncryptionKey: "",
+      refreshSkewSeconds: 300,
+      probeIntervalSeconds: 300,
+      requestTimeoutMs: 10000,
+      responseBodyLimitBytes: 1048576,
+      sdkProxy: true,
+      allowedClientIds: [],
+      providers: {},
+    }),
+    applications: ApplicationsConfigSchema.default({
+      enabled: false,
+      clientSource: "config",
+      repository: { type: "sqlite", sqlite: { dbPath: "./applications.db" } },
+      secretEncryption: { keyId: "applications-v1", masterKey: "" },
+    }),
+    adapter: OidcAdapterConfigSchema.optional().default({
+      type: "sqlite",
+      sqlite: {
+        dbPath: "./oidc.db",
+      },
+    }),
+    jwks: JwksConfigSchema.optional().default({
+      filePath: "./jwks.json",
+      keyId: "default-key",
+    }),
+  })
+  .superRefine((data, context) => {
+    const databaseMode = data.applications.clientSource === "database";
+    if (data.applications.enabled !== databaseMode) {
+      context.addIssue({
+        code: "custom",
+        path: ["applications", "clientSource"],
+        message: "applications.enabled 与 clientSource=database 必须同时启用或同时关闭",
+      });
+    }
+    if (databaseMode && data.adapter.type !== "sqlite") {
+      context.addIssue({
+        code: "custom",
+        path: ["adapter", "type"],
+        message: "database Client 模式当前仅支持单实例 SQLite OIDC adapter",
+      });
+    }
+    if (databaseMode && data.oidc.features.registration.enabled) {
+      context.addIssue({
+        code: "custom",
+        path: ["oidc", "features", "registration", "enabled"],
+        message: "database Client 模式禁止绕过 ApplicationService 的动态注册端点",
+      });
+    }
+    if (databaseMode) {
+      const clientIds = new Set<string>();
+      data.clients.forEach((client, index) => {
+        if (clientIds.has(client.client_id)) {
+          context.addIssue({
+            code: "custom",
+            path: ["clients", index, "client_id"],
+            message: "database Client 模式不允许重复的 client_id",
+          });
+        }
+        clientIds.add(client.client_id);
+
+        if (client.token_endpoint_auth_method !== "client_secret_basic") {
+          context.addIssue({
+            code: "custom",
+            path: ["clients", index, "token_endpoint_auth_method"],
+            message: "database Client 模式当前只支持 client_secret_basic 系统 Client",
+          });
+        }
+        if (client.response_types.length !== 1 || client.response_types[0] !== "code") {
+          context.addIssue({
+            code: "custom",
+            path: ["clients", index, "response_types"],
+            message: "database Client 模式当前只支持 response_types=[code]",
+          });
+        }
+        if (
+          !client.grant_types.includes("authorization_code") ||
+          client.grant_types.some(
+            (grantType) => grantType !== "authorization_code" && grantType !== "refresh_token",
+          )
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["clients", index, "grant_types"],
+            message: "database Client 模式只支持 authorization_code 和可选 refresh_token",
+          });
+        }
+      });
+    }
+  });
 
 /**
  * 验证后的配置类型

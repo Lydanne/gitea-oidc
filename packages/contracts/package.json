@@ -1,0 +1,42 @@
+{
+  "name": "@gitea-oidc/contracts",
+  "version": "0.1.0",
+  "description": "Versioned public wire contracts for Gitea OIDC applications and connectors",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:pack": "pnpm build && node ./scripts/check-pack.mjs",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.9"
+  }
+}

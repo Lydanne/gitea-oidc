@@ -16,6 +16,16 @@ describe("registerAdminRoutes", () => {
     delete: vi.fn(),
   });
 
+  const createOidcClientLifecycle = () => ({
+    acquireBlock: vi.fn((clientId: string) => ({
+      clientId,
+      commit: vi.fn(),
+      release: vi.fn(),
+    })),
+    revoke: vi.fn().mockResolvedValue(undefined),
+    allow: vi.fn(),
+  });
+
   const adminCookieHeader = (sessionId: string) => ({
     cookie: `gitea_oidc_admin_session=${sessionId}`,
   });
@@ -93,6 +103,8 @@ describe("registerAdminRoutes", () => {
       oidcProvider: {} as any,
       authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
       userRepository: { findById: vi.fn().mockResolvedValue(user), list: vi.fn() } as any,
+      applicationService: {} as any,
+      oidcClientLifecycle: createOidcClientLifecycle(),
     });
     const session = sessionStore!.createSession("user-1");
 
@@ -102,7 +114,12 @@ describe("registerAdminRoutes", () => {
       { code: vi.fn().mockReturnThis(), send: vi.fn() },
     );
 
-    expect(result).toEqual({ user, admin: true });
+    expect(result).toEqual({
+      user,
+      admin: true,
+      basePath: "/admin",
+      capabilities: { applications: true },
+    });
   });
 
   it("rejects bearer tokens on admin APIs", async () => {
@@ -443,7 +460,7 @@ describe("registerAdminRoutes", () => {
     );
   });
 
-  it("serves the admin SPA index for login and routed admin pages", async () => {
+  it("injects the runtime base path and application capability into admin pages", async () => {
     const app = createApp();
     registerAdminRoutes({
       publicDir,
@@ -451,20 +468,27 @@ describe("registerAdminRoutes", () => {
       config: {
         admin: {
           enabled: true,
-          basePath: "/admin",
+          basePath: "/ops/identity/",
           allowedGroups: ["gitea-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
         oidc: { issuer: "http://localhost:3000/oidc" },
-        clients: [createAdminClient()],
+        clients: [
+          {
+            ...createAdminClient(),
+            redirect_uris: ["http://localhost:3000/ops/identity/callback"],
+          },
+        ],
       } as any,
       oidcProvider: {} as any,
       authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
       userRepository: {} as any,
+      applicationService: {} as any,
+      oidcClientLifecycle: createOidcClientLifecycle(),
     });
-    const loginHandler = app.get.mock.calls.find((call) => call[0] === "/admin/login")?.[1];
-    const usersHandler = app.get.mock.calls.find((call) => call[0] === "/admin/users")?.[1];
+    const loginHandler = app.get.mock.calls.find((call) => call[0] === "/ops/identity/login")?.[1];
+    const usersHandler = app.get.mock.calls.find((call) => call[0] === "/ops/identity/users")?.[1];
     const reply = {
       header: vi.fn().mockReturnThis(),
       type: vi.fn().mockReturnThis(),
@@ -483,7 +507,33 @@ describe("registerAdminRoutes", () => {
     expect(reply.header).toHaveBeenCalledWith("X-Frame-Options", "DENY");
     expect(reply.header).toHaveBeenCalledWith("X-Content-Type-Options", "nosniff");
     expect(reply.header).toHaveBeenCalledWith("Referrer-Policy", "same-origin");
+    expect(reply.header).toHaveBeenCalledWith("Cache-Control", "no-store");
+    expect(reply.send.mock.calls[0][0]).toContain(
+      'data-gitea-oidc-admin-base-path="/ops/identity"',
+    );
+    expect(reply.send.mock.calls[0][0]).toContain('data-gitea-oidc-applications-enabled="true"');
+    expect(reply.send.mock.calls[0][0]).toContain('<base href="/ops/identity/">');
     expect(reply.send.mock.calls[0][0]).toContain('<div id="app"></div>');
+
+    const assetHandler = app.get.mock.calls.find(
+      (call) => call[0] === "/ops/identity/assets/*",
+    )?.[1];
+    const assetReply = {
+      code: vi.fn().mockReturnThis(),
+      header: vi.fn().mockReturnThis(),
+      send: vi.fn().mockReturnThis(),
+      sendFile: vi.fn().mockReturnThis(),
+    };
+    await expect(assetHandler({ params: { "*": "index-abc123.js" } }, assetReply)).resolves.toBe(
+      assetReply,
+    );
+    expect(assetReply.sendFile).toHaveBeenCalledWith("admin/assets/index-abc123.js", {
+      maxAge: "1y",
+      immutable: true,
+    });
+
+    await assetHandler({ params: { "*": "../secrets.txt" } }, assetReply);
+    expect(assetReply.code).toHaveBeenCalledWith(404);
   });
 
   it("can apply admin security headers to Node static responses", () => {
@@ -1427,5 +1477,467 @@ describe("registerAdminRoutes", () => {
 
     expect(reply.code).toHaveBeenCalledWith(401);
     expect(reply.send).toHaveBeenCalledWith({ error: "Unauthorized" });
+  });
+
+  it("returns 503 for application APIs when the control plane is disabled", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const meHandler = app.get.mock.calls.find((call) => call[0] === "/admin/api/me")?.[1];
+    const handler = app.get.mock.calls.find((call) => call[0] === "/admin/api/applications")?.[1];
+    const reply = { code: vi.fn().mockReturnThis(), send: vi.fn() };
+
+    const me = await meHandler(
+      { headers: adminCookieHeader(session.id) },
+      { code: vi.fn().mockReturnThis(), send: vi.fn() },
+    );
+    await handler({ headers: adminCookieHeader(session.id) }, reply);
+
+    expect(me.capabilities).toEqual({ applications: false });
+    expect(reply.code).toHaveBeenCalledWith(503);
+    expect(reply.send).toHaveBeenCalledWith({ error: "Application management is not enabled" });
+  });
+
+  it("refuses to mount an application control plane without an OIDC lifecycle coordinator", () => {
+    expect(() =>
+      registerAdminRoutes({
+        publicDir,
+        app: createApp() as any,
+        config: {
+          admin: {
+            enabled: true,
+            basePath: "/admin",
+            allowedGroups: ["gitea-oidc-admins"],
+            sessionTtlSeconds: 3600,
+          },
+          server: { url: "http://localhost:3000" },
+          oidc: { issuer: "http://localhost:3000/oidc" },
+          clients: [createAdminClient()],
+        } as any,
+        oidcProvider: {} as any,
+        authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+        userRepository: {} as any,
+        applicationService: {} as any,
+      }),
+    ).toThrow("必须同时配置 applicationService 和 oidcClientLifecycle");
+  });
+
+  it("marks application reads no-store and hides internal storage errors", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: {
+        listApplicationDetails: vi.fn().mockRejectedValue(new Error("/private/applications.db")),
+      } as any,
+      oidcClientLifecycle: createOidcClientLifecycle(),
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const handler = app.get.mock.calls.find((call) => call[0] === "/admin/api/applications")?.[1];
+    const reply = {
+      code: vi.fn().mockReturnThis(),
+      header: vi.fn().mockReturnThis(),
+      send: vi.fn().mockReturnThis(),
+    };
+
+    await expect(handler({ headers: adminCookieHeader(session.id) }, reply)).resolves.toBe(reply);
+
+    expect(reply.header).toHaveBeenCalledWith("Cache-Control", "no-store");
+    expect(reply.header).toHaveBeenCalledWith("Pragma", "no-cache");
+    expect(reply.code).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({ error: "Internal Server Error" });
+    expect(JSON.stringify(reply.send.mock.calls)).not.toContain("applications.db");
+  });
+
+  it("creates an application with idempotency and no-store response headers", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const applicationService = {
+      createCustomApplication: vi.fn().mockResolvedValue({
+        replayed: false,
+        response: {
+          application: { id: "app-1" },
+          credentialDelivery: {
+            kind: "direct",
+            credential: { kind: "client_secret", clientSecret: "one-time-secret" },
+          },
+        },
+      }),
+    };
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: applicationService as any,
+      oidcClientLifecycle: createOidcClientLifecycle(),
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const handler = app.post.mock.calls.find((call) => call[0] === "/admin/api/applications")?.[1];
+    const reply = {
+      code: vi.fn().mockReturnThis(),
+      header: vi.fn().mockReturnThis(),
+      send: vi.fn().mockReturnThis(),
+    };
+    const body = { schemaVersion: 1 };
+
+    await handler(
+      {
+        headers: {
+          ...adminMutationHeaders(session.id),
+          "idempotency-key": "create-app-request-1",
+        },
+        body,
+      },
+      reply,
+    );
+
+    expect(applicationService.createCustomApplication).toHaveBeenCalledWith(body, {
+      idempotencyKey: "create-app-request-1",
+      actor: { type: "user", id: "admin-1" },
+    });
+    expect(reply.header).toHaveBeenCalledWith("Cache-Control", "no-store");
+    expect(reply.header).toHaveBeenCalledWith("Pragma", "no-cache");
+    expect(reply.code).toHaveBeenCalledWith(201);
+  });
+
+  it("disables an application with optimistic version and revokes every client", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const disabling = {
+      application: { id: "app-1", status: "disabling", version: 2 },
+      clients: [{ clientId: "client-1" }, { clientId: "client-2" }],
+      secrets: [],
+    };
+    const updated = {
+      ...disabling,
+      application: { id: "app-1", status: "disabled", version: 3 },
+    };
+    const applicationService = {
+      getApplication: vi.fn().mockResolvedValue({
+        application: { id: "app-1", status: "active", version: 1 },
+        clients: disabling.clients,
+        secrets: [],
+      }),
+      disableApplication: vi.fn().mockResolvedValue(disabling),
+      completeDisableApplication: vi.fn().mockResolvedValue(updated),
+    };
+    const blockLeases = [
+      { clientId: "client-1", commit: vi.fn(), release: vi.fn() },
+      { clientId: "client-2", commit: vi.fn(), release: vi.fn() },
+    ];
+    const acquireOidcClientBlock = vi
+      .fn()
+      .mockReturnValueOnce(blockLeases[0])
+      .mockReturnValueOnce(blockLeases[1]);
+    const revokeOidcClient = vi.fn().mockResolvedValue(undefined);
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: applicationService as any,
+      oidcClientLifecycle: {
+        acquireBlock: acquireOidcClientBlock,
+        revoke: revokeOidcClient,
+        allow: vi.fn(),
+      },
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const handler = app.post.mock.calls.find(
+      (call) => call[0] === "/admin/api/applications/:id/disable",
+    )?.[1];
+
+    const result = await handler(
+      {
+        headers: adminMutationHeaders(session.id),
+        params: { id: "app-1" },
+        body: { expectedVersion: 1 },
+      },
+      { code: vi.fn().mockReturnThis(), send: vi.fn() },
+    );
+
+    expect(applicationService.disableApplication).toHaveBeenCalledWith("app-1", {
+      expectedVersion: 1,
+      actor: { type: "user", id: "admin-1" },
+    });
+    expect(applicationService.completeDisableApplication).toHaveBeenCalledWith("app-1", {
+      expectedVersion: 2,
+      actor: { type: "user", id: "admin-1" },
+    });
+    expect(acquireOidcClientBlock.mock.calls).toEqual([["client-1"], ["client-2"]]);
+    expect(acquireOidcClientBlock.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      applicationService.disableApplication.mock.invocationCallOrder[0],
+    );
+    expect(blockLeases.every((lease) => lease.commit.mock.calls.length === 1)).toBe(true);
+    expect(blockLeases.every((lease) => lease.release.mock.calls.length === 0)).toBe(true);
+    expect(revokeOidcClient.mock.calls).toEqual([["client-1"], ["client-2"]]);
+    expect(result).toBe(updated);
+  });
+
+  it("allows the same disable request to retry OIDC revocation after a transient failure", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const active = {
+      application: { id: "app-1", status: "active", version: 1 },
+      clients: [{ clientId: "client-1" }],
+      secrets: [],
+    };
+    const disabling = {
+      application: { ...active.application, status: "disabling", version: 2 },
+      clients: active.clients,
+      secrets: [],
+    };
+    const disabled = {
+      ...disabling,
+      application: { ...active.application, status: "disabled", version: 3 },
+    };
+    const applicationService = {
+      getApplication: vi
+        .fn()
+        .mockResolvedValueOnce(active)
+        .mockResolvedValueOnce(disabling)
+        .mockResolvedValueOnce(disabled),
+      disableApplication: vi.fn().mockResolvedValue(disabling),
+      completeDisableApplication: vi.fn().mockResolvedValue(disabled),
+    };
+    const revokeOidcClient = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary storage failure"))
+      .mockResolvedValueOnce(undefined);
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: applicationService as any,
+      oidcClientLifecycle: {
+        ...createOidcClientLifecycle(),
+        revoke: revokeOidcClient,
+      },
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const handler = app.post.mock.calls.find(
+      (call) => call[0] === "/admin/api/applications/:id/disable",
+    )?.[1];
+    const request = {
+      headers: adminMutationHeaders(session.id),
+      params: { id: "app-1" },
+      body: { expectedVersion: 1 },
+    };
+    const reply = { code: vi.fn().mockReturnThis(), send: vi.fn().mockReturnThis() };
+
+    await expect(handler(request, reply)).resolves.toBe(reply);
+    expect(reply.code).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({ error: "Internal Server Error" });
+    await expect(handler(request, reply)).resolves.toBe(disabled);
+    await expect(handler(request, reply)).resolves.toBe(disabled);
+
+    expect(applicationService.disableApplication).toHaveBeenCalledTimes(1);
+    expect(applicationService.completeDisableApplication).toHaveBeenCalledTimes(1);
+    expect(revokeOidcClient).toHaveBeenCalledTimes(3);
+  });
+
+  it("serializes concurrent disable requests for the same application", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const active = {
+      application: { id: "app-1", status: "active", version: 1 },
+      clients: [{ clientId: "client-1" }],
+      secrets: [],
+    };
+    const disabling = {
+      ...active,
+      application: { ...active.application, status: "disabling", version: 2 },
+    };
+    const disabled = {
+      ...active,
+      application: { ...active.application, status: "disabled", version: 3 },
+    };
+    const applicationService = {
+      getApplication: vi.fn().mockResolvedValueOnce(active).mockResolvedValueOnce(disabled),
+      disableApplication: vi.fn().mockResolvedValue(disabling),
+      completeDisableApplication: vi.fn().mockResolvedValue(disabled),
+    };
+    let finishFirstRevocation!: () => void;
+    const firstRevocation = new Promise<void>((resolve) => {
+      finishFirstRevocation = resolve;
+    });
+    const lifecycle = createOidcClientLifecycle();
+    lifecycle.revoke.mockImplementationOnce(() => firstRevocation).mockResolvedValueOnce(undefined);
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: applicationService as any,
+      oidcClientLifecycle: lifecycle,
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const handler = app.post.mock.calls.find(
+      (call) => call[0] === "/admin/api/applications/:id/disable",
+    )?.[1];
+    const request = {
+      headers: adminMutationHeaders(session.id),
+      params: { id: "app-1" },
+      body: { expectedVersion: 1 },
+    };
+
+    const first = handler(request, { code: vi.fn().mockReturnThis(), send: vi.fn() });
+    await vi.waitFor(() => expect(lifecycle.revoke).toHaveBeenCalledTimes(1));
+    const second = handler(request, { code: vi.fn().mockReturnThis(), send: vi.fn() });
+    await Promise.resolve();
+    expect(applicationService.getApplication).toHaveBeenCalledTimes(1);
+
+    finishFirstRevocation();
+    await expect(first).resolves.toBe(disabled);
+    await expect(second).resolves.toBe(disabled);
+    expect(applicationService.getApplication).toHaveBeenCalledTimes(2);
+    expect(applicationService.disableApplication).toHaveBeenCalledTimes(1);
+    expect(applicationService.completeDisableApplication).toHaveBeenCalledTimes(1);
+    expect(lifecycle.allow).not.toHaveBeenCalled();
+  });
+
+  it("enables an application idempotently and always removes every Client barrier", async () => {
+    const app = createApp();
+    const admin = { sub: "admin-1", groups: ["gitea-oidc-admins"], status: "active" };
+    const disabled = {
+      application: { id: "app-1", status: "disabled", version: 3 },
+      clients: [{ clientId: "client-1" }, { clientId: "client-2" }],
+    };
+    const active = {
+      ...disabled,
+      application: { ...disabled.application, status: "active", version: 4 },
+    };
+    const applicationService = {
+      getApplication: vi.fn().mockResolvedValueOnce(disabled).mockResolvedValueOnce(active),
+      enableApplication: vi.fn().mockResolvedValue(active),
+    };
+    const allowOidcClient = vi.fn();
+    const sessionStore = registerAdminRoutes({
+      publicDir,
+      app: app as any,
+      config: {
+        admin: {
+          enabled: true,
+          basePath: "/admin",
+          allowedGroups: ["gitea-oidc-admins"],
+          sessionTtlSeconds: 3600,
+        },
+        server: { url: "http://localhost:3000" },
+        oidc: { issuer: "http://localhost:3000/oidc" },
+        clients: [createAdminClient()],
+      } as any,
+      oidcProvider: {} as any,
+      authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+      userRepository: { findById: vi.fn().mockResolvedValue(admin) } as any,
+      applicationService: applicationService as any,
+      oidcClientLifecycle: {
+        ...createOidcClientLifecycle(),
+        allow: allowOidcClient,
+      },
+    });
+    const session = sessionStore!.createSession("admin-1");
+    const handler = app.post.mock.calls.find(
+      (call) => call[0] === "/admin/api/applications/:id/enable",
+    )?.[1];
+    const request = {
+      headers: adminMutationHeaders(session.id),
+      params: { id: "app-1" },
+      body: { expectedVersion: 3 },
+    };
+    const reply = { code: vi.fn().mockReturnThis(), send: vi.fn().mockReturnThis() };
+
+    await expect(handler(request, reply)).resolves.toBe(active);
+    await expect(handler(request, reply)).resolves.toBe(active);
+
+    expect(applicationService.enableApplication).toHaveBeenCalledTimes(1);
+    expect(allowOidcClient.mock.calls).toEqual([
+      ["client-1"],
+      ["client-2"],
+      ["client-1"],
+      ["client-2"],
+    ]);
   });
 });

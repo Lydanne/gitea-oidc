@@ -1,6 +1,8 @@
 import { builtinModules } from "node:module";
 import { defineConfig } from "rolldown";
 
+const bundledWorkspacePackages = new Set(["@gitea-oidc/applications", "@gitea-oidc/contracts"]);
+
 /**
  * 生产环境 Rolldown 配置
  *
@@ -31,6 +33,13 @@ export default defineConfig({
 
   // 自动将所有 Node.js 内置模块和 node_modules 依赖标记为 external
   external: (id) => {
+    if (
+      bundledWorkspacePackages.has(id) ||
+      [...bundledWorkspacePackages].some((packageName) => id.startsWith(`${packageName}/`))
+    ) {
+      return false;
+    }
+
     // Node.js 内置模块 (包括 node: 前缀)
     if (id.startsWith("node:") || builtinModules.includes(id)) {
       return true;

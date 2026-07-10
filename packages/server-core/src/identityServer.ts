@@ -6,8 +6,10 @@ import staticFiles from "@fastify/static";
 import fastify, { type FastifyInstance } from "fastify";
 import { type Configuration, Provider } from "oidc-provider";
 import path, { join } from "path";
+import { ApplicationClientAdapter } from "./adapters/ApplicationClientAdapter.js";
 import { OidcAdapterFactory } from "./adapters/OidcAdapterFactory.js";
-import { type GiteaOidcConfig, loadConfig } from "./config.js";
+import { createApplicationRuntime } from "./applications/applicationRuntime.js";
+import { type GiteaOidcConfig, loadConfig, resolveApplicationsConfig } from "./config.js";
 // 认证系统导入
 import { AuthCoordinator } from "./core/AuthCoordinator.js";
 import { DingTalkProviderApiClient } from "./provider-api/DingTalkProviderApiClient.js";
@@ -24,6 +26,7 @@ import { MemoryStateStore } from "./stores/MemoryStateStore.js";
 import { RedisStateStore } from "./stores/RedisStateStore.js";
 import type { AuthContext, StateStore } from "./types/auth.js";
 import type { ProviderTokenRepository } from "./types/providerApi.js";
+import { readConsentGrantDisclosure, renderConsentPage } from "./ui/consentPageRenderer.js";
 import { formatAuthError, getUserErrorMessage } from "./utils/authErrors.js";
 import {
   formatValidationErrors,
@@ -46,6 +49,7 @@ interface ServerRuntimeResources {
   providerTokenProbeScheduler?: Pick<ProviderTokenProbeScheduler, "stop">;
   tokenRepository?: Pick<ProviderTokenRepository, "close">;
   stateStore?: { destroy?: () => Promise<void> | void };
+  applicationRuntime?: { close: () => Promise<void> | void };
 }
 
 interface ServerCleanupOptions {
@@ -162,6 +166,8 @@ async function createIdentityServerFromConfig(
     runtimeResources.stateStore = stateStore;
     const userRepository = UserRepositoryFactory.create(config.auth.userRepository);
     runtimeResources.userRepository = userRepository as { close?: () => Promise<void> | void };
+    const applicationRuntime = await createApplicationRuntime(config);
+    runtimeResources.applicationRuntime = applicationRuntime;
     if (config.providerApi.enabled) {
       assertStrongProviderTokenKey(config.providerApi.tokenEncryptionKey);
     }
@@ -214,11 +220,21 @@ async function createIdentityServerFromConfig(
     // 配置 OIDC 适配器
     if (config.adapter) {
       Logger.info(`[适配器] 配置类型: ${config.adapter.type}`);
-      OidcAdapterFactory.configure(config.adapter);
+      OidcAdapterFactory.configure(
+        config.adapter,
+        applicationRuntime
+          ? {
+              Client: () => new ApplicationClientAdapter(applicationRuntime.clientProjector),
+            }
+          : {},
+      );
     } else {
       Logger.warn("[适配器] 未配置适配器,使用默认 SQLite");
       OidcAdapterFactory.configure({ type: "sqlite" });
     }
+    await applicationRuntime?.recoverPendingDisables((clientId) =>
+      OidcAdapterFactory.revokeByClientId(clientId),
+    );
 
     // 加载或生成 JWKS
     Logger.info("[JWKS] 正在加载密钥...");
@@ -233,7 +249,8 @@ async function createIdentityServerFromConfig(
       ...(adapterFactory ? { adapter: adapterFactory } : {}),
       // 使用持久化的 JWKS
       jwks,
-      clients: config.clients as any,
+      clients:
+        resolveApplicationsConfig(config).clientSource === "config" ? (config.clients as any) : [],
       interactions: {
         url: async (ctx, interaction) => {
           return `/interaction/${interaction.uid}`;
@@ -244,6 +261,14 @@ async function createIdentityServerFromConfig(
       },
       claims: config.oidc.claims,
       features: config.oidc.features,
+      extraClientMetadata: {
+        properties: ["require_pkce"],
+        validator: (_ctx, key, value) => {
+          if (key === "require_pkce" && value !== undefined && typeof value !== "boolean") {
+            throw new TypeError("require_pkce Client metadata 必须是 boolean");
+          }
+        },
+      },
       findAccount: async (ctx, sub, token) => {
         Logger.debug("[查找账户]", {
           sub,
@@ -301,6 +326,10 @@ async function createIdentityServerFromConfig(
         };
       },
       ttl: config.oidc.ttl,
+      pkce: {
+        required: (_ctx, client) =>
+          client.clientAuthMethod === "none" || client.require_pkce === true,
+      },
     };
 
     const oidc = new Provider(config.oidc.issuer, configuration);
@@ -388,6 +417,14 @@ async function createIdentityServerFromConfig(
       stateStore,
       publicDir,
       revokeOidcAccount: (accountId) => OidcAdapterFactory.revokeByAccountId(accountId),
+      applicationService: applicationRuntime?.applicationService,
+      oidcClientLifecycle: applicationRuntime
+        ? {
+            acquireBlock: (clientId) => OidcAdapterFactory.acquireClientIdBlock(clientId),
+            revoke: (clientId) => OidcAdapterFactory.revokeByClientId(clientId),
+            allow: (clientId) => OidcAdapterFactory.allowClientId(clientId),
+          }
+        : undefined,
     });
 
     // 挂载OIDC到Fastify
@@ -421,6 +458,9 @@ async function createIdentityServerFromConfig(
 
       try {
         const details = await oidc.interactionDetails(request.raw, reply.raw);
+        if (details.uid !== uid) {
+          return reply.code(400).send("Invalid or expired interaction");
+        }
 
         Logger.debug(
           "[GET 交互详情]",
@@ -432,59 +472,52 @@ async function createIdentityServerFromConfig(
           }),
         );
 
-        // 如果是 consent prompt，说明用户已经登录，直接自动授予同意
+        // 静态兼容 Client 保留旧行为；动态第三方应用必须经过显式 consent。
         if (details.prompt.name === "consent") {
-          Logger.info(`[自动授予同意] 用户已登录，自动处理 consent`);
-
-          // 获取或创建 grant
-          let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
-          if (!grant) {
-            grant = new oidc.Grant({
-              accountId: details.session?.accountId,
-              clientId: (details.params as any).client_id,
-            });
+          const clientId = String((details.params as Record<string, unknown>).client_id ?? "");
+          const policy =
+            await applicationRuntime?.clientProjector.findAuthorizationPolicyByClientId(clientId);
+          const applicationsConfig = resolveApplicationsConfig(config);
+          const isConfiguredClient =
+            applicationsConfig.clientSource === "config" &&
+            config.clients.some((client) => client.client_id === clientId);
+          if (!policy && !isConfiguredClient) {
+            return reply.code(400).send("Invalid or disabled client");
+          }
+          if (
+            isConfiguredClient ||
+            (policy?.trustLevel === "first_party" && policy.consentPolicy === "skip_for_trusted")
+          ) {
+            const grantId = await approveConsent(oidc, details);
+            await oidc.interactionFinished(
+              request.raw,
+              reply.raw,
+              { consent: { grantId } },
+              { mergeWithLastSubmission: true },
+            );
+            Logger.info(`[自动授予完成] clientId=${clientId}`);
+            return;
           }
 
-          // 添加缺失的 scope/claims
-          const missingScope = (details.prompt as any)?.details?.missingOIDCScope as
-            | string[]
-            | undefined;
-          if (missingScope && missingScope.length > 0) {
-            grant.addOIDCScope(missingScope.join(" "));
+          if (!policy) {
+            return reply.code(400).send("Invalid or disabled client");
           }
 
-          const missingClaims = (details.prompt as any)?.details?.missingOIDCClaims as
-            | string[]
-            | undefined;
-          if (missingClaims && missingClaims.length > 0) {
-            grant.addOIDCClaims(missingClaims);
-          }
-
-          const missingResourceScopes = (details.prompt as any)?.details?.missingResourceScopes as
-            | Record<string, string[]>
-            | undefined;
-          if (missingResourceScopes) {
-            for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
-              if (scopes && scopes.length > 0) {
-                grant.addResourceScope(indicator, scopes.join(" "));
-              }
-            }
-          }
-
-          const grantId = await grant.save();
-
-          // 完成交互
-          await oidc.interactionFinished(
-            request.raw,
-            reply.raw,
-            {
-              consent: { grantId },
-            },
-            { mergeWithLastSubmission: true },
+          const grantDetails = readConsentGrantDisclosure(details.prompt.details);
+          const requestedScopes = [
+            ...new Set([...readRequestedScopes(details.params), ...grantDetails.oidcScopes]),
+          ];
+          setInteractionSecurityHeaders(reply);
+          return reply.type("text/html; charset=utf-8").send(
+            renderConsentPage({
+              uid,
+              applicationName: policy.applicationName,
+              clientId,
+              scopes: requestedScopes,
+              claims: grantDetails.oidcClaims,
+              resources: grantDetails.resourceScopes,
+            }),
           );
-
-          Logger.info(`[自动授予完成] grantId: ${grantId}`);
-          return;
         }
 
         // 如果是 login prompt，渲染登录页面
@@ -518,6 +551,46 @@ async function createIdentityServerFromConfig(
 
         // 其他错误保持原样
         return reply.code(500).send("Internal Server Error");
+      }
+    });
+
+    app.post("/interaction/:uid/consent", async (request, reply) => {
+      const { uid } = request.params as { uid: string };
+      setInteractionSecurityHeaders(reply);
+      if (!isTrustedInteractionPost(request, config, uid)) {
+        return reply.code(403).send("Forbidden");
+      }
+
+      try {
+        const details = await oidc.interactionDetails(request.raw, reply.raw);
+        if (details.uid !== uid || details.prompt.name !== "consent") {
+          return reply.code(400).send("Invalid or expired interaction");
+        }
+
+        const body = request.body as { decision?: unknown };
+        if (body.decision === "deny") {
+          await oidc.interactionFinished(
+            request.raw,
+            reply.raw,
+            { error: "access_denied", error_description: "用户拒绝授权" },
+            { mergeWithLastSubmission: false },
+          );
+          return;
+        }
+        if (body.decision !== "approve") {
+          return reply.code(400).send("Invalid consent decision");
+        }
+
+        const grantId = await approveConsent(oidc, details);
+        await oidc.interactionFinished(
+          request.raw,
+          reply.raw,
+          { consent: { grantId } },
+          { mergeWithLastSubmission: true },
+        );
+      } catch (err) {
+        Logger.error("[Consent] 处理失败:", sanitizeForLog(err));
+        return reply.code(400).send("Invalid or expired interaction");
       }
     });
 
@@ -757,6 +830,81 @@ export function setInteractionSecurityHeaders(target: HeaderTarget): void {
   setHeader(target, "X-Frame-Options", "DENY");
   setHeader(target, "X-Content-Type-Options", "nosniff");
   setHeader(target, "Referrer-Policy", "same-origin");
+  setHeader(target, "Cache-Control", "no-store");
+  setHeader(target, "Pragma", "no-cache");
+}
+
+async function approveConsent(oidc: Provider, details: any): Promise<string> {
+  const clientId = details.params?.client_id;
+  const accountId = details.session?.accountId;
+  if (typeof clientId !== "string" || clientId === "" || typeof accountId !== "string") {
+    throw new Error("Consent interaction 缺少 Client 或账号上下文");
+  }
+
+  let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
+  if (!grant) {
+    grant = new oidc.Grant({ accountId, clientId });
+  }
+
+  const grantDetails = readConsentGrantDisclosure(details.prompt?.details);
+  if (grantDetails.oidcScopes.length > 0) {
+    grant.addOIDCScope(grantDetails.oidcScopes.join(" "));
+  }
+
+  if (grantDetails.oidcClaims.length > 0) {
+    grant.addOIDCClaims(grantDetails.oidcClaims);
+  }
+
+  for (const { indicator, scopes } of grantDetails.resourceScopes) {
+    grant.addResourceScope(indicator, scopes.join(" "));
+  }
+
+  return grant.save();
+}
+
+function readRequestedScopes(params: unknown): string[] {
+  if (params === null || typeof params !== "object" || Array.isArray(params)) {
+    return ["openid"];
+  }
+  const scope = (params as Record<string, unknown>).scope;
+  if (typeof scope !== "string") {
+    return ["openid"];
+  }
+  const scopes = [...new Set(scope.split(" ").filter(Boolean))];
+  return scopes.length > 0 ? scopes : ["openid"];
+}
+
+function isTrustedInteractionPost(
+  request: { headers: Record<string, unknown> },
+  config: GiteaOidcConfig,
+  uid: string,
+): boolean {
+  const contentType = request.headers["content-type"];
+  if (
+    typeof contentType !== "string" ||
+    !contentType.toLowerCase().startsWith("application/x-www-form-urlencoded")
+  ) {
+    return false;
+  }
+
+  const expectedOrigin = new URL(config.server.url).origin;
+  const origin = request.headers.origin;
+  if (typeof origin === "string") {
+    return origin === expectedOrigin;
+  }
+
+  const referer = request.headers.referer;
+  if (typeof referer !== "string") {
+    return false;
+  }
+  try {
+    const url = new URL(referer);
+    return (
+      url.origin === expectedOrigin && url.pathname === `/interaction/${encodeURIComponent(uid)}`
+    );
+  } catch {
+    return false;
+  }
 }
 
 function setHeader(target: HeaderTarget, name: string, value: string): void {
@@ -793,6 +941,7 @@ export async function cleanupServerResources(
   );
   await runCleanupStep("认证系统", () => resources.authCoordinator?.destroy());
   await runCleanupStep("Provider token 仓储", () => resources.tokenRepository?.close?.());
+  await runCleanupStep("应用仓储", () => resources.applicationRuntime?.close());
   await runCleanupStep("用户仓储", () => resources.userRepository?.close?.());
   await runCleanupStep("State store", () => resources.stateStore?.destroy?.());
   await runCleanupStep("OIDC 适配器", cleanupAdapters);

@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import Button from "primevue/button";
+import { computed } from "vue";
 import { RouterLink } from "vue-router";
 
 /** 主框架属性。 */
-defineProps<{
+const props = defineProps<{
   title: string;
   description: string;
   meName: string;
   refreshing: boolean;
+  applicationsEnabled: boolean;
 }>();
 
 /** 主框架事件。 */
@@ -16,11 +18,12 @@ defineEmits<{
 }>();
 
 /** 侧边导航项。 */
-const navItems = [
+const navItems = computed(() => [
   { label: "账号", to: "/users", icon: "pi pi-users" },
+  ...(props.applicationsEnabled ? [{ label: "应用", to: "/applications", icon: "pi pi-box" }] : []),
   { label: "Provider", to: "/providers", icon: "pi pi-sitemap" },
   { label: "Token", to: "/tokens", icon: "pi pi-key" },
-];
+]);
 </script>
 
 <template>

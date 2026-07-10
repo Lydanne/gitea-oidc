@@ -88,7 +88,18 @@ const createBaseConfig = (): GiteaOidcConfig => ({
     allowedClientIds: ["web-app"],
     providers: {},
   },
+  applications: {
+    enabled: false,
+    clientSource: "config",
+    repository: { type: "sqlite", sqlite: { dbPath: "./applications.db" } },
+    secretEncryption: { keyId: "applications-v1", masterKey: "" },
+  },
 });
+
+const createApplicationMasterKey = (offset = 0): string =>
+  Buffer.from(Array.from({ length: 32 }, (_, index) => (index + offset) % 256)).toString(
+    "base64url",
+  );
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -115,6 +126,19 @@ describe("validateConfig", () => {
 
     expect(result.valid).toBe(true);
     expect(result.config?.server.corsOrigins).toEqual([]);
+  });
+
+  it("keeps legacy TypeScript configs compatible when applications is omitted", () => {
+    const config = createBaseConfig();
+    delete config.applications;
+
+    const result = validateConfig(config);
+
+    expect(result).toMatchObject({ valid: true, errors: [] });
+    expect(result.config?.applications).toMatchObject({
+      enabled: false,
+      clientSource: "config",
+    });
   });
 
   it("should reject invalid CORS origins", () => {
@@ -574,6 +598,173 @@ describe("validateConfig", () => {
           path: "providerApi.providers.feishu.baseUrl",
           code: "production_provider_api_base_url_https_required",
         }),
+      ]),
+    );
+  });
+
+  it("validates the application control plane key and persistent OIDC adapter boundary", () => {
+    const config = createBaseConfig();
+    const masterKey = createApplicationMasterKey(1);
+    config.applications = {
+      enabled: true,
+      clientSource: "database",
+      repository: { type: "sqlite", sqlite: { dbPath: "./applications.db" } },
+      secretEncryption: { keyId: "applications-v1", masterKey },
+    };
+    config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };
+
+    expect(validateConfig(config)).toMatchObject({ valid: true, errors: [] });
+
+    config.applications.secretEncryption.masterKey = "not-a-32-byte-key";
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "applications.secretEncryption.masterKey" }),
+      ]),
+    );
+
+    config.applications.secretEncryption.masterKey = Buffer.alloc(32, 7).toString("base64url");
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "applications.secretEncryption.masterKey",
+          message: expect.stringContaining("随机性不足"),
+        }),
+      ]),
+    );
+
+    config.applications.secretEncryption.masterKey = masterKey;
+    config.adapter = { type: "memory" };
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "adapter.type" })]),
+    );
+  });
+
+  it("rejects application key reuse and production memory repositories", () => {
+    const masterKey = createApplicationMasterKey(9);
+    const config = createBaseConfig();
+    config.applications = {
+      enabled: true,
+      clientSource: "database",
+      repository: { type: "memory" },
+      secretEncryption: { keyId: "applications-v1", masterKey },
+    };
+    config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };
+    config.providerApi.tokenEncryptionKey = masterKey;
+
+    const reused = validateConfig(config);
+    expect(reused.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "application_secret_key_reuse_forbidden" }),
+      ]),
+    );
+
+    config.providerApi.tokenEncryptionKey = "P".repeat(32);
+    config.clients[0].client_secret = masterKey;
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "application_secret_key_reuse_forbidden" }),
+      ]),
+    );
+
+    vi.stubEnv("NODE_ENV", "production");
+    config.providerApi.tokenEncryptionKey = "P".repeat(32);
+    const production = validateConfig(config);
+    expect(production.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "applications.repository.type",
+          code: "production_storage_required",
+        }),
+      ]),
+    );
+  });
+
+  it("enforces a single database Client source and disables unsupported registration", () => {
+    const config = createBaseConfig();
+    config.applications = {
+      enabled: true,
+      clientSource: "database",
+      repository: { type: "sqlite", sqlite: { dbPath: "./applications.db" } },
+      secretEncryption: {
+        keyId: "applications-v1",
+        masterKey: createApplicationMasterKey(17),
+      },
+    };
+
+    config.adapter = { type: "redis", redis: { url: "redis://localhost:6379" } };
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "adapter.type" })]),
+    );
+
+    config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };
+    config.oidc.features.registration.enabled = true;
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "oidc.features.registration.enabled" }),
+      ]),
+    );
+
+    config.oidc.features.registration.enabled = false;
+    config.applications.enabled = false;
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "applications.clientSource" })]),
+    );
+
+    config.applications.enabled = true;
+    config.applications.clientSource = "config";
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "applications.clientSource" })]),
+    );
+  });
+
+  it("rejects system Clients that cannot be safely imported into database mode", () => {
+    const config = createBaseConfig();
+    config.applications = {
+      enabled: true,
+      clientSource: "database",
+      repository: { type: "sqlite", sqlite: { dbPath: "./applications.db" } },
+      secretEncryption: {
+        keyId: "applications-v1",
+        masterKey: createApplicationMasterKey(25),
+      },
+    };
+    config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };
+    config.clients[0].token_endpoint_auth_method = "none";
+    config.clients[0].response_types = ["code", "token"];
+    config.clients[0].grant_types = ["client_credentials"];
+    config.clients.push({ ...config.clients[0] });
+
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "clients.0.token_endpoint_auth_method" }),
+        expect.objectContaining({ path: "clients.0.response_types" }),
+        expect.objectContaining({ path: "clients.0.grant_types" }),
+        expect.objectContaining({ path: "clients.1.client_id" }),
+      ]),
+    );
+  });
+
+  it("rejects ephemeral SQLite databases in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const config = createBaseConfig();
+    config.auth.userRepository = { type: "sqlite", sqlite: { dbPath: "./users.db" } };
+    config.server.trustProxy = true;
+    config.server.trustedProxyIps = ["127.0.0.1"];
+    config.applications = {
+      enabled: true,
+      clientSource: "database",
+      repository: { type: "sqlite", sqlite: { dbPath: "file:apps?mode=memory&cache=shared" } },
+      secretEncryption: {
+        keyId: "applications-v1",
+        masterKey: createApplicationMasterKey(33),
+      },
+    };
+    config.adapter = { type: "sqlite", sqlite: { dbPath: ":memory:" } };
+
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "applications.repository.sqlite.dbPath" }),
+        expect.objectContaining({ path: "adapter.sqlite.dbPath" }),
       ]),
     );
   });

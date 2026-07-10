@@ -51,7 +51,7 @@
   "auth": {
     "userRepository": {
       "type": "memory",
-      "config": {}
+      "memory": {}
     },
     "providers": {
       "local": {
@@ -121,6 +121,20 @@
         "allowedOperations": [],
         "defaultAppOwnerId": "default"
       }
+    }
+  },
+  "applications": {
+    "enabled": false,
+    "clientSource": "config",
+    "repository": {
+      "type": "sqlite",
+      "sqlite": {
+        "dbPath": "./applications.db"
+      }
+    },
+    "secretEncryption": {
+      "keyId": "applications-v1",
+      "masterKey": ""
     }
   },
   "adapter": {

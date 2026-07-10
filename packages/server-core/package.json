@@ -45,12 +45,18 @@
   "scripts": {
     "clean": "node scripts/clean-build.mjs",
     "dev": "NODE_ENV=development tsx watch src/server.ts",
+    "prebuild": "pnpm --filter @gitea-oidc/applications build",
     "build": "pnpm clean && node scripts/stage-admin-assets.mjs && rolldown -c rolldown.config.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "prebuild:prod": "pnpm --filter @gitea-oidc/applications build",
     "build:prod": "pnpm clean && node scripts/stage-admin-assets.mjs && rolldown -c rolldown.config.prod.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "prebuild:types": "pnpm --filter @gitea-oidc/applications build",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist",
     "start": "NODE_ENV=production node dist/server.js",
+    "pretypecheck": "pnpm --filter @gitea-oidc/applications build",
     "typecheck": "tsc --noEmit",
+    "pretest": "pnpm --filter @gitea-oidc/applications build",
     "test": "vitest run",
+    "pretest:pack": "pnpm --filter @gitea-oidc/admin-web build && pnpm build:prod",
     "test:pack": "node scripts/check-pack.mjs",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
@@ -64,7 +70,7 @@
     "typescript"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "engines": {
     "node": ">=22.0.0",
     "pnpm": ">=10.0.0"

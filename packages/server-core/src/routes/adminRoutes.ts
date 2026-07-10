@@ -7,6 +7,7 @@ import { readFileSync } from "fs";
 import type { Provider } from "oidc-provider";
 import { join } from "path";
 import { OidcAdapterFactory } from "../adapters/OidcAdapterFactory.js";
+import type { OidcClientBlockLease } from "../adapters/oidcClientRevocationBarrier.js";
 import {
   AdminSessionStore,
   type AdminSessionStoreLike,
@@ -35,6 +36,8 @@ import {
   getAdminRedirectUri,
   normalizeAdminBasePath,
 } from "../utils/adminClient.js";
+import { Logger } from "../utils/Logger.js";
+import { sanitizeForLog } from "../utils/logSanitizer.js";
 
 const ADMIN_COOKIE_NAME = "gitea_oidc_admin_session";
 const ADMIN_ACTION_HEADER = "x-gitea-oidc-admin-action";
@@ -80,6 +83,34 @@ interface HeaderTarget {
   setHeader?: (name: string, value: string) => unknown;
 }
 
+interface ApplicationManagementService {
+  createCustomApplication(
+    request: unknown,
+    context: { idempotencyKey: string; actor: { type: "user"; id: string } },
+  ): Promise<{ replayed: boolean; response: unknown }>;
+  listApplicationDetails(): Promise<unknown[]>;
+  getApplication(id: string): Promise<unknown>;
+  enableApplication(
+    id: string,
+    context: { expectedVersion: number; actor: { type: "user"; id: string } },
+  ): Promise<unknown>;
+  disableApplication(
+    id: string,
+    context: { expectedVersion: number; actor: { type: "user"; id: string } },
+  ): Promise<unknown>;
+  completeDisableApplication(
+    id: string,
+    context: { expectedVersion: number; actor: { type: "user"; id: string } },
+  ): Promise<unknown>;
+  listAuditEvents(id: string): Promise<unknown[]>;
+}
+
+interface OidcClientLifecycleCoordinator {
+  acquireBlock(clientId: string): Promise<OidcClientBlockLease> | OidcClientBlockLease;
+  revoke(clientId: string): Promise<void>;
+  allow(clientId: string): Promise<void> | void;
+}
+
 /**
  * 后台管理路由配置
  */
@@ -113,6 +144,12 @@ export interface AdminRoutesOptions {
 
   /** 删除用户或更换外部身份时撤销该账户的 OIDC 记录。 */
   revokeOidcAccount?: (accountId: string) => Promise<void>;
+
+  /** 可选的应用控制面；未启用时 API 返回 503，而不是静默使用临时内存状态。 */
+  applicationService?: ApplicationManagementService;
+
+  /** 应用控制面与 OIDC Artifact 之间的安全生命周期协调器。 */
+  oidcClientLifecycle?: OidcClientLifecycleCoordinator;
 }
 
 /**
@@ -126,20 +163,40 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
   if (!adminConfig.enabled) {
     return null;
   }
+  if ((options.applicationService === undefined) !== (options.oidcClientLifecycle === undefined)) {
+    throw new Error("应用控制面必须同时配置 applicationService 和 oidcClientLifecycle");
+  }
 
   const basePath = normalizeAdminBasePath(adminConfig.basePath);
+  const applicationsEnabled = options.applicationService !== undefined;
+  const applicationMutationTails = new Map<string, Promise<void>>();
   const sessionStore: AdminSessionStoreLike =
     config.auth?.stateStore?.type === "redis" && options.stateStore
       ? new DistributedAdminSessionStore(options.stateStore, adminConfig.sessionTtlSeconds)
       : new AdminSessionStore(adminConfig.sessionTtlSeconds);
   const adminClient = resolveAdminClient(config, basePath);
+  const adminIndexHtml = injectAdminRuntimeConfig(
+    readFileSync(join(options.publicDir, "admin", "index.html"), "utf8"),
+    { basePath, applicationsEnabled },
+  );
 
   const sendAdminIndex = async (_request: FastifyRequest, reply: FastifyReply) => {
     setAdminSecurityHeaders(reply);
-    return reply
-      .type("text/html; charset=utf-8")
-      .send(readFileSync(join(options.publicDir, "admin", "index.html"), "utf8"));
+    setNoStoreHeaders(reply);
+    return reply.type("text/html; charset=utf-8").send(adminIndexHtml);
   };
+
+  app.get(`${basePath}/assets/*`, async (request, reply) => {
+    const assetPath = readAdminAssetPath(request.params);
+    if (assetPath === undefined) {
+      return reply.code(404).send("Not Found");
+    }
+    setAdminSecurityHeaders(reply);
+    return reply.sendFile(`admin/assets/${assetPath}`, {
+      maxAge: "1y",
+      immutable: true,
+    });
+  });
 
   app.get(basePath, async (_request, reply) => {
     return reply.redirect(`${basePath}/users`);
@@ -150,6 +207,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     `${basePath}/users`,
     `${basePath}/providers`,
     `${basePath}/tokens`,
+    `${basePath}/applications`,
   ]) {
     app.get(routePath, sendAdminIndex);
   }
@@ -241,7 +299,12 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
   app.get(`${basePath}/api/me`, async (request, reply) => {
     const user = await requireAdmin(request, reply);
     if (!user) return;
-    return { user: toAdminUser(user), admin: true };
+    return {
+      user: toAdminUser(user),
+      admin: true,
+      basePath,
+      capabilities: { applications: applicationsEnabled },
+    };
   });
 
   app.get(`${basePath}/api/users`, async (request, reply) => {
@@ -350,6 +413,153 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     return { status };
   });
 
+  app.get(`${basePath}/api/applications`, async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+    try {
+      return await options.applicationService.listApplicationDetails();
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
+  app.post(`${basePath}/api/applications`, async (request, reply) => {
+    const user = await requireAdminMutation(request, reply);
+    if (!user) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+
+    const idempotencyKey = readSingleHeader(request, "idempotency-key");
+    if (!idempotencyKey) {
+      return reply.code(400).send({ error: "Idempotency-Key header is required" });
+    }
+
+    try {
+      const outcome = await options.applicationService.createCustomApplication(request.body, {
+        idempotencyKey,
+        actor: { type: "user", id: user.sub },
+      });
+      if (outcome.replayed) {
+        reply.header("Idempotency-Replayed", "true");
+      }
+      return reply.code(outcome.replayed ? 200 : 201).send(outcome.response);
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
+  app.get(`${basePath}/api/applications/:id`, async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+    const { id } = request.params as { id: string };
+    try {
+      return await options.applicationService.getApplication(id);
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
+  app.get(`${basePath}/api/applications/:id/audit`, async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.applicationService) {
+      return reply.code(503).send({ error: "Application management is not enabled" });
+    }
+    setNoStoreHeaders(reply);
+    const { id } = request.params as { id: string };
+    try {
+      return await options.applicationService.listAuditEvents(id);
+    } catch (error) {
+      return sendApplicationError(reply, error);
+    }
+  });
+
+  for (const action of ["enable", "disable"] as const) {
+    app.post(`${basePath}/api/applications/:id/${action}`, async (request, reply) => {
+      const user = await requireAdminMutation(request, reply);
+      if (!user) return;
+      if (!options.applicationService) {
+        return reply.code(503).send({ error: "Application management is not enabled" });
+      }
+      const { id } = request.params as { id: string };
+      const expectedVersion = readExpectedApplicationVersion(request.body);
+      if (expectedVersion === undefined) {
+        return reply.code(400).send({ error: "expectedVersion must be a positive integer" });
+      }
+
+      try {
+        return await runApplicationMutationExclusive(applicationMutationTails, id, async () => {
+          const lifecycle = options.oidcClientLifecycle!;
+          const current = await options.applicationService!.getApplication(id);
+          const currentState = readApplicationState(current);
+          if (action === "enable") {
+            const isSafeReplay =
+              currentState?.status === "active" && currentState.version === expectedVersion + 1;
+            const enabled = isSafeReplay
+              ? current
+              : await options.applicationService!.enableApplication(id, {
+                  expectedVersion,
+                  actor: { type: "user", id: user.sub },
+                });
+            for (const clientId of readApplicationClientIds(enabled)) {
+              await lifecycle.allow(clientId);
+            }
+            return enabled;
+          }
+
+          const isPendingRetry =
+            currentState?.status === "disabling" && currentState.version === expectedVersion + 1;
+          const isCompletedRetry =
+            currentState?.status === "disabled" && currentState.version === expectedVersion + 2;
+          const blockLeases: OidcClientBlockLease[] = [];
+          const currentClientIds = readApplicationClientIds(current);
+          try {
+            for (const clientId of currentClientIds) {
+              blockLeases.push(await lifecycle.acquireBlock(clientId));
+            }
+          } catch (error) {
+            for (const lease of blockLeases) lease.release();
+            throw error;
+          }
+
+          let staged: unknown;
+          try {
+            staged =
+              isPendingRetry || isCompletedRetry
+                ? current
+                : await options.applicationService!.disableApplication(id, {
+                    expectedVersion,
+                    actor: { type: "user", id: user.sub },
+                  });
+          } catch (error) {
+            for (const lease of blockLeases) lease.release();
+            throw error;
+          }
+          for (const lease of blockLeases) lease.commit();
+          for (const clientId of readApplicationClientIds(staged)) {
+            await lifecycle.revoke(clientId);
+          }
+          const stagedState = readApplicationState(staged);
+          return stagedState?.status === "disabling"
+            ? await options.applicationService!.completeDisableApplication(id, {
+                expectedVersion: stagedState.version,
+                actor: { type: "user", id: user.sub },
+              })
+            : staged;
+        });
+      } catch (error) {
+        return sendApplicationError(reply, error);
+      }
+    });
+  }
+
   return sessionStore;
 }
 
@@ -367,6 +577,174 @@ function setHeader(target: HeaderTarget, name: string, value: string): void {
     return;
   }
   target.setHeader?.(name, value);
+}
+
+function setNoStoreHeaders(reply: FastifyReply): void {
+  reply.header("Cache-Control", "no-store");
+  reply.header("Pragma", "no-cache");
+}
+
+async function runApplicationMutationExclusive<T>(
+  tails: Map<string, Promise<void>>,
+  applicationId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = tails.get(applicationId) ?? Promise.resolve();
+  let release!: () => void;
+  const turn = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(
+    () => turn,
+    () => turn,
+  );
+  tails.set(applicationId, tail);
+  await previous.catch(() => undefined);
+
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (tails.get(applicationId) === tail) {
+      tails.delete(applicationId);
+    }
+  }
+}
+
+function injectAdminRuntimeConfig(
+  html: string,
+  runtime: { basePath: string; applicationsEnabled: boolean },
+): string {
+  const htmlElement = /<html(?=[\s>])/i;
+  if (!htmlElement.test(html)) {
+    throw new Error("管理台 index.html 缺少 html 根元素");
+  }
+
+  const attributes = [
+    `data-gitea-oidc-admin-base-path="${escapeHtmlAttribute(runtime.basePath)}"`,
+    `data-gitea-oidc-applications-enabled="${String(runtime.applicationsEnabled)}"`,
+  ].join(" ");
+  const withRuntimeAttributes = html.replace(htmlElement, `<html ${attributes}`);
+  const headElement = /<head(?=[\s>])[^>]*>/i;
+  if (!headElement.test(withRuntimeAttributes)) {
+    throw new Error("管理台 index.html 缺少 head 元素");
+  }
+  return withRuntimeAttributes.replace(
+    headElement,
+    (head) => `${head}\n  <base href="${escapeHtmlAttribute(`${runtime.basePath}/`)}">`,
+  );
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => {
+    return (
+      {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "'": "&#39;",
+        '"': "&quot;",
+      } as Record<string, string>
+    )[character] as string;
+  });
+}
+
+function readSingleHeader(request: FastifyRequest, name: string): string | undefined {
+  const value = request.headers[name];
+  if (typeof value !== "string" || value === "") {
+    return undefined;
+  }
+  return value;
+}
+
+function readAdminAssetPath(params: unknown): string | undefined {
+  if (params === null || typeof params !== "object" || Array.isArray(params)) {
+    return undefined;
+  }
+  const value = (params as Record<string, unknown>)["*"];
+  if (typeof value !== "string" || value === "" || value.includes("\\")) {
+    return undefined;
+  }
+  const segments = value.split("/");
+  if (
+    segments.some((segment) => segment === "" || segment === "." || segment === "..") ||
+    !/^[A-Za-z0-9._/-]+$/u.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+function readExpectedApplicationVersion(body: unknown): number | undefined {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return undefined;
+  }
+  const expectedVersion = (body as Record<string, unknown>).expectedVersion;
+  return Number.isSafeInteger(expectedVersion) && (expectedVersion as number) > 0
+    ? (expectedVersion as number)
+    : undefined;
+}
+
+function readApplicationClientIds(value: unknown): string[] {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+  const clients = (value as Record<string, unknown>).clients;
+  if (!Array.isArray(clients)) {
+    return [];
+  }
+  return clients.flatMap((client) => {
+    if (client === null || typeof client !== "object" || Array.isArray(client)) {
+      return [];
+    }
+    const clientId = (client as Record<string, unknown>).clientId;
+    return typeof clientId === "string" && clientId !== "" ? [clientId] : [];
+  });
+}
+
+function readApplicationState(
+  value: unknown,
+): { status: "active" | "disabling" | "disabled"; version: number } | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const application = (value as Record<string, unknown>).application;
+  if (application === null || typeof application !== "object" || Array.isArray(application)) {
+    return undefined;
+  }
+  const status = (application as Record<string, unknown>).status;
+  const version = (application as Record<string, unknown>).version;
+  if (
+    (status !== "active" && status !== "disabling" && status !== "disabled") ||
+    !Number.isSafeInteger(version) ||
+    (version as number) < 1
+  ) {
+    return undefined;
+  }
+  return { status, version: version as number };
+}
+
+function sendApplicationError(reply: FastifyReply, error: unknown): FastifyReply {
+  const code =
+    error !== null && typeof error === "object" && "code" in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  const message = error instanceof Error ? error.message : "Application operation failed";
+
+  switch (code) {
+    case "APPLICATION_NOT_FOUND":
+      return reply.code(404).send({ error: message, code });
+    case "APPLICATION_CONFLICT":
+    case "APPLICATION_VERSION_CONFLICT":
+    case "IDEMPOTENCY_CONFLICT":
+      return reply.code(409).send({ error: message, code });
+    case "APPLICATION_VALIDATION_FAILED":
+    case "UNSUPPORTED_CREDENTIAL_DELIVERY":
+      return reply.code(400).send({ error: message, code });
+    default:
+      Logger.error("[应用管理] 操作失败:", sanitizeForLog(error));
+      return reply.code(500).send({ error: "Internal Server Error" });
+  }
 }
 
 async function resolveAdminUser(

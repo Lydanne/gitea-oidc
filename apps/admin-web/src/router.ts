@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
+import { adminRuntimeConfig } from "./runtimeConfig";
 
 /** 管理台路由元数据。 */
 export interface AdminRouteMeta {
@@ -31,6 +32,15 @@ export const adminRoutes: RouteRecordRaw[] = [
     } satisfies AdminRouteMeta,
   },
   {
+    path: "/applications",
+    name: "applications",
+    component: () => import("./views/ApplicationsView.vue"),
+    meta: {
+      title: "应用管理",
+      description: "创建并管理接入认证系统的应用与 OIDC Client。",
+    } satisfies AdminRouteMeta,
+  },
+  {
     path: "/providers",
     name: "providers",
     component: () => import("./views/ProvidersView.vue"),
@@ -54,8 +64,15 @@ export const adminRoutes: RouteRecordRaw[] = [
   },
 ];
 
-/** 管理台路由实例，部署在 `/admin/` 子路径下。 */
+/** 管理台路由实例，部署前缀由服务端静态页面注入。 */
 export const router = createRouter({
-  history: createWebHistory("/admin/"),
+  history: createWebHistory(`${adminRuntimeConfig.basePath}/`),
   routes: adminRoutes,
+});
+
+router.beforeEach((to) => {
+  if (to.name === "applications" && adminRuntimeConfig.capabilities.applications === false) {
+    return { name: "users" };
+  }
+  return true;
 });

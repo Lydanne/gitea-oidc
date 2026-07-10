@@ -151,6 +151,12 @@ describe("RedisOidcAdapter", () => {
       expect(mockClient.sAdd).toHaveBeenCalledWith("test:Session:grantId:grant-123", id);
     });
 
+    it("应该创建跨模型的 clientId 撤销索引", async () => {
+      await adapter.upsert("token-1", { clientId: "client-1", accountId: "user-1" });
+
+      expect(mockClient.sAdd).toHaveBeenCalledWith("test:clientId:client-1", "Session:token-1");
+    });
+
     it("应该为索引设置过期时间", async () => {
       const id = "test-id-6";
       const payload = {
@@ -268,6 +274,15 @@ describe("RedisOidcAdapter", () => {
       );
     });
 
+    it("应该为 Interaction 的 params.client_id 创建撤销索引", async () => {
+      await adapter.upsert("interaction-1", { params: { client_id: "client-1" } });
+
+      expect(mockClient.sAdd).toHaveBeenCalledWith(
+        "test:clientId:client-1",
+        "Session:interaction-1",
+      );
+    });
+
     it("应该返回 undefined 当记录不存在时", async () => {
       mockClient.eval.mockResolvedValueOnce(0);
       await expect(adapter.consume("non-existent-id")).resolves.toBeUndefined();
@@ -335,6 +350,15 @@ describe("RedisOidcAdapter", () => {
       expect(mockClient.sRem).toHaveBeenCalledWith("test:Session:grantId:grant-999", id);
     });
 
+    it("应该清理 clientId 索引", async () => {
+      const id = "test-id-client";
+      mockClient.get.mockResolvedValueOnce(JSON.stringify({ clientId: "client-1" }));
+
+      await adapter.destroy(id);
+
+      expect(mockClient.sRem).toHaveBeenCalledWith("test:clientId:client-1", `Session:${id}`);
+    });
+
     it("应该处理记录不存在的情况", async () => {
       mockClient.get.mockResolvedValueOnce(null);
 
@@ -362,6 +386,27 @@ describe("RedisOidcAdapter", () => {
       mockClient.sMembers.mockResolvedValueOnce([]);
 
       await expect(adapter.revokeByGrantId("empty-grant")).resolves.not.toThrow();
+    });
+  });
+
+  describe("revokeByClientId", () => {
+    it("跨模型删除 Client 关联记录和索引", async () => {
+      mockClient.sMembers.mockResolvedValueOnce([
+        "AuthorizationCode:code-1",
+        "RefreshToken:refresh-1",
+      ]);
+
+      await RedisOidcAdapter.revokeByClientId("client-1", {
+        url: "redis://localhost:6379",
+        keyPrefix: "test:",
+      });
+
+      expect(mockClient.sMembers).toHaveBeenCalledWith("test:clientId:client-1");
+      const multi = mockClient.multi();
+      expect(multi.del).toHaveBeenCalledWith("test:AuthorizationCode:code-1");
+      expect(multi.del).toHaveBeenCalledWith("test:RefreshToken:refresh-1");
+      expect(multi.del).toHaveBeenCalledWith("test:clientId:client-1");
+      expect(multi.exec).toHaveBeenCalled();
     });
   });
 

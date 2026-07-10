@@ -35,6 +35,7 @@
 - ✅ 插件化认证架构
 - ✅ 多种认证方式（本地密码、飞书、可扩展）
 - ✅ 统一登录页面
+- ✅ 可选的自定义应用管理与一次性 Client 凭据
 - ✅ OAuth State 管理（防 CSRF）
 - ✅ 用户仓储抽象层
 - ✅ 动态路由和静态资源
@@ -132,6 +133,8 @@ pnpm test:coverage
 - **[飞书认证插件](https://github.com/Lydanne/gitea-oidc/blob/main/docs/FEISHU_PLUGIN_GUIDE.md)** - 飞书 OAuth 登录配置
 - **[管理后台与 Provider API](https://github.com/Lydanne/gitea-oidc/blob/main/docs/ADMIN_AND_PROVIDER_API.md)** -
   后台、token 探活和 SDK 代理
+- **[应用管理接入](https://github.com/Lydanne/gitea-oidc/blob/main/docs/APPLICATION_MANAGEMENT.md)** -
+  自定义应用、主密钥和 SQLite 部署约束
 - **[开发者文档](https://github.com/Lydanne/gitea-oidc/blob/main/docs/dev/README.md)** - 插件开发、架构和发布维护
 
 ## 技术栈
@@ -157,6 +160,8 @@ gitea-oidc/
 │   ├── admin-web/              # Vue 管理台应用
 │   └── idp-server/             # 生产服务进程入口
 ├── packages/
+│   ├── contracts/              # 应用和连接器共用的版本化 wire contract
+│   ├── applications/           # 应用、Client、Secret、审计和 SQLite 仓储
 │   └── server-core/            # gitea-oidc 兼容包与认证服务核心
 │       ├── src/
 │       │   ├── identityServer.ts # 创建 Fastify/OIDC 运行时，不监听端口
@@ -271,6 +276,18 @@ gitea-oidc/
           "verificationToken": "your_verification_token_here"
         }
       }
+    }
+  },
+  "applications": {
+    "enabled": false,
+    "clientSource": "config",
+    "repository": {
+      "type": "sqlite",
+      "sqlite": { "dbPath": "./applications.db" }
+    },
+    "secretEncryption": {
+      "keyId": "applications-v1",
+      "masterKey": ""
     }
   },
   "adapter": {
@@ -392,6 +409,14 @@ OIDC 数据持久化适配器配置，支持三种类型：
 }
 ```
 
+#### applications
+
+默认使用 `enabled: false` 和 `clientSource: "config"`，OIDC Provider 直接读取静态
+`clients[]`。启用后台应用管理时必须同时切换为 `enabled: true` 和
+`clientSource: "database"`，配置独立的 32 字节 Base64/Base64URL 主密钥，并使用单实例
+SQLite。完整配置和备份要求见
+[应用管理接入指南](https://github.com/Lydanne/gitea-oidc/blob/main/docs/APPLICATION_MANAGEMENT.md)。
+
 ### 测试账户
 
 `.htpasswd` 文件中的测试用户：
@@ -463,7 +488,7 @@ docker run -p 3000:3000 \
 ### 数据持久化
 
 ```bash
-# 使用 SQLite 持久化（OIDC 会话数据）
+# 使用 SQLite 持久化（OIDC 会话和应用管理数据）
 docker run -d -p 3000:3000 \
   -v /host/data:/app/data \
   -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
@@ -474,6 +499,14 @@ docker run -d -p 3000:3000 \
 #   "type": "sqlite",
 #   "sqlite": {
 #     "dbPath": "/app/data/oidc.db"
+#   }
+# }
+# "applications": {
+#   "enabled": true,
+#   "clientSource": "database",
+#   "repository": {
+#     "type": "sqlite",
+#     "sqlite": { "dbPath": "/app/data/applications.db" }
 #   }
 # }
 
@@ -505,8 +538,10 @@ docker run -d -p 3000:3000 \
 6. **持久化存储**：
    - 用户数据：使用 PostgreSQL 或 SQLite（`auth.userRepository.type`）
    - OIDC 会话：使用 Redis 或 SQLite（`adapter.type`）
-7. **日志管理**：配置适当的日志级别（`logging.level`）
-8. **限制访问**：配置防火墙规则，仅允许必要的端口访问
+   - 应用管理：当前只支持单实例 SQLite，并持久化 `applications.db`
+7. **保护应用主密钥**：启用应用管理时使用独立 32 字节主密钥并从 Secret Manager 注入
+8. **日志管理**：配置适当的日志级别（`logging.level`）
+9. **限制访问**：配置防火墙规则，仅允许必要的端口访问
 
 ### 生产环境配置示例
 
@@ -553,11 +588,12 @@ docker run -d -p 3000:3000 \
 - ✅ Redis 适配器（分布式部署）
 - ✅ 插件化认证架构
 - ✅ Webhook 支持
+- ✅ 自定义应用管理与一次性凭据交付
 
 计划中的功能：
 
 - ⏳ 添加更多认证插件（企业微信、钉钉、LDAP）
-- ⏳ 添加管理界面
+- ⏳ 添加 Gitea 应用模板、Node SDK、框架连接器和 CLI
 - ⏳ 实现 MFA 支持
 - ⏳ 用户自助服务（密码重置、账号管理）
 

@@ -40,9 +40,14 @@ oidc-provider WARNING: a quick start development-only signing keys are used
 **备份建议:**
 
 ```bash
-# 定期备份数据库
-cp oidc.db oidc.db.backup.$(date +%Y%m%d)
+# 先停止唯一实例，再归档完整数据目录
+docker stop gitea-oidc
+tar -C /srv/gitea-oidc/data -czf /srv/backup/gitea-oidc-data-YYYYMMDD.tar.gz .
+docker start gitea-oidc
 ```
+
+运行中直接复制 `oidc.db` 可能遗漏 WAL 中尚未 checkpoint 的事务。不能停机时，使用 SQLite
+Online Backup API 或 `sqlite3 .backup`；不要只复制主数据库而忽略 `-wal`、`-shm` 文件。
 
 ### 2. 持久化 JWKS 签名密钥 ✅
 
@@ -135,6 +140,12 @@ jwks.json
 oidc.db
 oidc.db-shm
 oidc.db-wal
+applications.db
+applications.db-shm
+applications.db-wal
+users.db
+users.db-shm
+users.db-wal
 ```
 
 ### 2. 文件权限
@@ -144,6 +155,8 @@ oidc.db-wal
 ```bash
 chmod 600 jwks.json
 chmod 600 oidc.db
+chmod 600 applications.db
+chmod 600 users.db
 ```
 
 `jwks.json` 包含签名私钥。服务会自动收紧该文件权限，但部署时仍应确认它没有被提交到镜像、
@@ -182,6 +195,8 @@ Cookie key、客户端密钥和本地 URL。
   `client_secret_basic`。
 - `server.corsOrigins` 中配置了非 HTTPS Origin，或包含 path、query、fragment。
 - 用户仓储或 OIDC 适配器使用 `memory`。
+- 启用应用管理但没有同时使用 `applications.clientSource: "database"`，应用仓储使用
+  `memory` 或 `:memory:`，或者 OIDC Adapter 不是 SQLite。
 - `oidc.features.devInteractions.enabled` 为 `true`，或启用了 `trustProxy` 但没有将其限制为
   实际反向代理的 IP/CIDR。
 - 启用本地认证但未配置 `passwordFile`，或 `passwordFormat` 不是 `bcrypt`。
@@ -230,6 +245,8 @@ Cookie key、客户端密钥和本地 URL。
   `auth.stateStore`
 - `oidc.features.devInteractions.enabled`: 必须保持 `false`；它仅用于本地调试，生产环境会被
   配置校验直接拒绝
+- `applications.secretEncryption.masterKey`: 启用应用管理时必须是 Base64/Base64URL 编码的
+  32 字节独立主密钥，不能复用 Cookie 或 Provider token 加密密钥
 
 ### 5. 管理后台与 Provider API 安全配置
 
@@ -256,6 +273,9 @@ Cookie key、客户端密钥和本地 URL。
 
 更多用法见 [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)。
 
+应用控制面配置、一次性凭据、SQLite volume 和备份要求见
+[应用管理接入指南](./APPLICATION_MANAGEMENT.md)。
+
 ### 6. 生成强随机密钥
 
 Cookie 密钥生成示例:
@@ -273,6 +293,8 @@ openssl rand -base64 32
 - [ ] ✅ 已提供 `gitea-oidc.config.js` 或 `gitea-oidc.config.json`
 - [ ] ✅ `jwks.json` 已添加到 `.gitignore`
 - [ ] ✅ `oidc.db` 已添加到 `.gitignore`
+- [ ] ✅ 启用应用管理时，`applications.db` 已放入持久化 volume 并加入 `.gitignore`
+- [ ] ✅ 应用主密钥已放入外部 Secret Manager，并与数据库一起纳入恢复演练
 - [ ] ✅ 文件权限已正确设置 (600)
 - [ ] ✅ 配置文件使用 HTTPS URL
 - [ ] ✅ 配置文件使用强随机 Cookie 密钥
@@ -287,6 +309,11 @@ openssl rand -base64 32
 多实例必须使用 Redis OIDC 适配器和 Redis `auth.stateStore`；后者同时保存 OAuth state、
 一次性回调结果、后台会话和本地登录失败计数。SQLite 文件（包括 NFS）只支持单实例，不能
 作为并发多节点的 OIDC 存储。
+
+当前应用管理的 `clientSource=database` 模式强制使用 SQLite OIDC Adapter 和 SQLite
+ApplicationRepository，因此不能多实例部署。需要多实例时必须保持
+`applications.enabled: false`、`applications.clientSource: "config"`，直到共享
+ApplicationRepository 落地。
 
 ```json
 {
@@ -321,11 +348,13 @@ openssl rand -base64 32
 **解决:**
 
 ```bash
-# 恢复备份
-cp oidc.db.backup.20240101 oidc.db
+# 停止服务后恢复到空的数据目录，再使用备份时对应的密钥启动
+docker stop gitea-oidc
+tar -C /srv/gitea-oidc/data -xzf /srv/backup/gitea-oidc-data-YYYYMMDD.tar.gz
+docker start gitea-oidc
 
-# 或删除数据库重新开始
-rm oidc.db*
+# 只在确认可以丢弃全部 OIDC 状态时，才删除数据库重新开始
+# rm oidc.db*
 ```
 
 ### 问题 3: 警告仍然出现

@@ -21,6 +21,33 @@ import type { AdminConfig } from "./types/admin.js";
 import type { AuthConfig } from "./types/config.js";
 import type { ProviderApiRuntimeConfig } from "./types/providerApi.js";
 
+export interface ApplicationsConfig {
+  enabled: boolean;
+  /** OIDC Provider 每次启动只能选择一个 Client 事实源。 */
+  clientSource: "config" | "database";
+  repository: {
+    type: "memory" | "sqlite";
+    sqlite?: {
+      dbPath?: string;
+    };
+  };
+  secretEncryption: {
+    keyId: string;
+    /** Base64/Base64URL 编码的 32 字节主密钥。 */
+    masterKey: string;
+  };
+}
+
+export const defaultApplicationsConfig: ApplicationsConfig = {
+  enabled: false,
+  clientSource: "config",
+  repository: {
+    type: "sqlite",
+    sqlite: { dbPath: "./applications.db" },
+  },
+  secretEncryption: { keyId: "applications-v1", masterKey: "" },
+};
+
 /**
  * Gitea OIDC IdP 完整配置接口
  *
@@ -186,6 +213,15 @@ export interface GiteaOidcConfig {
   providerApi: ProviderApiRuntimeConfig;
 
   /**
+   * 管理端应用控制面配置。
+   *
+   * `clientSource=config` 时只使用静态 `clients`；切换为 `database` 后，静态
+   * Client 会在启动时导入应用库，OIDC Provider 只从数据库读取 Client。
+   * 应用密钥使用独立主密钥加密，不能复用 Provider API 或 Cookie 密钥。
+   */
+  applications?: ApplicationsConfig;
+
+  /**
    * OIDC 适配器配置
    * 配置持久化存储方式
    * - sqlite: SQLite 文件数据库 (默认)
@@ -260,6 +296,7 @@ const defaultConfig: GiteaOidcConfig = {
     claims: {
       openid: ["sub"],
       profile: ["name", "email", "groups", "roles", "status"],
+      email: ["email", "email_verified"],
       provider_api: [],
     },
     features: {
@@ -342,6 +379,21 @@ const defaultConfig: GiteaOidcConfig = {
     },
   },
 
+  applications: {
+    enabled: false,
+    clientSource: "config",
+    repository: {
+      type: "sqlite",
+      sqlite: {
+        dbPath: "./applications.db",
+      },
+    },
+    secretEncryption: {
+      keyId: "applications-v1",
+      masterKey: "",
+    },
+  },
+
   adapter: {
     type: "sqlite",
     sqlite: {
@@ -354,6 +406,11 @@ const defaultConfig: GiteaOidcConfig = {
     keyId: "default-key",
   },
 };
+
+/** 兼容旧版 TypeScript 配置输入，同时给内部运行时提供完整默认值。 */
+export function resolveApplicationsConfig(config: GiteaOidcConfig): ApplicationsConfig {
+  return config.applications ?? defaultApplicationsConfig;
+}
 
 /**
  * 配置加载函数

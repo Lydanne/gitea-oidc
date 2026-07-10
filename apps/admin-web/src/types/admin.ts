@@ -1,5 +1,13 @@
+import type {
+  ApplicationStatusV1,
+  ApplicationV1,
+  CreateCustomApplicationOutcomeResponseV1,
+  CreateCustomApplicationRequestV1,
+  OidcClientV1,
+} from "@gitea-oidc/contracts";
+
 /** 管理台主导航视图。 */
-export type AdminView = "users" | "providers" | "tokens";
+export type AdminView = "users" | "applications" | "providers" | "tokens";
 
 /** 规范化用户状态。 */
 export type UserStatus = "active" | "disabled" | "locked" | "pending";
@@ -90,7 +98,50 @@ export interface ProviderToken {
 /** 当前后台会话。 */
 export interface AdminSession {
   user?: AdminUser;
+  admin: boolean;
+  basePath: string;
+  capabilities: {
+    applications: boolean;
+  };
 }
+
+/** 应用密钥的可重复读取摘要，不包含任何明文凭据。 */
+export interface ApplicationSecretSummary {
+  id: string;
+  oidcClientId: string;
+  keyId: string;
+  fingerprint: string;
+  status: "active" | "revoked" | "expired";
+  deliveredAt: string;
+  createdAt: string;
+  expiresAt?: string;
+}
+
+/** 应用管理接口返回的应用详情。 */
+export interface ApplicationDetails {
+  application: ApplicationV1;
+  clients: OidcClientV1[];
+  secrets: ApplicationSecretSummary[];
+}
+
+/** 自定义应用创建表单，仅包含当前管理台开放的配置。 */
+export interface ApplicationForm {
+  name: string;
+  slug: string;
+  environment: "development" | "staging" | "production";
+  clientType: "confidential" | "public";
+  redirectUris: string;
+  scopes: string;
+  refreshToken: boolean;
+}
+
+export type {
+  ApplicationV1,
+  ApplicationStatusV1,
+  CreateCustomApplicationOutcomeResponseV1,
+  CreateCustomApplicationRequestV1,
+  OidcClientV1,
+};
 
 /** 用户状态下拉选项。 */
 export const userStatusOptions: Array<{ label: string; value: UserStatus }> = [

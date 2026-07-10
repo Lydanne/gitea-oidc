@@ -9,6 +9,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@gitea-oidc/contracts": "workspace:*",
     "@primeuix/themes": "^2.0.3",
     "primeicons": "^7.0.0",
     "primevue": "^4.5.5",

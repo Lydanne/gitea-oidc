@@ -1,0 +1,36 @@
+{
+  "name": "@gitea-oidc/applications",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "prebuild": "pnpm --filter @gitea-oidc/contracts build",
+    "build": "tsc -p tsconfig.json",
+    "pretypecheck": "pnpm --filter @gitea-oidc/contracts build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "pnpm --filter @gitea-oidc/contracts build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gitea-oidc/contracts": "workspace:*",
+    "better-sqlite3": "^12.4.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.9"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

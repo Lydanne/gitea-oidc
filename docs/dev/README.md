@@ -9,6 +9,8 @@
 - [Provider API 设计](./PROVIDER_API_DESIGN.md)
 - [Monorepo 架构与包边界](./MONOREPO_ARCHITECTURE.md)
 
+应用管理当前的部署约束和接入流程见[应用管理接入指南](../APPLICATION_MANAGEMENT.md)。
+
 ## 发布与维护
 
 - [发布流程与 CI/CD 指南](./RELEASE_AND_CI_CD.md)

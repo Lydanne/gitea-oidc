@@ -3,6 +3,9 @@
 本文面向部署者和业务系统接入方，说明如何启用内置管理后台、保存 Provider token，
 以及通过 SDK 代理调用飞书、钉钉等平台 API。
 
+后台中的自定义应用、一次性 OIDC Client 凭据和 `clientSource` 切换由独立的
+[应用管理接入指南](./APPLICATION_MANAGEMENT.md)说明。
+
 ## 工作方式
 
 本功能包含三层：

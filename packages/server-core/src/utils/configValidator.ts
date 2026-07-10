@@ -5,7 +5,7 @@
  */
 
 import { ZodError } from "zod";
-import type { GiteaOidcConfig } from "../config.js";
+import { type GiteaOidcConfig, resolveApplicationsConfig } from "../config.js";
 import { GiteaOidcConfigSchema } from "../schemas/configSchema.js";
 import {
   findAdminClient,
@@ -67,7 +67,7 @@ export function validateConfig(config: unknown): ConfigValidationResult {
   const result = GiteaOidcConfigSchema.safeParse(config);
 
   if (result.success) {
-    const parsedConfig = result.data as GiteaOidcConfig;
+    const parsedConfig = result.data as unknown as GiteaOidcConfig;
     const errors = [
       ...checkRuntimeConfigErrors(parsedConfig),
       ...checkProductionErrors(parsedConfig),
@@ -104,12 +104,29 @@ export function validateConfig(config: unknown): ConfigValidationResult {
 
 function checkRuntimeConfigErrors(config: GiteaOidcConfig): ConfigValidationError[] {
   const errors: ConfigValidationError[] = [];
+  const applications = resolveApplicationsConfig(config);
   addPublicUrlBoundaryErrors(errors, "server.url", config.server.url);
   addPublicUrlBoundaryErrors(errors, "oidc.issuer", config.oidc.issuer);
   config.server.corsOrigins.forEach((origin, index) => {
     addCorsOriginBoundaryErrors(errors, `server.corsOrigins.${index}`, origin);
   });
   addProviderApiBaseUrlBoundaryErrors(errors, config);
+
+  if (applications.enabled) {
+    const applicationMasterKey = applications.secretEncryption.masterKey;
+    if (
+      config.oidc.cookieKeys.includes(applicationMasterKey) ||
+      config.clients.some((client) => client.client_secret === applicationMasterKey) ||
+      (config.providerApi.tokenEncryptionKey !== "" &&
+        config.providerApi.tokenEncryptionKey === applicationMasterKey)
+    ) {
+      errors.push({
+        path: "applications.secretEncryption.masterKey",
+        message: "应用密钥主密钥必须与 OIDC Cookie、Client Secret 和 Provider Token 密钥分域",
+        code: "application_secret_key_reuse_forbidden",
+      });
+    }
+  }
 
   const expectedIssuer = getExpectedOidcIssuer(config.server.url);
 
@@ -139,6 +156,7 @@ function checkProductionErrors(config: GiteaOidcConfig): ConfigValidationError[]
   }
 
   const errors: ConfigValidationError[] = [];
+  const applications = resolveApplicationsConfig(config);
 
   config.oidc.cookieKeys.forEach((key, index) => {
     if (DEFAULT_COOKIE_KEYS.has(key)) {
@@ -226,6 +244,34 @@ function checkProductionErrors(config: GiteaOidcConfig): ConfigValidationError[]
     errors.push({
       path: "adapter.type",
       message: "生产环境必须使用 sqlite 或 redis OIDC 适配器，不能使用 memory",
+      code: "production_storage_required",
+    });
+  }
+
+  if (applications.enabled && applications.repository.type === "memory") {
+    errors.push({
+      path: "applications.repository.type",
+      message: "生产环境启用应用管理时必须使用 sqlite 应用仓储，不能使用 memory",
+      code: "production_storage_required",
+    });
+  }
+
+  if (
+    applications.enabled &&
+    applications.repository.type === "sqlite" &&
+    isEphemeralSqlitePath(applications.repository.sqlite?.dbPath)
+  ) {
+    errors.push({
+      path: "applications.repository.sqlite.dbPath",
+      message: "生产环境应用仓储不能使用 SQLite :memory:",
+      code: "production_storage_required",
+    });
+  }
+
+  if (config.adapter?.type === "sqlite" && isEphemeralSqlitePath(config.adapter.sqlite?.dbPath)) {
+    errors.push({
+      path: "adapter.sqlite.dbPath",
+      message: "生产环境 OIDC adapter 不能使用 SQLite :memory:",
       code: "production_storage_required",
     });
   }
@@ -585,6 +631,19 @@ function isHttpsUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isEphemeralSqlitePath(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === ":memory:" ||
+    normalized.startsWith("file::memory:") ||
+    /^file:.*(?:[?&])mode=memory(?:&|$)/.test(normalized)
+  );
 }
 
 /**

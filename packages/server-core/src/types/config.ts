@@ -109,6 +109,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     claims: {
       openid: ["sub"],
       profile: ["name", "email", "email_verified", "groups", "roles", "status"],
+      email: ["email", "email_verified"],
       provider_api: [],
     },
     features: {
@@ -163,6 +164,19 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
           autoCreateUser: true,
         },
       },
+    },
+  },
+
+  applications: {
+    enabled: false,
+    clientSource: "config",
+    repository: {
+      type: "sqlite",
+      sqlite: { dbPath: "./applications.db" },
+    },
+    secretEncryption: {
+      keyId: "applications-v1",
+      masterKey: "",
     },
   },
 

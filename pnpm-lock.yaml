@@ -17,6 +17,9 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^20.0.0
         version: 20.0.0
+      '@gitea-oidc/applications':
+        specifier: workspace:*
+        version: link:packages/applications
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -35,6 +38,9 @@ importers:
 
   apps/admin-web:
     dependencies:
+      '@gitea-oidc/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@primeuix/themes':
         specifier: ^2.0.3
         version: 2.0.3
@@ -79,6 +85,44 @@ importers:
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
+
+  packages/applications:
+    dependencies:
+      '@gitea-oidc/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      better-sqlite3:
+        specifier: ^12.4.1
+        version: 12.4.1
+      zod:
+        specifier: ^4.1.12
+        version: 4.1.12
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.1
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.9
+        version: 4.0.9(@types/debug@4.1.12)(@types/node@22.19.1)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.20.6)(yaml@2.8.3)
+
+  packages/contracts:
+    dependencies:
+      zod:
+        specifier: ^4.1.12
+        version: 4.1.12
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.9
+        version: 4.0.9(@types/debug@4.1.12)(@types/node@22.19.1)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.20.6)(yaml@2.8.3)
 
   packages/server-core:
     dependencies:

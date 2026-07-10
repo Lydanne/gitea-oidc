@@ -345,6 +345,28 @@ describe("SqliteOidcAdapter", () => {
     });
   });
 
+  describe("revokeByClientId", () => {
+    it("跨模型删除目标 Client 的 Grant、Code 和 Token", async () => {
+      const authorizationCode = new SqliteOidcAdapter("AuthorizationCode", testDbPath);
+      const refreshToken = new SqliteOidcAdapter("RefreshToken", testDbPath);
+      const interaction = new SqliteOidcAdapter("Interaction", testDbPath);
+      await authorizationCode.upsert("code-1", { clientId: "client-1", accountId: "user-1" });
+      await refreshToken.upsert("refresh-1", { clientId: "client-1", accountId: "user-1" });
+      await refreshToken.upsert("refresh-2", { clientId: "client-2", accountId: "user-1" });
+      await interaction.upsert("interaction-1", { params: { client_id: "client-1" } });
+
+      await SqliteOidcAdapter.revokeByClientId(testDbPath, "client-1");
+
+      await expect(authorizationCode.find("code-1")).resolves.toBeUndefined();
+      await expect(refreshToken.find("refresh-1")).resolves.toBeUndefined();
+      await expect(interaction.find("interaction-1")).resolves.toBeUndefined();
+      await expect(refreshToken.find("refresh-2")).resolves.toEqual({
+        clientId: "client-2",
+        accountId: "user-1",
+      });
+    });
+  });
+
   describe("cleanup", () => {
     it("应该清理过期的记录", async () => {
       const key1 = "test-key-23";

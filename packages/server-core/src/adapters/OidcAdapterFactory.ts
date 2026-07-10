@@ -5,6 +5,13 @@
  */
 
 import type { Adapter } from "oidc-provider";
+import {
+  acquireOidcClientBlock,
+  allowOidcClient,
+  blockOidcClient,
+  clearOidcClientRevocationBarriers,
+  type OidcClientBlockLease,
+} from "./oidcClientRevocationBarrier.js";
 import { RedisOidcAdapter, type RedisOidcAdapterOptions } from "./RedisOidcAdapter.js";
 import { SqliteOidcAdapter } from "./SqliteOidcAdapter.js";
 
@@ -47,14 +54,17 @@ export interface OidcAdapterConfig {
  */
 export class OidcAdapterFactory {
   private static config: OidcAdapterConfig;
+  private static overrides = new Map<string, () => Adapter>();
 
   /**
    * 配置适配器工厂
    *
    * @param config 适配器配置
    */
-  static configure(config: OidcAdapterConfig): void {
+  static configure(config: OidcAdapterConfig, overrides: Record<string, () => Adapter> = {}): void {
     OidcAdapterFactory.config = config;
+    OidcAdapterFactory.overrides = new Map(Object.entries(overrides));
+    clearOidcClientRevocationBarriers();
     console.log(`[OidcAdapterFactory] 配置适配器类型: ${config.type}`);
   }
 
@@ -67,6 +77,11 @@ export class OidcAdapterFactory {
   static create(name: string): Adapter | undefined {
     if (!OidcAdapterFactory.config) {
       throw new Error("OidcAdapterFactory not configured. Call configure() first.");
+    }
+
+    const override = OidcAdapterFactory.overrides.get(name);
+    if (override) {
+      return override();
     }
 
     switch (OidcAdapterFactory.config.type) {
@@ -98,6 +113,9 @@ export class OidcAdapterFactory {
    */
   static getAdapterFactory(): ((name: string) => Adapter) | undefined {
     if (OidcAdapterFactory.config?.type === "memory") {
+      if (OidcAdapterFactory.overrides.size > 0) {
+        throw new Error("Memory OIDC adapter 无法与模型级 Adapter override 组合使用");
+      }
       // 不向 oidc-provider 注入一个返回 undefined 的工厂；省略 adapter 字段才能启用内建内存适配器。
       return undefined;
     }
@@ -136,6 +154,8 @@ export class OidcAdapterFactory {
         break;
     }
 
+    OidcAdapterFactory.overrides.clear();
+    clearOidcClientRevocationBarriers();
     console.log("[OidcAdapterFactory] 资源清理完成");
   }
 
@@ -169,6 +189,38 @@ export class OidcAdapterFactory {
         // oidc-provider 的内存适配器会随当前进程结束，且不允许生产环境使用。
         break;
     }
+  }
+
+  /** 停用应用时撤销该 Client 的全部 OIDC Artifact。 */
+  static async revokeByClientId(clientId: string): Promise<void> {
+    blockOidcClient(clientId);
+    if (!OidcAdapterFactory.config) {
+      return;
+    }
+
+    switch (OidcAdapterFactory.config.type) {
+      case "sqlite":
+        await SqliteOidcAdapter.revokeByClientId(
+          OidcAdapterFactory.config.sqlite?.dbPath ?? "./oidc.db",
+          clientId,
+        );
+        break;
+      case "redis":
+        await RedisOidcAdapter.revokeByClientId(clientId, OidcAdapterFactory.config.redis);
+        break;
+      case "memory":
+        break;
+    }
+  }
+
+  /** 应用完成启用后，允许该 Client 再次写入新的 OIDC Artifact。 */
+  static allowClientId(clientId: string): void {
+    allowOidcClient(clientId);
+  }
+
+  /** 在应用状态提交前取得独立栅栏租约，避免并发请求互相解除封锁。 */
+  static acquireClientIdBlock(clientId: string): OidcClientBlockLease {
+    return acquireOidcClientBlock(clientId);
   }
 
   /**

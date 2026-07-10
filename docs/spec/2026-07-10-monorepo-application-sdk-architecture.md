@@ -7,7 +7,7 @@
 - 来源：AI 辅助生成，维护者已确认继续实现
 - 关联模块：`packages/server-core/`、`apps/idp-server/`、`apps/admin-web/`
 - 关联任务：应用管理、应用模板、Node SDK、框架连接器和 CLI 重构
-- 预计处理：按阶段实现，并将稳定设计迁移到 `docs/dev/`
+- 预计处理：按阶段实现，并将稳定设计迁移到 `docs/` 和 `docs/dev/`；P2 未完成前保留本草案
 
 ## 背景
 
@@ -649,14 +649,22 @@ workspace 依赖；待 npm scope 和新 SDK 包名确认、声明 bundling 门�
 
 ### P2：完成第一个产品纵向闭环
 
-- 建立 `contracts`、`applications` 和 `application-templates`。
-- 实现 ApplicationRepository、Secret 加密、审计和 Client 专用 Adapter。
-- seed 独立 system admin Client，并增加静态 Client ID 冲突保护。
-- 实现最小管理 API、custom 应用创建页面、一次性凭据交付状态和
+- [x] 建立 `contracts` 和 `applications`。
+- [ ] 建立 `application-templates`，为 P4 的 Gitea 模板提供版本化边界。
+- [x] 实现 ApplicationRepository、Secret 加密、审计和 Client 专用 Adapter。
+- [x] 幂等导入 system Client，并增加 Client ID 冲突保护。
+- [x] 实现最小管理 API、custom 应用创建页面、一次性凭据交付状态和
   `ApplicationConnectionV1`。
-- 实现 `@gitea-oidc/node`。
-- 用示例完成“创建 custom 应用 -> 一次获取凭据 -> Node 登录成功”。
-- 使用显式 `clientSource=config|database` 做整源切换，禁止 hybrid 查询和双写。
+- [x] 使用显式 `clientSource=config|database` 做整源切换，禁止 hybrid 查询和双写。
+- [x] 按 Application consent 策略区分受信任应用和第三方应用。
+- [ ] 实现 `@gitea-oidc/node`。
+- [ ] 用示例完成“创建 custom 应用 -> 一次获取凭据 -> Node 登录成功”。
+
+P2 当前只支持单实例 SQLite：`clientSource=database` 时 ApplicationRepository 和 OIDC Adapter
+都必须使用 SQLite，且 public Dynamic Client Registration 必须关闭。应用管理启用方式、32 字节
+独立主密钥、volume 和一致性备份要求已迁移到
+[应用管理接入指南](../APPLICATION_MANAGEMENT.md)。Gitea 模板、setup code、框架连接器和 CLI
+仍属于后续阶段，不能作为当前可用能力宣传。
 
 ### P3：框架连接器
 
@@ -749,11 +757,13 @@ public Client，不能上线 confidential Client 管理。`private_key_jwt` 作�
 
 - [x] 完成当前单包的 P0 发布止血并新增 tarball 内容断言。
 - [ ] 为公开 package 和内部 package 建立依赖边界检查。
-- [ ] 固化 `ApplicationConnectionV1` 和错误 contract。
-- [ ] 为 Application、OidcClient、Secret、Template 和 Audit 编写数据库设计。
-- [ ] 设计 Client Adapter 投影和现有 `clients[]` 幂等导入协议。
-- [ ] 设计 application disable 后按 `client_id` 撤销所有授权产物的能力。
-- [ ] 将全局自动 consent 改为 Application 策略。
+- [x] 固化 `ApplicationConnectionV1` 和 custom 应用创建 contract。
+- [ ] 固化跨管理 API、SDK 和 CLI 复用的错误 contract。
+- [x] 实现 Application、OidcClient、Secret 和 Audit 的 SQLite 持久化模型。
+- [ ] 实现版本化 Template 模型和模板快照。
+- [x] 实现 Client Adapter 投影和现有 `clients[]` 幂等导入协议。
+- [x] 实现 application disable 后按 `client_id` 撤销所有授权产物的能力。
+- [x] 将全局自动 consent 改为 Application 策略。
 - [ ] 完成 custom 应用与 Node SDK 的第一个纵向闭环。
 - [ ] 实现框架连接器共享 conformance testkit。
 - [ ] 实现 Gitea 模板、结构化说明和真实配置验收。

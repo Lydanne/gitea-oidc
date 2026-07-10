@@ -2,7 +2,14 @@ import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  ApplicationSecretEncryptor,
+  ApplicationService,
+  SqliteApplicationRepository,
+} from "@gitea-oidc/applications";
+import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { OidcAdapterFactory } from "../adapters/OidcAdapterFactory.js";
 import type { GiteaOidcConfig } from "../config.js";
 import { AuthCoordinator } from "../core/AuthCoordinator.js";
 import {
@@ -41,6 +48,7 @@ const createValidRuntimeConfig = (): GiteaOidcConfig => ({
     claims: {
       openid: ["sub"],
       profile: ["name", "email", "groups", "roles", "status"],
+      email: ["email", "email_verified"],
       provider_api: [],
     },
     features: {
@@ -100,6 +108,12 @@ const createValidRuntimeConfig = (): GiteaOidcConfig => ({
       },
     },
   },
+  applications: {
+    enabled: false,
+    clientSource: "config",
+    repository: { type: "sqlite", sqlite: { dbPath: "./applications.db" } },
+    secretEncryption: { keyId: "applications-v1", masterKey: "" },
+  },
   adapter: {
     type: "sqlite",
     sqlite: { dbPath: "./oidc.db" },
@@ -109,6 +123,226 @@ const createValidRuntimeConfig = (): GiteaOidcConfig => ({
     keyId: "default-key",
   },
 });
+
+const DYNAMIC_REDIRECT_URI = "https://app.example.com/callback";
+
+function createTestMasterKey(): Buffer {
+  return Buffer.from(Array.from({ length: 32 }, (_, index) => index + 1));
+}
+
+async function seedDynamicApplication(tempDir: string) {
+  const applicationsDbPath = join(tempDir, "applications.db");
+  const masterKey = createTestMasterKey();
+  const repository = new SqliteApplicationRepository({ dbPath: applicationsDbPath });
+  try {
+    const service = new ApplicationService({
+      repository,
+      secretEncryptor: new ApplicationSecretEncryptor({
+        keyId: "applications-v1",
+        masterKey,
+      }),
+      issuer: "https://id.example.com/oidc",
+      supportedScopes: ["openid", "profile", "email", "offline_access"],
+    });
+    const created = await service.createCustomApplication(
+      {
+        schemaVersion: 1,
+        application: {
+          name: "动态测试应用",
+          slug: "dynamic-test-app",
+          environment: "production",
+        },
+        client: {
+          clientType: "confidential",
+          redirectUris: [DYNAMIC_REDIRECT_URI],
+          scopes: ["openid", "profile", "email"],
+          pkcePolicy: "required",
+        },
+        credentialDelivery: "direct",
+      },
+      { idempotencyKey: "dynamic-client-test-create" },
+    );
+    return { applicationsDbPath, created, masterKey };
+  } finally {
+    await repository.close();
+  }
+}
+
+function configureDynamicApplications(
+  config: GiteaOidcConfig,
+  fixture: Awaited<ReturnType<typeof seedDynamicApplication>>,
+  tempDir: string,
+): void {
+  config.auth.userRepository = { type: "memory", memory: {} };
+  config.admin.enabled = false;
+  config.providerApi.enabled = false;
+  config.adapter = { type: "sqlite", sqlite: { dbPath: join(tempDir, "oidc.db") } };
+  config.applications = {
+    enabled: true,
+    clientSource: "database",
+    repository: { type: "sqlite", sqlite: { dbPath: fixture.applicationsDbPath } },
+    secretEncryption: {
+      keyId: "applications-v1",
+      masterKey: fixture.masterKey.toString("base64url"),
+    },
+  };
+  config.jwks = { filePath: join(tempDir, "jwks.json"), keyId: "test-key" };
+}
+
+type CookieJar = Map<string, string>;
+
+async function injectWithCookies(
+  app: FastifyInstance,
+  jar: CookieJar,
+  options: {
+    method: "GET" | "POST";
+    url: string;
+    payload?: string;
+    headers?: Record<string, string>;
+  },
+) {
+  const parsedUrl = new URL(options.url, "https://id.example.com");
+  const cookie = [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
+  const response = await app.inject({
+    ...options,
+    url: `${parsedUrl.pathname}${parsedUrl.search}`,
+    headers: {
+      ...options.headers,
+      ...(cookie === "" ? {} : { cookie }),
+    },
+  });
+  const setCookie = response.headers["set-cookie"];
+  for (const header of Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : []) {
+    const pair = header.split(";", 1)[0];
+    const separator = pair.indexOf("=");
+    if (separator <= 0) continue;
+    const name = pair.slice(0, separator);
+    const value = pair.slice(separator + 1);
+    if (value === "") {
+      jar.delete(name);
+    } else {
+      jar.set(name, value);
+    }
+  }
+  return response;
+}
+
+function requireLocation(response: { headers: Record<string, unknown> }): string {
+  const location = response.headers.location;
+  if (typeof location !== "string") {
+    throw new Error("预期响应包含 Location header");
+  }
+  return location;
+}
+
+function readInteractionUid(location: string): string {
+  const match = /^\/interaction\/([^/?]+)$/.exec(
+    new URL(location, "https://id.example.com").pathname,
+  );
+  if (!match?.[1]) {
+    throw new Error(`无法从重定向读取 interaction uid: ${location}`);
+  }
+  return match[1];
+}
+
+async function beginDynamicConsent(
+  app: FastifyInstance,
+  clientId: string,
+  state: string,
+): Promise<{
+  consent: Awaited<ReturnType<FastifyInstance["inject"]>>;
+  jar: CookieJar;
+  uid: string;
+}> {
+  const jar: CookieJar = new Map();
+  const authorization = await injectWithCookies(app, jar, {
+    method: "GET",
+    url: `/oidc/auth?${new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: DYNAMIC_REDIRECT_URI,
+      response_type: "code",
+      scope: "openid profile email",
+      state,
+      code_challenge: "A".repeat(43),
+      code_challenge_method: "S256",
+    })}`,
+  });
+  expect(authorization.statusCode).toBe(303);
+
+  const loginLocation = requireLocation(authorization);
+  const loginUid = readInteractionUid(loginLocation);
+  const loginPage = await injectWithCookies(app, jar, { method: "GET", url: loginLocation });
+  expect(loginPage.statusCode).toBe(200);
+
+  const login = await injectWithCookies(app, jar, {
+    method: "POST",
+    url: `/interaction/${encodeURIComponent(loginUid)}/login`,
+    payload: new URLSearchParams({
+      authMethod: "local",
+      username: "alice",
+      password: "secret",
+    }).toString(),
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+  });
+  expect(login.statusCode).toBe(303);
+
+  const resumedLogin = await injectWithCookies(app, jar, {
+    method: "GET",
+    url: requireLocation(login),
+  });
+  expect(resumedLogin.statusCode).toBe(303);
+
+  const consentLocation = requireLocation(resumedLogin);
+  const uid = readInteractionUid(consentLocation);
+  const consent = await injectWithCookies(app, jar, { method: "GET", url: consentLocation });
+  expect(consent.statusCode).toBe(200);
+  return { consent, jar, uid };
+}
+
+async function authorizeTrustedSystemClient(app: FastifyInstance): Promise<URL> {
+  const jar: CookieJar = new Map();
+  const authorization = await injectWithCookies(app, jar, {
+    method: "GET",
+    url: `/oidc/auth?${new URLSearchParams({
+      client_id: "web-app",
+      redirect_uri: DYNAMIC_REDIRECT_URI,
+      response_type: "code",
+      scope: "openid profile email",
+      state: "system-client-state",
+      code_challenge: "B".repeat(43),
+      code_challenge_method: "S256",
+    })}`,
+  });
+  const loginLocation = requireLocation(authorization);
+  const loginUid = readInteractionUid(loginLocation);
+  await injectWithCookies(app, jar, { method: "GET", url: loginLocation });
+  const login = await injectWithCookies(app, jar, {
+    method: "POST",
+    url: `/interaction/${encodeURIComponent(loginUid)}/login`,
+    payload: new URLSearchParams({
+      authMethod: "local",
+      username: "alice",
+      password: "secret",
+    }).toString(),
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+  });
+
+  let response = await injectWithCookies(app, jar, {
+    method: "GET",
+    url: requireLocation(login),
+  });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const location = new URL(requireLocation(response), "https://id.example.com");
+    if (location.origin === "https://app.example.com") {
+      return location;
+    }
+    response = await injectWithCookies(app, jar, {
+      method: "GET",
+      url: location.toString(),
+    });
+  }
+  throw new Error("受信任 system Client 未完成自动 consent");
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -198,7 +432,238 @@ describe("server runtime config validation", () => {
   });
 });
 
+describe("server dynamic applications", () => {
+  it("loads a database application as a real oidc-provider Client", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-dynamic-client-"));
+    const fixture = await seedDynamicApplication(tempDir);
+
+    const config = createValidRuntimeConfig();
+    config.auth.providers = {};
+    configureDynamicApplications(config, fixture, tempDir);
+
+    const app = await createIdentityServer(config, { publicDir: "public" });
+    try {
+      const authorization = await app.inject({
+        method: "GET",
+        url: `/oidc/auth?${new URLSearchParams({
+          client_id: fixture.created.response.client.clientId,
+          redirect_uri: DYNAMIC_REDIRECT_URI,
+          response_type: "code",
+          scope: "openid profile email",
+          state: "test-state",
+          code_challenge: "A".repeat(43),
+          code_challenge_method: "S256",
+        })}`,
+      });
+
+      expect(authorization.statusCode).toBe(303);
+      expect(authorization.headers.location).toMatch(/^\/interaction\//);
+
+      const missingPkce = await app.inject({
+        method: "GET",
+        url: `/oidc/auth?${new URLSearchParams({
+          client_id: fixture.created.response.client.clientId,
+          redirect_uri: DYNAMIC_REDIRECT_URI,
+          response_type: "code",
+          scope: "openid",
+          state: "test-state-without-pkce",
+        })}`,
+      });
+      expect(missingPkce.statusCode).toBe(303);
+      expect(missingPkce.headers.location).toContain("error=invalid_request");
+    } finally {
+      await app.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("对第三方动态应用显式展示授权并处理允许和拒绝", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-dynamic-consent-"));
+    const fixture = await seedDynamicApplication(tempDir);
+    const passwordFile = join(tempDir, "users.htpasswd");
+    await writeFile(passwordFile, "alice:secret\n", "utf8");
+
+    const config = createValidRuntimeConfig();
+    config.logging.enabled = false;
+    config.auth.providers.local.config = {
+      passwordFile,
+      passwordFormat: "auto",
+    };
+    configureDynamicApplications(config, fixture, tempDir);
+
+    const delivery = fixture.created.response.credentialDelivery;
+    if (delivery.kind !== "direct" || delivery.credential.kind !== "client_secret") {
+      throw new Error("测试动态应用应返回一次性 client_secret");
+    }
+    const clientSecret = delivery.credential.clientSecret;
+    const clientId = fixture.created.response.client.clientId;
+    const app = await createIdentityServer(config, { publicDir: "public" });
+
+    try {
+      const approval = await beginDynamicConsent(app, clientId, "approve-state");
+      expect(approval.consent.headers["content-security-policy"]).toContain("script-src 'none'");
+      expect(approval.consent.headers["x-frame-options"]).toBe("DENY");
+      expect(approval.consent.headers["cache-control"]).toBe("no-store");
+      expect(approval.consent.headers.pragma).toBe("no-cache");
+      expect(approval.consent.body).toContain("动态测试应用");
+      expect(approval.consent.body).toContain("<code>openid</code>");
+      expect(approval.consent.body).toContain("<code>profile</code>");
+      expect(approval.consent.body).toContain("<code>email</code>");
+      expect(approval.consent.body).not.toContain(clientSecret);
+      expect(approval.consent.body).not.toContain("gos_");
+
+      const crossOrigin = await injectWithCookies(app, approval.jar, {
+        method: "POST",
+        url: `/interaction/${encodeURIComponent(approval.uid)}/consent`,
+        payload: "decision=approve",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          origin: "https://evil.example.com",
+        },
+      });
+      expect(crossOrigin.statusCode).toBe(403);
+      expect(crossOrigin.headers["cache-control"]).toBe("no-store");
+
+      const approved = await injectWithCookies(app, approval.jar, {
+        method: "POST",
+        url: `/interaction/${encodeURIComponent(approval.uid)}/consent`,
+        payload: "decision=approve",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          origin: "https://id.example.com",
+        },
+      });
+      expect(approved.statusCode).toBe(303);
+      const approvedResume = await injectWithCookies(app, approval.jar, {
+        method: "GET",
+        url: requireLocation(approved),
+      });
+      expect(approvedResume.statusCode).toBe(303);
+      const approvedCallback = new URL(requireLocation(approvedResume));
+      expect(approvedCallback.origin).toBe("https://app.example.com");
+      expect(approvedCallback.searchParams.get("code")).toBeTruthy();
+      expect(approvedCallback.searchParams.get("state")).toBe("approve-state");
+      expect(approvedCallback.searchParams.get("error")).toBeNull();
+
+      const denial = await beginDynamicConsent(app, clientId, "deny-state");
+      const denied = await injectWithCookies(app, denial.jar, {
+        method: "POST",
+        url: `/interaction/${encodeURIComponent(denial.uid)}/consent`,
+        payload: "decision=deny",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          origin: "https://id.example.com",
+        },
+      });
+      expect(denied.statusCode).toBe(303);
+      const deniedResume = await injectWithCookies(app, denial.jar, {
+        method: "GET",
+        url: requireLocation(denied),
+      });
+      expect(deniedResume.statusCode).toBe(303);
+      const deniedCallback = new URL(requireLocation(deniedResume));
+      expect(deniedCallback.searchParams.get("error")).toBe("access_denied");
+      expect(deniedCallback.searchParams.get("code")).toBeNull();
+      expect(deniedCallback.searchParams.get("state")).toBe("deny-state");
+
+      const systemCallback = await authorizeTrustedSystemClient(app);
+      expect(systemCallback.searchParams.get("code")).toBeTruthy();
+      expect(systemCallback.searchParams.get("state")).toBe("system-client-state");
+
+      const pending = await beginDynamicConsent(app, clientId, "disabled-during-consent");
+      const controlRepository = new SqliteApplicationRepository({
+        dbPath: fixture.applicationsDbPath,
+      });
+      try {
+        const controlService = new ApplicationService({
+          repository: controlRepository,
+          secretEncryptor: new ApplicationSecretEncryptor({
+            keyId: "applications-v1",
+            masterKey: fixture.masterKey,
+          }),
+          issuer: config.oidc.issuer,
+          supportedScopes: ["openid", "profile", "email", "offline_access"],
+        });
+        const applicationId = fixture.created.response.application.id;
+        await controlService.disableApplication(applicationId, { expectedVersion: 1 });
+        await OidcAdapterFactory.revokeByClientId(clientId);
+        await controlService.completeDisableApplication(applicationId, { expectedVersion: 2 });
+
+        const rejectedConsent = await injectWithCookies(app, pending.jar, {
+          method: "POST",
+          url: `/interaction/${encodeURIComponent(pending.uid)}/consent`,
+          payload: "decision=approve",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            origin: "https://id.example.com",
+          },
+        });
+        expect(rejectedConsent.statusCode).toBe(400);
+        expect(rejectedConsent.body).toBe("Invalid or expired interaction");
+
+        const disabledAuthorization = await app.inject({
+          method: "GET",
+          url: `/oidc/auth?${new URLSearchParams({
+            client_id: clientId,
+            redirect_uri: DYNAMIC_REDIRECT_URI,
+            response_type: "code",
+            scope: "openid",
+            state: "disabled-client-state",
+            code_challenge: "C".repeat(43),
+            code_challenge_method: "S256",
+          })}`,
+        });
+        expect(disabledAuthorization.statusCode).toBe(400);
+        expect(disabledAuthorization.headers.location).toBeUndefined();
+        expect(disabledAuthorization.body).not.toContain("authorization code");
+      } finally {
+        await controlRepository.close();
+      }
+    } finally {
+      await app.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+});
+
 describe("server resource cleanup", () => {
+  it("serves admin assets from a custom basePath", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-admin-base-path-"));
+    const config = createValidRuntimeConfig();
+    config.logging.enabled = false;
+    config.admin.basePath = "/ops/identity";
+    config.clients[0].redirect_uris = [
+      DYNAMIC_REDIRECT_URI,
+      "https://id.example.com/ops/identity/callback",
+    ];
+    config.auth.userRepository = { type: "memory", memory: {} };
+    config.auth.providers.local.enabled = false;
+    config.providerApi.enabled = false;
+    config.adapter = { type: "memory" };
+    config.jwks = { filePath: join(tempDir, "jwks.json"), keyId: "test-key" };
+    const app = await createIdentityServer(config, { publicDir: "public" });
+
+    try {
+      const page = await app.inject({ method: "GET", url: "/ops/identity/users" });
+      expect(page.statusCode).toBe(200);
+      expect(page.body).toContain('<base href="/ops/identity/">');
+      const assetName = /src="\.\/assets\/([^"]+\.js)"/u.exec(page.body)?.[1];
+      expect(assetName).toBeTruthy();
+
+      const asset = await app.inject({
+        method: "GET",
+        url: `/ops/identity/assets/${encodeURIComponent(assetName!)}`,
+      });
+      expect(asset.statusCode).toBe(200);
+      expect(asset.headers["content-type"]).toContain("javascript");
+      expect(asset.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+      expect(asset.headers["content-security-policy"]).toContain("script-src 'self'");
+    } finally {
+      await app.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it("creates an application without listening on a port", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-create-"));
     const config = createValidRuntimeConfig();
@@ -236,6 +701,9 @@ describe("server resource cleanup", () => {
       tokenRepository: {
         close: vi.fn(async () => calls.push("tokenRepository")),
       },
+      applicationRuntime: {
+        close: vi.fn(async () => calls.push("applications")),
+      },
       userRepository: {
         close: vi.fn(async () => calls.push("userRepository")),
       },
@@ -254,6 +722,7 @@ describe("server resource cleanup", () => {
       "scheduler",
       "auth",
       "tokenRepository",
+      "applications",
       "userRepository",
       "stateStore",
       "adapters",

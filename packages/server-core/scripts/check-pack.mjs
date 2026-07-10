@@ -25,6 +25,15 @@ try {
   }
   const [packResult] = JSON.parse(output.slice(jsonStart));
   const paths = packResult.files.map((file) => file.path);
+  const packedManifest = JSON.parse(
+    execFileSync("tar", ["-xOf", join(packDir, packResult.filename), "package/package.json"], {
+      encoding: "utf8",
+    }),
+  );
+  const workspaceReference = findWorkspaceReference(packedManifest);
+  if (workspaceReference) {
+    throw new Error(`npm tarball manifest 泄漏 workspace 协议: ${workspaceReference}`);
+  }
 
   const requiredPaths = [
     packageJson.main,
@@ -64,6 +73,9 @@ try {
   const declarationFiles = await listFiles(fileURLToPath(new URL("dist", packageRoot)), ".d.ts");
   for (const declarationFile of declarationFiles) {
     const declaration = await readFile(declarationFile, "utf8");
+    if (declaration.includes('"@gitea-oidc/applications"')) {
+      throw new Error(`公开声明泄漏私有 workspace 类型: ${declarationFile}`);
+    }
     const relativeSpecifiers = Array.from(
       declaration.matchAll(/(?:from\s+|import\()["'](\.{1,2}\/[^"']+)["']/g),
       (match) => match[1],
@@ -73,6 +85,18 @@ try {
     );
     if (invalidSpecifier) {
       throw new Error(`声明文件包含 NodeNext 无法解析的路径: ${invalidSpecifier}`);
+    }
+  }
+
+  const javascriptFiles = await listFiles(fileURLToPath(new URL("dist", packageRoot)), ".js");
+  for (const javascriptFile of javascriptFiles) {
+    const javascript = await readFile(javascriptFile, "utf8");
+    if (
+      /(?:from\s+|import\()["']@gitea-oidc\/(?:applications|contracts)(?:\/[^"']*)?["']/.test(
+        javascript,
+      )
+    ) {
+      throw new Error(`发布 JS 仍依赖 workspace 包: ${javascriptFile}`);
     }
   }
 
@@ -118,7 +142,11 @@ try {
       'import { GiteaOidcClient } from "gitea-oidc/client";',
       'const options: IdentityServerOptions = { publicDir: "public" };',
       "declare const config: GiteaOidcConfig;",
+      'type LegacyConfig = Omit<GiteaOidcConfig, "applications">;',
+      "declare const legacyConfig: LegacyConfig;",
+      "const compatibleConfig: GiteaOidcConfig = legacyConfig;",
       "void createIdentityServer(config, options);",
+      "void compatibleConfig;",
       "void GiteaOidcClient;",
       "",
     ].join("\n"),
@@ -163,4 +191,24 @@ async function listFiles(directory, suffix) {
     }),
   );
   return nestedFiles.flat().filter((path) => path.endsWith(suffix));
+}
+
+function findWorkspaceReference(value, path = "package.json") {
+  if (typeof value === "string") {
+    return value.startsWith("workspace:") ? `${path}=${value}` : undefined;
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const found = findWorkspaceReference(item, `${path}[${index}]`);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      const found = findWorkspaceReference(item, `${path}.${key}`);
+      if (found) return found;
+    }
+  }
+  return undefined;
 }

@@ -117,6 +117,26 @@ describe("OidcAdapterFactory", () => {
       expect(OidcAdapterFactory.getAdapterFactory()).toBeUndefined();
     });
 
+    it("只为指定模型使用 override，其他模型仍使用通用持久化适配器", () => {
+      const clientAdapter = { find: vi.fn() } as any;
+      OidcAdapterFactory.configure(
+        { type: "sqlite", sqlite: { dbPath: ":memory:" } },
+        { Client: () => clientAdapter },
+      );
+
+      expect(OidcAdapterFactory.create("Client")).toBe(clientAdapter);
+      expect(OidcAdapterFactory.create("Session")).toBeInstanceOf(SqliteOidcAdapter);
+    });
+
+    it("拒绝把模型 override 与 oidc-provider 内建 memory adapter 混用", () => {
+      OidcAdapterFactory.configure(
+        { type: "memory" },
+        { Client: () => ({ find: vi.fn() }) as any },
+      );
+
+      expect(() => OidcAdapterFactory.getAdapterFactory()).toThrow(/Memory OIDC adapter/);
+    });
+
     it("应该在未配置时抛出错误", () => {
       // 清除配置
       const factory = OidcAdapterFactory as any;
@@ -368,6 +388,37 @@ describe("OidcAdapterFactory", () => {
       const config = OidcAdapterFactory.getConfig();
 
       expect(config).toBeUndefined();
+    });
+  });
+
+  describe("Client 撤销发行栅栏", () => {
+    it("撤销后拒绝并发写入，重新启用后恢复写入", async () => {
+      OidcAdapterFactory.configure({ type: "sqlite", sqlite: { dbPath: ":memory:" } });
+      const adapter = OidcAdapterFactory.create("AuthorizationCode") as SqliteOidcAdapter;
+      await adapter.upsert("before-disable", { clientId: "client-1" });
+
+      await OidcAdapterFactory.revokeByClientId("client-1");
+
+      await expect(adapter.find("before-disable")).resolves.toBeUndefined();
+      await expect(adapter.upsert("racing-code", { clientId: "client-1" })).rejects.toMatchObject({
+        code: "OIDC_CLIENT_REVOKED",
+      });
+      await expect(adapter.upsert("racing-grant", { client_id: "client-1" })).rejects.toMatchObject(
+        {
+          code: "OIDC_CLIENT_REVOKED",
+        },
+      );
+      await expect(
+        adapter.upsert("racing-interaction", { params: { client_id: "client-1" } }),
+      ).rejects.toMatchObject({ code: "OIDC_CLIENT_REVOKED" });
+      await expect(
+        adapter.upsert("other-client", { clientId: "client-2" }),
+      ).resolves.toBeUndefined();
+
+      OidcAdapterFactory.allowClientId("client-1");
+      await expect(
+        adapter.upsert("after-enable", { clientId: "client-1" }),
+      ).resolves.toBeUndefined();
     });
   });
 

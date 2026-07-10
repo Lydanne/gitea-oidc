@@ -45,6 +45,14 @@ export interface AdminMeResponse {
 
   /** 是否为管理员 */
   admin: boolean;
+
+  /** 当前管理台规范化后的部署路径。 */
+  basePath: string;
+
+  /** 当前部署实际启用的管理能力。 */
+  capabilities: {
+    applications: boolean;
+  };
 }
 
 /**

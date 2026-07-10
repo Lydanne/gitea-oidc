@@ -1,14 +1,18 @@
+import { adminRuntimeConfig, toAdminPath } from "../runtimeConfig";
 import type {
   AdminSession,
   AdminUser,
   AdminUserPayload,
+  ApplicationDetails,
+  CreateCustomApplicationOutcomeResponseV1,
+  CreateCustomApplicationRequestV1,
   ProviderState,
   ProviderToken,
   UserStatus,
 } from "../types/admin";
 
 /** 管理台 API 基础路径。 */
-const adminApiBase = "/admin/api";
+const adminApiBase = `${adminRuntimeConfig.basePath}/api`;
 const adminActionHeader = "X-Gitea-OIDC-Admin-Action";
 
 /** 统一处理后台 API 请求、登录跳转和错误文本。 */
@@ -29,7 +33,7 @@ export const adminApiRequest = async <T>(
 
   if (response.status === 401) {
     const returnTo = `${location.pathname}${location.search}`;
-    location.href = `/admin/login?returnTo=${encodeURIComponent(returnTo)}`;
+    location.href = `${toAdminPath("/login")}?returnTo=${encodeURIComponent(returnTo)}`;
     return null;
   }
 
@@ -55,6 +59,37 @@ export const fetchProviderState = () => adminApiRequest<ProviderState>("/provide
 
 /** 获取 Provider token 状态列表。 */
 export const fetchProviderTokens = () => adminApiRequest<ProviderToken[]>("/tokens");
+
+/** 获取应用与 OIDC Client 列表。 */
+export const fetchAdminApplications = () => adminApiRequest<ApplicationDetails[]>("/applications");
+
+/** 创建自定义应用；调用方负责为同一次逻辑提交复用幂等键。 */
+export const createAdminApplication = (
+  payload: CreateCustomApplicationRequestV1,
+  idempotencyKey: string,
+) =>
+  adminApiRequest<CreateCustomApplicationOutcomeResponseV1>("/applications", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(payload),
+  });
+
+/** 启用应用。 */
+export const enableAdminApplication = (applicationId: string, expectedVersion: number) =>
+  adminApiRequest<ApplicationDetails>(`/applications/${encodeURIComponent(applicationId)}/enable`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion }),
+  });
+
+/** 禁用应用。 */
+export const disableAdminApplication = (applicationId: string, expectedVersion: number) =>
+  adminApiRequest<ApplicationDetails>(
+    `/applications/${encodeURIComponent(applicationId)}/disable`,
+    {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion }),
+    },
+  );
 
 /** 创建后台用户。 */
 export const createAdminUser = (payload: AdminUserPayload) =>

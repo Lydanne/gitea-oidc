@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import {
   createAdminUser,
   fetchAdminSession,
@@ -10,6 +10,7 @@ import {
   updateAdminUser,
   updateAdminUserStatus,
 } from "../api/adminApi";
+import { adminRuntimeConfig } from "../runtimeConfig";
 import type {
   AdminSession,
   AdminUser,
@@ -31,6 +32,10 @@ export const useAdminDashboard = () => {
     apiProviders: [],
   });
   const tokens = ref<ProviderToken[]>([]);
+  const applicationsEnabled = computed(
+    () =>
+      me.value?.capabilities.applications ?? adminRuntimeConfig.capabilities.applications ?? false,
+  );
 
   /** 加载管理台全部首屏数据。 */
   const loadAll = async (options: { silent?: boolean } = {}) => {
@@ -105,6 +110,7 @@ export const useAdminDashboard = () => {
     users,
     providers,
     tokens,
+    applicationsEnabled,
     loadAll,
     setError,
     createUser,

@@ -51,6 +51,7 @@ user repositories, and pluggable OIDC persistence adapters.
   - Local password authentication (htpasswd format, bcrypt/MD5/SHA)
   - Feishu (Lark) OAuth 2.0 login
 - **Unified login page** combining multiple providers
+- **Optional custom application management** with one-time OIDC Client credentials
 - **Flexible user repositories**:
   - In-memory
   - SQLite
@@ -75,6 +76,10 @@ At a high level:
     `packages/server-core/src/config.ts`
   - Configures `oidc-provider` and mounts it at `/oidc`
   - Integrates the authentication system (unified login, OAuth state, callbacks)
+- `packages/contracts/`
+  - Owns the versioned wire contracts shared by application management and future connectors
+- `packages/applications/`
+  - Owns applications, OIDC Clients, encrypted secrets, auditing, and the SQLite repository
 - `apps/idp-server/src/main.ts`
   - Owns the production process lifecycle and graceful shutdown
 - `packages/server-core/src/core/AuthCoordinator.ts`
@@ -190,6 +195,11 @@ Key sections in `gitea-oidc.config.*`:
 - `logging`: enable/disable and log level
 - `oidc`: issuer, cookie keys, TTLs, claims & features
 - `clients`: OIDC clients (e.g. Gitea)
+- `applications`: optional application control plane and its single Client source
+  - compatibility mode: `enabled: false`, `clientSource: "config"`
+  - database mode: `enabled: true`, `clientSource: "database"`
+  - database mode currently requires a 32-byte Base64/Base64URL master key and single-instance
+    SQLite storage
 - `auth.userRepository`:
   - `type`: `memory` | `sqlite` | `pgsql`
   - `memory`: in-memory store (dev only)
@@ -279,6 +289,7 @@ Main documentation lives under `docs/` and is currently in Chinese:
 - `docs/README.md` – documentation index
 - `docs/QUICK_START.md` – quick start guide
 - `docs/PRODUCTION_SETUP.md` – production setup
+- `docs/APPLICATION_MANAGEMENT.md` – application management, key handling, and SQLite operations
 - `docs/ADAPTER_CONFIGURATION.md`, `docs/REDIS_ADAPTER_GUIDE.md` – adapter details
 - `docs/REVERSE_PROXY_HTTPS.md` – reverse proxy & HTTPS
 - `docs/dev/README.md` – developer documentation index
@@ -291,7 +302,7 @@ If you can read Chinese, please start from `docs/QUICK_START.md`.
 
 ## License
 
-This project is licensed under the **ISC License**.
+This project is licensed under the **MIT License**.
 
 ## Team
 

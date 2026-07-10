@@ -7,6 +7,10 @@
 
 import type { Adapter } from "oidc-provider";
 import { createClient } from "redis";
+import {
+  assertOidcClientWriteAllowed,
+  readOidcPayloadClientId,
+} from "./oidcClientRevocationBarrier.js";
 
 export interface RedisOidcAdapterOptions {
   /**
@@ -134,10 +138,15 @@ export class RedisOidcAdapter implements Adapter {
     return `${this.keyPrefix}accountId:${accountId}`;
   }
 
+  private clientIdKey(clientId: string): string {
+    return `${this.keyPrefix}clientId:${clientId}`;
+  }
+
   /**
    * 插入或更新记录
    */
   async upsert(id: string, payload: any, expiresIn?: number): Promise<void> {
+    assertOidcClientWriteAllowed(payload);
     const client = await this.getClient();
     const key = this.key(id);
     const value = JSON.stringify(payload);
@@ -179,6 +188,16 @@ export class RedisOidcAdapter implements Adapter {
     if (payload.accountId) {
       const accountIdKey = this.accountIdKey(payload.accountId);
       await this.addExpiringSetMember(client, accountIdKey, `${this.name}:${id}`, expiresIn);
+    }
+
+    const clientId = readOidcPayloadClientId(payload);
+    if (clientId) {
+      await this.addExpiringSetMember(
+        client,
+        this.clientIdKey(clientId),
+        `${this.name}:${id}`,
+        expiresIn,
+      );
     }
   }
 
@@ -296,6 +315,10 @@ export class RedisOidcAdapter implements Adapter {
       if (payload.accountId) {
         await client.sRem(this.accountIdKey(payload.accountId), `${this.name}:${id}`);
       }
+      const clientId = readOidcPayloadClientId(payload);
+      if (clientId) {
+        await client.sRem(this.clientIdKey(clientId), `${this.name}:${id}`);
+      }
     }
   }
 
@@ -353,6 +376,33 @@ export class RedisOidcAdapter implements Adapter {
       pipeline.del(`${keyPrefix}${name}:${id}`);
     }
     pipeline.del(accountKey);
+    await pipeline.exec();
+  }
+
+  /** 删除指定 Client 的全部 OIDC 模型记录。 */
+  static async revokeByClientId(
+    clientId: string,
+    options: RedisOidcAdapterOptions | undefined,
+  ): Promise<void> {
+    const client = await RedisOidcAdapter.getSharedClient(options);
+    const keyPrefix = options?.keyPrefix || "oidc:";
+    const clientKey = `${keyPrefix}clientId:${clientId}`;
+    const members = await client.sMembers(clientKey);
+    if (members.length === 0) {
+      return;
+    }
+
+    const pipeline = client.multi();
+    for (const member of members) {
+      const separator = member.indexOf(":");
+      if (separator <= 0) {
+        continue;
+      }
+      const name = member.slice(0, separator);
+      const id = member.slice(separator + 1);
+      pipeline.del(`${keyPrefix}${name}:${id}`);
+    }
+    pipeline.del(clientKey);
     await pipeline.exec();
   }
 
@@ -419,6 +469,11 @@ export class RedisOidcAdapter implements Adapter {
     }
     if (previousPayload.accountId && previousPayload.accountId !== nextPayload.accountId) {
       await client.sRem(this.accountIdKey(previousPayload.accountId), `${this.name}:${id}`);
+    }
+    const previousClientId = readOidcPayloadClientId(previousPayload);
+    const nextClientId = readOidcPayloadClientId(nextPayload);
+    if (previousClientId && previousClientId !== nextClientId) {
+      await client.sRem(this.clientIdKey(previousClientId), `${this.name}:${id}`);
     }
   }
 

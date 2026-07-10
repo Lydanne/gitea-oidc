@@ -2,18 +2,19 @@
 import Button from "primevue/button";
 import { computed } from "vue";
 import { useRoute } from "vue-router";
+import { isAdminPath, toAdminPath } from "../runtimeConfig";
 
 const route = useRoute();
 
 /** 登录后返回路径。 */
 const returnTo = computed(() => {
   const value = route.query.returnTo;
-  return typeof value === "string" && value.startsWith("/admin/") ? value : "/admin/users";
+  return typeof value === "string" && isAdminPath(value) ? value : toAdminPath("/users");
 });
 
 /** 后端 OIDC 登录启动地址。 */
 const loginStartUrl = computed(
-  () => `/admin/login/start?returnTo=${encodeURIComponent(returnTo.value)}`,
+  () => `${toAdminPath("/login/start")}?returnTo=${encodeURIComponent(returnTo.value)}`,
 );
 </script>
 

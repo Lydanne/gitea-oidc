@@ -37,12 +37,13 @@ pnpm run release -- prerelease --preReleaseId=beta
 发布流程包含以下步骤：
 
 1. 构建生产版本（`pnpm run build:prod`）
-2. 递增 `package.json` 中的版本号
-3. 提交 Git 变更并打标签
-4. 推送代码与标签到 GitHub
-5. 创建 GitHub Release
-6. 发布到 npm
-7. 触发 Docker 镜像构建与推送（由 GitHub Actions 完成）
+2. 运行 `pnpm test:pack`，确认 tarball 只包含发布白名单文件且所有 exports 存在
+3. 递增 `package.json` 中的版本号
+4. 提交 Git 变更并打标签
+5. 推送代码与标签到 GitHub
+6. 创建 GitHub Release
+7. 发布到 npm
+8. 触发 Docker 镜像构建与推送（由 GitHub Actions 完成）
 
 ---
 
@@ -73,6 +74,7 @@ pnpm run release -- prerelease --preReleaseId=beta
 - `build`
   - 安装依赖
   - 运行 `pnpm run build:prod`
+  - 运行 `pnpm test:pack`
   - 构建测试用 Docker 镜像 `gitea-oidc:test`
 
 ### 2. Release 工作流
@@ -94,6 +96,7 @@ pnpm run release -- prerelease --preReleaseId=beta
 2. `build`（依赖 `test`）
    - 安装依赖并重建原生模块
    - 运行 `pnpm run build:prod`
+   - 运行 `pnpm test:pack`
    - 上传构建产物 `dist/` 作为 artifact
 3. `release`（依赖 `build`）
    - 使用 `release-it` 完成版本号递增、Git 标签、GitHub Release 和 npm 发布

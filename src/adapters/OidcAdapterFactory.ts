@@ -64,14 +64,14 @@ export class OidcAdapterFactory {
    * @param name OIDC 模型名称 (如 Session, AccessToken 等)
    * @returns 适配器实例
    */
-  static create(name: string): Adapter {
+  static create(name: string): Adapter | undefined {
     if (!OidcAdapterFactory.config) {
       throw new Error("OidcAdapterFactory not configured. Call configure() first.");
     }
 
     switch (OidcAdapterFactory.config.type) {
       case "sqlite":
-        return new SqliteOidcAdapter(name);
+        return new SqliteOidcAdapter(name, OidcAdapterFactory.config.sqlite?.dbPath);
 
       case "redis":
         if (!OidcAdapterFactory.config.redis) {
@@ -82,7 +82,7 @@ export class OidcAdapterFactory {
       case "memory":
         console.warn("[OidcAdapterFactory] Using memory adapter - data will be lost on restart!");
         // 返回 undefined 让 oidc-provider 使用默认的内存适配器
-        return undefined as any;
+        return undefined;
 
       default:
         throw new Error(`Unknown adapter type: ${(OidcAdapterFactory.config as any).type}`);
@@ -96,8 +96,18 @@ export class OidcAdapterFactory {
    *
    * @returns 适配器工厂函数
    */
-  static getAdapterFactory(): (name: string) => Adapter {
-    return (name: string) => OidcAdapterFactory.create(name);
+  static getAdapterFactory(): ((name: string) => Adapter) | undefined {
+    if (OidcAdapterFactory.config?.type === "memory") {
+      // 不向 oidc-provider 注入一个返回 undefined 的工厂；省略 adapter 字段才能启用内建内存适配器。
+      return undefined;
+    }
+    return (name: string) => {
+      const adapter = OidcAdapterFactory.create(name);
+      if (!adapter) {
+        throw new Error("Memory adapter must be omitted from oidc-provider configuration");
+      }
+      return adapter;
+    };
   }
 
   /**
@@ -118,7 +128,7 @@ export class OidcAdapterFactory {
         break;
 
       case "sqlite":
-        // SQLite 适配器暂时没有需要清理的资源
+        await SqliteOidcAdapter.closeAll();
         break;
 
       case "memory":
@@ -134,6 +144,31 @@ export class OidcAdapterFactory {
    */
   static getConfig(): OidcAdapterConfig | undefined {
     return OidcAdapterFactory.config;
+  }
+
+  /**
+   * 撤销某个账户的全部 OIDC 记录。
+   * 用户删除或更换外部身份后调用，避免旧 refresh token 在同一 sub 再次出现时复活。
+   */
+  static async revokeByAccountId(accountId: string): Promise<void> {
+    if (!OidcAdapterFactory.config) {
+      return;
+    }
+
+    switch (OidcAdapterFactory.config.type) {
+      case "sqlite":
+        await SqliteOidcAdapter.revokeByAccountId(
+          OidcAdapterFactory.config.sqlite?.dbPath ?? "./oidc.db",
+          accountId,
+        );
+        break;
+      case "redis":
+        await RedisOidcAdapter.revokeByAccountId(accountId, OidcAdapterFactory.config.redis);
+        break;
+      case "memory":
+        // oidc-provider 的内存适配器会随当前进程结束，且不允许生产环境使用。
+        break;
+    }
   }
 
   /**

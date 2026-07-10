@@ -13,17 +13,19 @@ describe("SqliteOidcAdapter", () => {
   let adapter: SqliteOidcAdapter;
   const testDbPath = join(process.cwd(), "test-oidc.db");
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await SqliteOidcAdapter.closeAll();
     // 清理测试数据库
     if (existsSync(testDbPath)) {
       unlinkSync(testDbPath);
     }
 
     // 创建适配器实例
-    adapter = new SqliteOidcAdapter("Session");
+    adapter = new SqliteOidcAdapter("Session", testDbPath);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await SqliteOidcAdapter.closeAll();
     // 清理测试数据库
     if (existsSync(testDbPath)) {
       try {
@@ -37,12 +39,12 @@ describe("SqliteOidcAdapter", () => {
   describe("constructor", () => {
     it("应该创建数据库和表结构", () => {
       expect(adapter).toBeDefined();
-      expect(existsSync("./oidc.db")).toBe(true);
+      expect(existsSync(testDbPath)).toBe(true);
     });
 
     it("应该为不同的 name 创建独立的适配器", () => {
-      const adapter1 = new SqliteOidcAdapter("Session");
-      const adapter2 = new SqliteOidcAdapter("AccessToken");
+      const adapter1 = new SqliteOidcAdapter("Session", testDbPath);
+      const adapter2 = new SqliteOidcAdapter("AccessToken", testDbPath);
 
       expect(adapter1).toBeDefined();
       expect(adapter2).toBeDefined();
@@ -206,18 +208,14 @@ describe("SqliteOidcAdapter", () => {
       const payload = { userId: "user123" };
 
       await adapter.upsert(key, payload);
-      const result = await adapter.consume(key);
+      await expect(adapter.consume(key)).resolves.toBeUndefined();
 
-      expect(result).toEqual(payload);
-
-      // 再次消费应该返回 undefined
-      const result2 = await adapter.consume(key);
-      expect(result2).toBeUndefined();
+      // 再次消费必须失败，避免两个并发交换请求同时签发令牌。
+      await expect(adapter.consume(key)).rejects.toThrow("already been consumed");
     });
 
     it("应该返回 undefined 当记录不存在时", async () => {
-      const result = await adapter.consume("non-existent-key");
-      expect(result).toBeUndefined();
+      await expect(adapter.consume("non-existent-key")).resolves.toBeUndefined();
     });
 
     it("应该返回 undefined 当记录已被消费时", async () => {
@@ -227,8 +225,7 @@ describe("SqliteOidcAdapter", () => {
       await adapter.upsert(key, payload);
       await adapter.consume(key);
 
-      const result = await adapter.consume(key);
-      expect(result).toBeUndefined();
+      await expect(adapter.consume(key)).rejects.toThrow("already been consumed");
     });
 
     it("应该忽略已过期的记录", async () => {
@@ -237,9 +234,7 @@ describe("SqliteOidcAdapter", () => {
       const expiresIn = -1; // 已过期
 
       await adapter.upsert(key, payload, expiresIn);
-      const result = await adapter.consume(key);
-
-      expect(result).toBeUndefined();
+      await expect(adapter.consume(key)).resolves.toBeUndefined();
     });
 
     it("消费后记录仍然可以通过 find 找到", async () => {
@@ -251,7 +246,22 @@ describe("SqliteOidcAdapter", () => {
 
       // consume 后记录被标记但不删除
       const result = await adapter.find(key);
-      expect(result).toEqual(payload);
+      expect(result).toEqual(expect.objectContaining({ ...payload, consumed: expect.any(Number) }));
+    });
+
+    it("并发消费只能有一个请求成功", async () => {
+      await adapter.upsert("single-use", { accountId: "user-1" });
+
+      const results = await Promise.allSettled([
+        adapter.consume("single-use"),
+        adapter.consume("single-use"),
+      ]);
+
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      expect(await adapter.find("single-use")).toEqual(
+        expect.objectContaining({ consumed: expect.any(Number) }),
+      );
     });
   });
 
@@ -348,9 +358,6 @@ describe("SqliteOidcAdapter", () => {
       await adapter.upsert(key2, payload2, 3600);
 
       // 手动触发清理
-      // @ts-expect-error - 访问私有方法用于测试
-      adapter.cleanup();
-
       const result1 = await adapter.find(key1);
       const result2 = await adapter.find(key2);
 
@@ -361,8 +368,8 @@ describe("SqliteOidcAdapter", () => {
 
   describe("多适配器隔离", () => {
     it("不同 name 的适配器应该数据隔离", async () => {
-      const adapter1 = new SqliteOidcAdapter("Session");
-      const adapter2 = new SqliteOidcAdapter("AccessToken");
+      const adapter1 = new SqliteOidcAdapter("Session", testDbPath);
+      const adapter2 = new SqliteOidcAdapter("AccessToken", testDbPath);
 
       const key = "same-key";
       const payload1 = { type: "session" };

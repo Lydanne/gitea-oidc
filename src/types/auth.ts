@@ -689,6 +689,21 @@ export interface StateStore {
   get(state: string): Promise<any>;
 
   /**
+   * 原子读取并删除 state。
+   *
+   * OAuth state 和交互结果都是一次性凭据，调用方不得用 get() + delete()
+   * 组合它们，否则并发回调可能同时读取到同一条记录。
+   */
+  take(state: string): Promise<any>;
+
+  /**
+   * 原子递增一个带 TTL 的计数器，并返回递增后的值。
+   *
+   * 用于登录失败等跨实例安全计数；实现必须在同一个原子操作中刷新 TTL。
+   */
+  increment(state: string, ttl: number): Promise<number>;
+
+  /**
    * 删除 state（消费后）
    * @param state state 字符串
    */
@@ -827,7 +842,7 @@ export interface LocalAuthConfig {
   /** 本地用户默认用户组 */
   defaultGroups?: string[];
 
-  /** 本地管理员用户名列表，命中后会附加 Owners 组 */
+  /** 本地管理员用户名列表，命中后会附加 gitea-oidc-admins 组 */
   adminUsers?: string[];
 }
 

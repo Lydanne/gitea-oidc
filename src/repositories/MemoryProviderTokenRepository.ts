@@ -5,10 +5,16 @@
 import type {
   ProviderTokenListOptions,
   ProviderTokenOwnerType,
+  ProviderTokenProbeCandidateOptions,
   ProviderTokenRecord,
   ProviderTokenRepository,
   ProviderTokenStatus,
 } from "../types/providerApi";
+import { sanitizeTokenErrorText } from "../utils/tokenCrypto";
+import {
+  normalizeProviderTokenListOptions,
+  normalizeProviderTokenProbeCandidateOptions,
+} from "./providerTokenListOptions";
 
 /**
  * 内存 Provider token 仓储
@@ -20,10 +26,14 @@ export class MemoryProviderTokenRepository implements ProviderTokenRepository {
     const id = this.createId(record.provider, record.ownerType, record.ownerId);
     const existing = this.tokens.get(id);
     const now = new Date();
+    const lastErrorSource = Object.hasOwn(record, "lastError")
+      ? record.lastError
+      : existing?.lastError;
     const saved: ProviderTokenRecord = {
       ...existing,
       ...record,
       id,
+      lastError: sanitizeTokenErrorText(lastErrorSource),
       createdAt: existing?.createdAt ?? record.createdAt ?? now,
       updatedAt: now,
     };
@@ -42,24 +52,38 @@ export class MemoryProviderTokenRepository implements ProviderTokenRepository {
   }
 
   async list(options?: ProviderTokenListOptions): Promise<ProviderTokenRecord[]> {
+    const listOptions = normalizeProviderTokenListOptions(options);
     let records = Array.from(this.tokens.values());
 
-    if (options?.provider) {
-      records = records.filter((record) => record.provider === options.provider);
+    if (listOptions.provider) {
+      records = records.filter((record) => record.provider === listOptions.provider);
     }
-    if (options?.ownerType) {
-      records = records.filter((record) => record.ownerType === options.ownerType);
+    if (listOptions.ownerType) {
+      records = records.filter((record) => record.ownerType === listOptions.ownerType);
     }
-    if (options?.ownerId) {
-      records = records.filter((record) => record.ownerId === options.ownerId);
+    if (listOptions.ownerId) {
+      records = records.filter((record) => record.ownerId === listOptions.ownerId);
     }
-    if (options?.status) {
-      records = records.filter((record) => record.status === options.status);
+    if (listOptions.status) {
+      records = records.filter((record) => record.status === listOptions.status);
     }
 
-    const offset = options?.offset ?? 0;
-    const limit = options?.limit ?? records.length;
+    const offset = listOptions.offset ?? 0;
+    const limit = listOptions.limit ?? records.length;
     return records.slice(offset, offset + limit).map((record) => this.clone(record));
+  }
+
+  async listProbeCandidates(
+    options: ProviderTokenProbeCandidateOptions,
+  ): Promise<ProviderTokenRecord[]> {
+    const probeOptions = normalizeProviderTokenProbeCandidateOptions(options);
+    const expiresBefore = probeOptions.expiresBefore.getTime();
+
+    return Array.from(this.tokens.values())
+      .filter((record) => this.shouldProbe(record, expiresBefore))
+      .sort(compareProbeCandidates)
+      .slice(0, probeOptions.limit)
+      .map((record) => this.clone(record));
   }
 
   async updateStatus(
@@ -78,7 +102,7 @@ export class MemoryProviderTokenRepository implements ProviderTokenRepository {
     this.tokens.set(id, {
       ...record,
       status,
-      lastError,
+      lastError: sanitizeTokenErrorText(lastError),
       lastProbedAt: new Date(),
       updatedAt: new Date(),
     });
@@ -90,6 +114,14 @@ export class MemoryProviderTokenRepository implements ProviderTokenRepository {
     ownerId: string,
   ): Promise<void> {
     this.tokens.delete(this.createId(provider, ownerType, ownerId));
+  }
+
+  async deleteByOwnerId(ownerId: string): Promise<void> {
+    for (const [id, token] of this.tokens.entries()) {
+      if (token.ownerId === ownerId) {
+        this.tokens.delete(id);
+      }
+    }
   }
 
   async clear(): Promise<void> {
@@ -107,9 +139,49 @@ export class MemoryProviderTokenRepository implements ProviderTokenRepository {
       refreshExpiresAt: record.refreshExpiresAt ? new Date(record.refreshExpiresAt) : undefined,
       lastProbedAt: record.lastProbedAt ? new Date(record.lastProbedAt) : undefined,
       lastRefreshAt: record.lastRefreshAt ? new Date(record.lastRefreshAt) : undefined,
+      lastError: sanitizeTokenErrorText(record.lastError),
       createdAt: record.createdAt ? new Date(record.createdAt) : undefined,
       updatedAt: record.updatedAt ? new Date(record.updatedAt) : undefined,
       metadata: record.metadata ? { ...record.metadata } : undefined,
     };
   }
+
+  private shouldProbe(record: ProviderTokenRecord, expiresBefore: number): boolean {
+    if (record.status === "revoked") {
+      return false;
+    }
+
+    return (
+      record.status !== "valid" ||
+      !record.lastProbedAt ||
+      !record.expiresAt ||
+      record.expiresAt.getTime() <= expiresBefore
+    );
+  }
+}
+
+function compareProbeCandidates(left: ProviderTokenRecord, right: ProviderTokenRecord): number {
+  return (
+    getProbePriority(left) - getProbePriority(right) ||
+    getTime(left.lastProbedAt) - getTime(right.lastProbedAt) ||
+    getTime(left.expiresAt) - getTime(right.expiresAt) ||
+    getTime(left.updatedAt) - getTime(right.updatedAt)
+  );
+}
+
+function getProbePriority(record: ProviderTokenRecord): number {
+  if (record.status !== "valid") {
+    return 0;
+  }
+  if (!record.lastProbedAt) {
+    return 1;
+  }
+  if (!record.expiresAt) {
+    return 2;
+  }
+  return 3;
+}
+
+function getTime(value?: Date): number {
+  return value?.getTime() ?? 0;
 }

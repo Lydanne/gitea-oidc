@@ -4,6 +4,7 @@
 
 import type { FeishuAuthConfig } from "../types/auth";
 import type {
+  ProviderApiOperationDefinition,
   ProviderTokenRecord,
   ProviderTokenRepository,
   ProviderTokenStatus,
@@ -28,6 +29,22 @@ interface FeishuTokenResponse {
   };
 }
 
+const FEISHU_OPERATION_DEFINITIONS: ProviderApiOperationDefinition[] = [
+  {
+    operation: "authen.user_info",
+    allowedTokenKinds: ["user"],
+    method: "GET",
+    path: "/authen/v1/user_info",
+  },
+  {
+    operation: "contact.user.get",
+    allowedTokenKinds: ["app"],
+    method: "GET",
+    path: "/contact/v3/users/{user_id}",
+    allowedQueryParams: ["user_id_type", "department_id_type"],
+  },
+];
+
 /**
  * 飞书 Provider API 客户端配置
  */
@@ -43,6 +60,12 @@ export interface FeishuProviderApiClientOptions {
 
   /** 过期前多少秒刷新 */
   refreshSkewSeconds: number;
+
+  /** Provider API 出站请求超时时间（毫秒） */
+  requestTimeoutMs?: number;
+
+  /** Provider API 响应体读取上限（字节） */
+  responseBodyLimitBytes?: number;
 
   /** SDK 代理允许的操作 */
   allowedOperations?: string[];
@@ -63,7 +86,10 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
       baseUrl: options.baseUrl,
       tokenRepository: options.tokenRepository,
       refreshSkewSeconds: options.refreshSkewSeconds,
+      requestTimeoutMs: options.requestTimeoutMs,
+      responseBodyLimitBytes: options.responseBodyLimitBytes,
       allowedOperations: options.allowedOperations,
+      operationDefinitions: FEISHU_OPERATION_DEFINITIONS,
       defaultAppOwnerId: options.defaultAppOwnerId,
     });
     this.config = options.config;
@@ -71,8 +97,11 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
 
   async getAppToken(ownerId: string = this.defaultAppOwnerId): Promise<ProviderTokenRecord | null> {
     const existing = await this.tokenRepository.find(this.provider, "app", ownerId);
-    if (existing && !this.shouldRefresh(existing)) {
+    if (existing?.status === "valid" && !this.shouldRefresh(existing)) {
       return existing;
+    }
+    if (existing?.status === "revoked" || existing?.status === "refresh_failed") {
+      return null;
     }
 
     const response = await fetch(`${this.baseUrl}/auth/v3/app_access_token/internal`, {
@@ -82,8 +111,9 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
         app_id: this.config.appId,
         app_secret: this.config.appSecret,
       }),
+      signal: this.createRequestSignal(),
     });
-    const data = (await response.json()) as FeishuTokenResponse;
+    const data = await this.readResponseJson<FeishuTokenResponse>(response);
 
     if (!response.ok || data.code !== 0 || !data.app_access_token) {
       throw new Error(`Failed to fetch Feishu app token: ${data.msg ?? response.status}`);
@@ -101,6 +131,10 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
   }
 
   async refreshUserToken(userId: string): Promise<ProviderTokenRecord> {
+    return this.refreshUserTokenSingleFlight(userId, () => this.refreshUserTokenOnce(userId));
+  }
+
+  private async refreshUserTokenOnce(userId: string): Promise<ProviderTokenRecord> {
     const existing = await this.tokenRepository.find(this.provider, "user", userId);
     if (!existing?.refreshToken) {
       throw new Error(`Feishu refresh token not found for user: ${userId}`);
@@ -122,8 +156,9 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
           grant_type: "refresh_token",
           refresh_token: existing.refreshToken,
         }),
+        signal: this.createRequestSignal(),
       });
-      const data = (await response.json()) as FeishuTokenResponse;
+      const data = await this.readResponseJson<FeishuTokenResponse>(response);
 
       if (!response.ok || data.code !== 0 || !data.data?.access_token) {
         throw new Error(`Failed to refresh Feishu user token: ${data.msg ?? response.status}`);
@@ -146,30 +181,41 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
         status: "valid",
       });
     } catch (err) {
-      await this.tokenRepository.updateStatus(
-        this.provider,
-        "user",
-        userId,
-        "refresh_failed",
-        summarizeTokenError(err),
-      );
+      const current = await this.tokenRepository.find(this.provider, "user", userId);
+      // 仅在仓储仍是本次尝试读取到的 token 时标记失败；若另一次刷新已经写入新
+      // refresh token，则旧请求的失败不能覆盖成功状态。
+      if (
+        current?.refreshToken === existing.refreshToken &&
+        current.accessToken === existing.accessToken
+      ) {
+        await this.tokenRepository.updateStatus(
+          this.provider,
+          "user",
+          userId,
+          "refresh_failed",
+          summarizeTokenError(err),
+        );
+      }
       throw err;
     }
   }
 
   async probeToken(record: ProviderTokenRecord): Promise<ProviderTokenStatus> {
+    if (record.status === "revoked") {
+      return "revoked";
+    }
+
     if (record.expiresAt && record.expiresAt.getTime() <= Date.now()) {
-      await this.tokenRepository.updateStatus(
-        record.provider,
-        record.ownerType,
-        record.ownerId,
-        "expired",
-      );
+      await this.updateStatusIfCurrent(record, "expired");
       return "expired";
     }
 
     if (record.ownerType === "app") {
-      await this.tokenRepository.updateStatus(record.provider, "app", record.ownerId, "valid");
+      const token = await this.getAppToken(record.ownerId);
+      if (!token) {
+        return record.status;
+      }
+      await this.updateStatusIfCurrent(record, "valid");
       return "valid";
     }
 
@@ -179,17 +225,37 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
         path: "/authen/v1/user_info",
         headers: { Authorization: `Bearer ${record.accessToken}` },
       });
-      await this.tokenRepository.updateStatus(record.provider, "user", record.ownerId, "valid");
+      await this.updateStatusIfCurrent(record, "valid");
       return "valid";
     } catch (err) {
-      await this.tokenRepository.updateStatus(
-        record.provider,
-        "user",
-        record.ownerId,
-        "unknown",
-        summarizeTokenError(err),
-      );
+      await this.updateStatusIfCurrent(record, "unknown", summarizeTokenError(err));
       return "unknown";
     }
+  }
+
+  private async updateStatusIfCurrent(
+    record: ProviderTokenRecord,
+    status: ProviderTokenRecord["status"],
+    lastError?: string,
+  ): Promise<void> {
+    const current = await this.tokenRepository.find(
+      record.provider,
+      record.ownerType,
+      record.ownerId,
+    );
+    if (
+      !current ||
+      current.accessToken !== record.accessToken ||
+      current.refreshToken !== record.refreshToken
+    ) {
+      return;
+    }
+    await this.tokenRepository.updateStatus(
+      record.provider,
+      record.ownerType,
+      record.ownerId,
+      status,
+      lastError,
+    );
   }
 }

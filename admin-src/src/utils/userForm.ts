@@ -39,16 +39,24 @@ export const userToForm = (user: AdminUser): UserForm => ({
 });
 
 /** 将用户表单转换为后台 API 载荷。 */
-export const formToPayload = (form: UserForm): AdminUserPayload => {
+export const formToPayload = (
+  form: UserForm,
+  options: { includeIdentity?: boolean } = {},
+): AdminUserPayload => {
   const username = form.username.trim();
   const externalId = form.externalId.trim() || username;
+  const includeIdentity = options.includeIdentity ?? true;
 
   return {
     username,
     name: form.name.trim() || username,
     email: form.email.trim() || `${username}@local`,
-    authProvider: form.authProvider.trim() || "local",
-    externalId,
+    ...(includeIdentity
+      ? {
+          authProvider: form.authProvider.trim() || "local",
+          externalId,
+        }
+      : {}),
     groups: textToList(form.groups),
     roles: textToList(form.roles),
     status: form.status,

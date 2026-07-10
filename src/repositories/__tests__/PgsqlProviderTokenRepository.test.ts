@@ -61,6 +61,7 @@ describe("PgsqlProviderTokenRepository", () => {
       ownerId: "user-1",
       accessToken: "access-token",
       refreshToken: "refresh-token",
+      lastError: "Authorization: Bearer provider-token refresh_token=provider-refresh",
       status: "valid",
     });
 
@@ -68,6 +69,19 @@ describe("PgsqlProviderTokenRepository", () => {
     expect(saved.accessToken).toBe("access-token");
     expect(params[4]).not.toBe("access-token");
     expect(params[5]).not.toBe("refresh-token");
+    expect(params[13]).toContain("[REDACTED]");
+    expect(params[13]).not.toContain("provider-token");
+    expect(params[13]).not.toContain("provider-refresh");
+  });
+
+  it("sanitizes token-like values when updating token status", async () => {
+    const updateClient = setupNextClient();
+
+    await repository.updateStatus("feishu", "user", "user-1", "unknown", "access_token=raw-access");
+
+    const params = updateClient.query.mock.calls[0][1];
+    expect(params[1]).toContain("[REDACTED]");
+    expect(params[1]).not.toContain("raw-access");
   });
 
   it("decrypts token values when reading rows", async () => {
@@ -103,5 +117,63 @@ describe("PgsqlProviderTokenRepository", () => {
 
     expect(found).toMatchObject({ accessToken: "access-token", refreshToken: "refresh-token" });
     expect(findClient.release).toHaveBeenCalled();
+  });
+
+  it("rejects invalid list options before sending SQL", async () => {
+    await expect(repository.list({ ownerType: "tenant" as any })).rejects.toThrow(
+      /Unsupported provider token owner type/,
+    );
+    await expect(repository.list({ status: "healthy" as any })).rejects.toThrow(
+      /Unsupported provider token status/,
+    );
+    await expect(repository.list({ limit: -1 })).rejects.toThrow(/positive integer/);
+
+    expect(mockPool.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for table initialization before running the first query", async () => {
+    await repository.close();
+    mockPool.connect.mockClear();
+    mockPool.end.mockClear();
+
+    let resolveInit: (() => void) | undefined;
+    const initClient = setupNextClient(
+      () =>
+        new Promise((resolve) => {
+          resolveInit = () => resolve({ rows: [] });
+        }),
+    );
+    const listClient = setupNextClient(() => ({ rows: [] }));
+    repository = new PgsqlProviderTokenRepository("postgresql://localhost/test", "A".repeat(32));
+
+    const listPromise = repository.list({ limit: 1 });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(initClient.query).toHaveBeenCalledWith(expect.stringContaining("CREATE TABLE"));
+    expect(listClient.query).not.toHaveBeenCalled();
+    expect(mockPool.connect).toHaveBeenCalledTimes(1);
+
+    resolveInit?.();
+    await listPromise;
+
+    expect(listClient.query).toHaveBeenCalledWith(expect.stringContaining("SELECT *"), [1]);
+    expect(mockPool.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("queries only a bounded set of probe candidates", async () => {
+    const queryClient = setupNextClient(() => ({ rows: [] }));
+
+    await repository.listProbeCandidates({
+      expiresBefore: new Date("2026-01-01T00:05:00Z"),
+      limit: 20,
+    });
+
+    const [sql, params] = queryClient.query.mock.calls[0];
+    expect(sql).toContain("WHERE status !=");
+    expect(sql).toContain("status != $1");
+    expect(sql).toContain("status != $2");
+    expect(sql).toContain("LIMIT $4");
+    expect(params).toEqual(["revoked", "valid", new Date("2026-01-01T00:05:00Z"), 20]);
+    expect(queryClient.release).toHaveBeenCalled();
   });
 });

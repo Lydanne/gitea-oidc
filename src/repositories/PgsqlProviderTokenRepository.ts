@@ -6,11 +6,16 @@ import { Pool } from "pg";
 import type {
   ProviderTokenListOptions,
   ProviderTokenOwnerType,
+  ProviderTokenProbeCandidateOptions,
   ProviderTokenRecord,
   ProviderTokenRepository,
   ProviderTokenStatus,
 } from "../types/providerApi";
-import { TokenEncryptor } from "../utils/tokenCrypto";
+import { sanitizeTokenErrorText, TokenEncryptor } from "../utils/tokenCrypto";
+import {
+  normalizeProviderTokenListOptions,
+  normalizeProviderTokenProbeCandidateOptions,
+} from "./providerTokenListOptions";
 
 /**
  * PostgreSQL Provider token 仓储
@@ -18,11 +23,12 @@ import { TokenEncryptor } from "../utils/tokenCrypto";
 export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
   private pool: Pool;
   private encryptor: TokenEncryptor;
+  private ready: Promise<void>;
 
   constructor(uri: string, encryptionKey: string) {
     this.pool = new Pool({ connectionString: uri });
     this.encryptor = new TokenEncryptor(encryptionKey);
-    this.initializeDatabase();
+    this.ready = this.initializeDatabase();
   }
 
   async upsert(record: ProviderTokenRecord): Promise<ProviderTokenRecord> {
@@ -91,6 +97,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
     ownerType: ProviderTokenOwnerType,
     ownerId: string,
   ): Promise<ProviderTokenRecord | null> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       const result = await client.query(
@@ -107,26 +114,28 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
   }
 
   async list(options?: ProviderTokenListOptions): Promise<ProviderTokenRecord[]> {
+    const listOptions = normalizeProviderTokenListOptions(options);
+    await this.ready;
     let sql = "SELECT * FROM provider_tokens";
     const params: any[] = [];
     const conditions: string[] = [];
     let paramIndex = 1;
 
-    if (options?.provider) {
+    if (listOptions.provider) {
       conditions.push(`provider = $${paramIndex++}`);
-      params.push(options.provider);
+      params.push(listOptions.provider);
     }
-    if (options?.ownerType) {
+    if (listOptions.ownerType) {
       conditions.push(`"ownerType" = $${paramIndex++}`);
-      params.push(options.ownerType);
+      params.push(listOptions.ownerType);
     }
-    if (options?.ownerId) {
+    if (listOptions.ownerId) {
       conditions.push(`"ownerId" = $${paramIndex++}`);
-      params.push(options.ownerId);
+      params.push(listOptions.ownerId);
     }
-    if (options?.status) {
+    if (listOptions.status) {
       conditions.push(`status = $${paramIndex++}`);
-      params.push(options.status);
+      params.push(listOptions.status);
     }
 
     if (conditions.length > 0) {
@@ -135,18 +144,51 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
 
     sql += ' ORDER BY "updatedAt" DESC';
 
-    if (options?.limit !== undefined) {
+    if (listOptions.limit !== undefined) {
       sql += ` LIMIT $${paramIndex++}`;
-      params.push(options.limit);
+      params.push(listOptions.limit);
     }
-    if (options?.offset !== undefined) {
+    if (listOptions.offset !== undefined) {
       sql += ` OFFSET $${paramIndex++}`;
-      params.push(options.offset);
+      params.push(listOptions.offset);
     }
 
     const client = await this.pool.connect();
     try {
       const result = await client.query(sql, params);
+      return result.rows.map((row) => this.rowToRecord(row));
+    } finally {
+      client.release();
+    }
+  }
+
+  async listProbeCandidates(
+    options: ProviderTokenProbeCandidateOptions,
+  ): Promise<ProviderTokenRecord[]> {
+    const probeOptions = normalizeProviderTokenProbeCandidateOptions(options);
+    await this.ready;
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        `
+          SELECT * FROM provider_tokens
+          WHERE status != $1 AND (
+            status != $2 OR "lastProbedAt" IS NULL OR "expiresAt" IS NULL OR "expiresAt" <= $3
+          )
+          ORDER BY
+            CASE
+              WHEN status != $2 THEN 0
+              WHEN "lastProbedAt" IS NULL THEN 1
+              WHEN "expiresAt" IS NULL THEN 2
+              ELSE 3
+            END ASC,
+            "lastProbedAt" ASC NULLS FIRST,
+            "expiresAt" ASC NULLS FIRST,
+            "updatedAt" ASC
+          LIMIT $4
+        `,
+        ["revoked", "valid", probeOptions.expiresBefore, probeOptions.limit],
+      );
       return result.rows.map((row) => this.rowToRecord(row));
     } finally {
       client.release();
@@ -160,6 +202,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
     status: ProviderTokenStatus,
     lastError?: string,
   ): Promise<void> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       await client.query(
@@ -168,7 +211,15 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
           SET status = $1, "lastError" = $2, "lastProbedAt" = $3, "updatedAt" = $4
           WHERE provider = $5 AND "ownerType" = $6 AND "ownerId" = $7
         `,
-        [status, lastError ?? null, new Date(), new Date(), provider, ownerType, ownerId],
+        [
+          status,
+          sanitizeTokenErrorText(lastError) ?? null,
+          new Date(),
+          new Date(),
+          provider,
+          ownerType,
+          ownerId,
+        ],
       );
     } finally {
       client.release();
@@ -180,6 +231,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
     ownerType: ProviderTokenOwnerType,
     ownerId: string,
   ): Promise<void> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       await client.query(
@@ -191,7 +243,18 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
     }
   }
 
+  async deleteByOwnerId(ownerId: string): Promise<void> {
+    await this.ready;
+    const client = await this.pool.connect();
+    try {
+      await client.query('DELETE FROM provider_tokens WHERE "ownerId" = $1', [ownerId]);
+    } finally {
+      client.release();
+    }
+  }
+
   async clear(): Promise<void> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       await client.query("DELETE FROM provider_tokens");
@@ -201,6 +264,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
   }
 
   async close(): Promise<void> {
+    await this.ready.catch(() => undefined);
     await this.pool.end();
   }
 
@@ -259,7 +323,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
       status: record.status,
       lastProbedAt: record.lastProbedAt ?? null,
       lastRefreshAt: record.lastRefreshAt ?? null,
-      lastError: record.lastError ?? null,
+      lastError: sanitizeTokenErrorText(record.lastError) ?? null,
       metadata: record.metadata ?? null,
       createdAt: record.createdAt ?? new Date(),
       updatedAt: record.updatedAt ?? new Date(),
@@ -281,7 +345,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
       status: row.status,
       lastProbedAt: row.lastProbedAt || undefined,
       lastRefreshAt: row.lastRefreshAt || undefined,
-      lastError: row.lastError || undefined,
+      lastError: sanitizeTokenErrorText(row.lastError),
       metadata: row.metadata || undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

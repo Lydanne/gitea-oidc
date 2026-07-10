@@ -173,7 +173,17 @@ describe("formatAuthError", () => {
 
     expect(formatted).toContain("[AUTH_1000] Something broke");
     expect(formatted).toContain('Details: {"foo":"bar"}');
-    expect(formatted).toContain("Cause: root cause");
+    expect(formatted).toContain("Cause: Error");
+  });
+
+  it("should redact sensitive details", () => {
+    const error = AuthErrors.passwordIncorrect("alice");
+
+    const formatted = formatAuthError(error);
+
+    expect(formatted).toContain("[AUTH_2003] Password incorrect");
+    expect(formatted).toContain('Details: {"username":"[REDACTED]"}');
+    expect(formatted).not.toContain("alice");
   });
 
   it("should only include message when no extras provided", () => {

@@ -94,6 +94,17 @@ export interface ProviderTokenListOptions {
 }
 
 /**
+ * Provider token 探活候选查询选项
+ */
+export interface ProviderTokenProbeCandidateOptions {
+  /** 过期时间早于该值的 token 需要纳入探活 */
+  expiresBefore: Date;
+
+  /** 本轮最多返回多少条候选 */
+  limit: number;
+}
+
+/**
  * Provider token 仓储接口
  */
 export interface ProviderTokenRepository {
@@ -125,6 +136,13 @@ export interface ProviderTokenRepository {
   list(options?: ProviderTokenListOptions): Promise<ProviderTokenRecord[]>;
 
   /**
+   * 查询本轮需要探活的 token 候选。
+   *
+   * 自定义仓储可以不实现该方法；调度器会退回到带 `limit` 的 `list()`。
+   */
+  listProbeCandidates?(options: ProviderTokenProbeCandidateOptions): Promise<ProviderTokenRecord[]>;
+
+  /**
    * 更新 token 健康状态
    * @param provider Provider 名称
    * @param ownerType token 所属主体类型
@@ -148,6 +166,9 @@ export interface ProviderTokenRepository {
    */
   delete(provider: string, ownerType: ProviderTokenOwnerType, ownerId: string): Promise<void>;
 
+  /** 删除某个用户拥有的全部 Provider token。 */
+  deleteByOwnerId(ownerId: string): Promise<void>;
+
   /**
    * 清空仓储，仅用于测试或开发环境
    */
@@ -163,14 +184,17 @@ export interface ProviderTokenRepository {
  * Provider API 请求
  */
 export interface ProviderApiRequest {
-  /** HTTP 方法 */
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** HTTP 方法；由服务端 operation 定义决定，保留仅用于兼容旧 SDK 请求 */
+  method?: ProviderApiOperationMethod;
 
-  /** Provider baseUrl 下的相对路径，禁止传入绝对 URL */
-  path: string;
+  /** Provider baseUrl 下的相对路径；由服务端 operation 定义决定，保留仅用于兼容旧 SDK 请求 */
+  path?: string;
 
-  /** 操作标识，用于白名单和审计 */
-  operation?: string;
+  /** 操作标识，用于白名单和审计，必须命中服务端操作定义 */
+  operation: string;
+
+  /** 路径模板参数，只能填充服务端 operation 定义中的占位符 */
+  pathParams?: Record<string, string | number | boolean | undefined>;
 
   /** 使用用户 token 还是应用 token */
   tokenKind: ProviderTokenOwnerType;
@@ -200,6 +224,37 @@ export interface ProviderApiResponse<T = unknown> {
 
   /** 解析后的响应体 */
   data: T;
+}
+
+/**
+ * Provider API 操作支持的 HTTP 方法
+ */
+export type ProviderApiOperationMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+/**
+ * 服务端维护的 Provider API 操作定义
+ */
+export interface ProviderApiOperationDefinition {
+  /** 操作标识，例如 authen.user_info */
+  operation: string;
+
+  /** 允许使用的 token 类型；未声明时默认只允许 user token */
+  allowedTokenKinds?: ProviderTokenOwnerType[];
+
+  /** 实际 HTTP 方法 */
+  method: ProviderApiOperationMethod;
+
+  /** 实际相对路径，可包含 `{param}` 占位符 */
+  path: string;
+
+  /** 允许的 query 参数名；默认不允许调用方提交 query */
+  allowedQueryParams?: string[];
+
+  /** 允许的附加请求头名；默认不允许调用方提交 headers */
+  allowedHeaders?: string[];
+
+  /** 是否允许请求体，默认不允许 */
+  allowBody?: boolean;
 }
 
 /**
@@ -277,8 +332,17 @@ export interface ProviderApiRuntimeConfig {
   /** 后台探活间隔秒数 */
   probeIntervalSeconds: number;
 
+  /** Provider API 出站请求超时时间（毫秒） */
+  requestTimeoutMs: number;
+
+  /** Provider API 响应体读取上限（字节） */
+  responseBodyLimitBytes: number;
+
   /** 是否开放 SDK 代理路由 */
   sdkProxy: boolean;
+
+  /** 允许调用 SDK 代理路由的 OIDC client_id；空数组表示开发环境不限制 */
+  allowedClientIds: string[];
 
   /** Provider 级配置 */
   providers: Record<string, ProviderApiProviderConfig>;

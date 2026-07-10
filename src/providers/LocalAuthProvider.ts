@@ -14,12 +14,14 @@ import type {
   LocalAuthConfig,
   LoginUIResult,
   PluginMetadata,
+  StateStore,
   UserInfo,
   UserRepository,
 } from "../types/auth";
 import { PluginPermission } from "../types/auth";
 import { AuthErrors } from "../utils/authErrors";
 import { Logger } from "../utils/Logger";
+import { sanitizeForLog } from "../utils/logSanitizer";
 
 export class LocalAuthProvider implements AuthProvider {
   readonly name = "local";
@@ -28,13 +30,17 @@ export class LocalAuthProvider implements AuthProvider {
   private config!: LocalAuthConfig;
   private userRepository!: UserRepository;
   private passwordMap = new Map<string, string>(); // username -> hashedPassword
+  private loginFailures = new Map<string, { attempts: number; expiresAt: number }>();
 
-  constructor(userRepository: UserRepository) {
+  constructor(
+    userRepository: UserRepository,
+    private readonly stateStore?: StateStore,
+  ) {
     this.userRepository = userRepository;
   }
 
   async initialize(config: AuthProviderConfig): Promise<void> {
-    this.config = config.config as LocalAuthConfig;
+    this.config = { ...(config.config as LocalAuthConfig) };
 
     // 加载密码文件
     await this.loadPasswordFile();
@@ -51,7 +57,11 @@ export class LocalAuthProvider implements AuthProvider {
       for (const line of lines) {
         const [username, hash] = line.split(":", 2);
         if (username && hash) {
-          this.passwordMap.set(username.trim(), hash.trim());
+          const normalizedHash = hash.trim();
+          if (!this.isConfiguredFormat(normalizedHash)) {
+            throw new Error("password file contains a hash incompatible with passwordFormat");
+          }
+          this.passwordMap.set(username.trim(), normalizedHash);
         }
       }
 
@@ -59,7 +69,7 @@ export class LocalAuthProvider implements AuthProvider {
         `[LocalAuth] Loaded ${this.passwordMap.size} users from ${this.config.passwordFile}`,
       );
     } catch (err) {
-      Logger.error("[LocalAuth] Failed to load password file:", err);
+      Logger.error("[LocalAuth] Failed to load password file:", sanitizeForLog(err));
       throw new Error(`Failed to load password file: ${this.config.passwordFile}`);
     }
   }
@@ -75,7 +85,7 @@ export class LocalAuthProvider implements AuthProvider {
     return {
       type: "html",
       html: `
-        <form class="login-form" method="POST" action="/interaction/${context.interactionUid}/login">
+        <form class="login-form" method="POST" action="/interaction/${this.escapeHtml(encodeURIComponent(context.interactionUid))}/login">
           <input type="hidden" name="authMethod" value="local" />
           
           ${error ? `<div class="error">${this.escapeHtml(error)}</div>` : ""}
@@ -125,28 +135,45 @@ export class LocalAuthProvider implements AuthProvider {
       };
     }
 
-    // 检查用户是否存在
+    const lockoutPolicy = this.getLockoutPolicy();
+    if (await this.isLocked(username, lockoutPolicy)) {
+      // 锁定账号仍执行一次 bcrypt，避免攻击者通过锁定后的响应时间枚举真实用户名。
+      await this.verifyBcrypt(password, DUMMY_BCRYPT_HASH);
+      return { success: false, error: AuthErrors.invalidCredentials() };
+    }
+
+    // 不存在的用户名也执行一次 bcrypt，避免从响应时间推断账户是否存在。
     const hashedPassword = this.passwordMap.get(username);
     if (!hashedPassword) {
+      await this.verifyBcrypt(password, DUMMY_BCRYPT_HASH);
       return {
         success: false,
-        error: AuthErrors.invalidCredentials({ username }),
+        error: AuthErrors.invalidCredentials(),
       };
     }
 
     // 验证密码
     const isValid = await this.verifyPassword(password, hashedPassword);
     if (!isValid) {
+      await this.recordFailedAttempt(username, lockoutPolicy);
       return {
         success: false,
-        error: AuthErrors.passwordIncorrect(username),
+        error: AuthErrors.invalidCredentials(),
       };
     }
 
+    await this.clearFailedAttempts(username);
+
     // 查找或创建用户
-    const groups = new Set(this.config.defaultGroups ?? []);
+    const existingUser = this.userRepository.findByProviderAndExternalId
+      ? await this.userRepository.findByProviderAndExternalId(this.name, username)
+      : null;
+    const groups = new Set([
+      ...(existingUser?.groups ?? []).filter((group) => group !== ADMIN_GROUP),
+      ...(this.config.defaultGroups ?? []),
+    ]);
     if ((this.config.adminUsers ?? []).includes(username)) {
-      groups.add("Owners");
+      groups.add(ADMIN_GROUP);
     }
 
     const user = await this.userRepository.findOrCreate(this.name, username, {
@@ -154,8 +181,16 @@ export class LocalAuthProvider implements AuthProvider {
       name: username,
       email: `${username}@local`,
       emailVerified: false,
-      ...(groups.size > 0 ? { groups: Array.from(groups) } : {}),
+      ...(existingUser ||
+      this.config.defaultGroups !== undefined ||
+      this.config.adminUsers !== undefined
+        ? { groups: Array.from(groups) }
+        : {}),
     });
+
+    if (user.status && user.status !== "active") {
+      return { success: false, error: AuthErrors.invalidCredentials() };
+    }
 
     return {
       success: true,
@@ -188,7 +223,7 @@ export class LocalAuthProvider implements AuthProvider {
         return password === hash;
 
       default:
-        Logger.error("[LocalAuth] Unknown password format:", hash);
+        Logger.error("[LocalAuth] Unknown password format");
         return false;
     }
   }
@@ -197,6 +232,11 @@ export class LocalAuthProvider implements AuthProvider {
    * 检测密码格式
    */
   private detectPasswordFormat(hash: string): "bcrypt" | "md5" | "sha" | "plain" | "unknown" {
+    // 显式格式是安全边界，不能因 hash 前缀而被更弱的格式覆盖。
+    if (this.config.passwordFormat && this.config.passwordFormat !== "auto") {
+      return this.config.passwordFormat;
+    }
+
     if (hash.startsWith("$2y$") || hash.startsWith("$2a$") || hash.startsWith("$2b$")) {
       return "bcrypt";
     }
@@ -207,11 +247,6 @@ export class LocalAuthProvider implements AuthProvider {
 
     if (hash.startsWith("{SHA}")) {
       return "sha";
-    }
-
-    // 如果配置指定了格式
-    if (this.config.passwordFormat && this.config.passwordFormat !== "auto") {
-      return this.config.passwordFormat;
     }
 
     // 默认当作明文
@@ -225,7 +260,7 @@ export class LocalAuthProvider implements AuthProvider {
     try {
       return await compare(password, hash);
     } catch (err) {
-      Logger.error("[LocalAuth] Bcrypt verification error:", err);
+      Logger.error("[LocalAuth] Bcrypt verification error:", sanitizeForLog(err));
       return false;
     }
   }
@@ -245,7 +280,7 @@ export class LocalAuthProvider implements AuthProvider {
 
     // 简化的 APR1 实现（生产环境建议使用专门的库）
     const computed = this.apr1Crypt(password, salt);
-    return computed === expectedHash;
+    return computed === `$apr1$${salt}$${expectedHash}`;
   }
 
   /**
@@ -259,20 +294,114 @@ export class LocalAuthProvider implements AuthProvider {
   }
 
   /**
-   * APR1 MD5 加密（简化版）
+   * Apache APR1 MD5 校验。实现遵循 htpasswd 的 1000 轮混合与 crypt base64 编码，
+   * 仅用于兼容开发环境的历史密码文件；生产环境校验器只允许 bcrypt。
    */
   private apr1Crypt(password: string, salt: string): string {
-    // 这是一个简化实现，生产环境建议使用 apache-md5 或 apache-crypt 库
-    const md5 = (data: string | Buffer) => createHash("md5").update(data).digest();
+    const normalizedSalt = salt.split("$")[0].slice(0, 8);
+    const passwordBytes = Buffer.from(password);
+    const saltBytes = Buffer.from(normalizedSalt);
+    const md5 = (chunks: Buffer[]) => createHash("md5").update(Buffer.concat(chunks)).digest();
 
-    let ctx = md5(`${password}$apr1$${salt}`);
-    let final = md5(`${password}${salt}${password}`);
+    let digest = md5([passwordBytes, saltBytes, passwordBytes]);
+    const initial: Buffer[] = [passwordBytes, Buffer.from("$apr1$"), saltBytes];
+    for (let remaining = passwordBytes.length; remaining > 0; remaining -= 16) {
+      initial.push(digest.subarray(0, Math.min(remaining, 16)));
+    }
+    for (let bits = passwordBytes.length; bits > 0; bits >>= 1) {
+      initial.push(bits & 1 ? Buffer.from([0]) : passwordBytes.subarray(0, 1));
+    }
+    digest = md5(initial);
 
-    for (let i = password.length; i > 0; i -= 16) {
-      ctx = md5(Buffer.concat([ctx, final.slice(0, Math.min(i, 16))]));
+    for (let round = 0; round < 1000; round++) {
+      const chunks: Buffer[] = [];
+      chunks.push(round & 1 ? passwordBytes : digest);
+      if (round % 3 !== 0) chunks.push(saltBytes);
+      if (round % 7 !== 0) chunks.push(passwordBytes);
+      chunks.push(round & 1 ? digest : passwordBytes);
+      digest = md5(chunks);
     }
 
-    return ctx.toString("base64").substring(0, 22);
+    const encoded = [
+      encodeApr1Chunk(digest[0], digest[6], digest[12], 4),
+      encodeApr1Chunk(digest[1], digest[7], digest[13], 4),
+      encodeApr1Chunk(digest[2], digest[8], digest[14], 4),
+      encodeApr1Chunk(digest[3], digest[9], digest[15], 4),
+      encodeApr1Chunk(digest[4], digest[10], digest[5], 4),
+      encodeApr1Chunk(0, 0, digest[11], 2),
+    ].join("");
+    return `$apr1$${normalizedSalt}$${encoded}`;
+  }
+
+  private isConfiguredFormat(hash: string): boolean {
+    switch (this.config.passwordFormat) {
+      case "bcrypt":
+        return /^\$2[aby]\$\d{2}\$/.test(hash);
+      case "md5":
+        return hash.startsWith("$apr1$");
+      case "sha":
+        return hash.startsWith("{SHA}");
+      case "auto":
+        return true;
+    }
+  }
+
+  private getLockoutPolicy(): Required<NonNullable<LocalAuthConfig["lockoutPolicy"]>> {
+    const policy = this.config.lockoutPolicy;
+    return {
+      enabled: policy?.enabled ?? true,
+      maxAttempts: Math.max(1, policy?.maxAttempts ?? 5),
+      lockoutDuration: Math.max(1, policy?.lockoutDuration ?? 900),
+    };
+  }
+
+  private async isLocked(
+    username: string,
+    policy: Required<NonNullable<LocalAuthConfig["lockoutPolicy"]>>,
+  ): Promise<boolean> {
+    if (!policy.enabled) return false;
+    if (this.stateStore) {
+      const attempts = await this.stateStore.get(this.getLockoutKey(username));
+      return typeof attempts === "number" && attempts >= policy.maxAttempts;
+    }
+
+    const failure = this.loginFailures.get(username);
+    if (!failure) return false;
+    if (failure.expiresAt <= Date.now()) {
+      this.loginFailures.delete(username);
+      return false;
+    }
+    return failure.attempts >= policy.maxAttempts;
+  }
+
+  private async recordFailedAttempt(
+    username: string,
+    policy: Required<NonNullable<LocalAuthConfig["lockoutPolicy"]>>,
+  ): Promise<void> {
+    if (!policy.enabled) return;
+    if (this.stateStore) {
+      await this.stateStore.increment(this.getLockoutKey(username), policy.lockoutDuration);
+      return;
+    }
+
+    const failure = this.loginFailures.get(username);
+    this.loginFailures.set(username, {
+      attempts: (failure?.attempts ?? 0) + 1,
+      expiresAt: Date.now() + policy.lockoutDuration * 1000,
+    });
+  }
+
+  private async clearFailedAttempts(username: string): Promise<void> {
+    if (this.stateStore) {
+      await this.stateStore.delete(this.getLockoutKey(username));
+      return;
+    }
+    this.loginFailures.delete(username);
+  }
+
+  private getLockoutKey(username: string): string {
+    const usernameHash = createHash("sha256").update(username).digest("hex");
+    return `local-login-failures:${usernameHash}`;
   }
 
   /**
@@ -302,5 +431,20 @@ export class LocalAuthProvider implements AuthProvider {
 
   async destroy(): Promise<void> {
     this.passwordMap.clear();
+    this.loginFailures.clear();
   }
+}
+
+const ADMIN_GROUP = "gitea-oidc-admins";
+const DUMMY_BCRYPT_HASH = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+const APR1_ALPHABET = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+function encodeApr1Chunk(a: number, b: number, c: number, length: number): string {
+  let value = (a << 16) | (b << 8) | c;
+  let encoded = "";
+  for (let index = 0; index < length; index++) {
+    encoded += APR1_ALPHABET[value & 0x3f];
+    value >>>= 6;
+  }
+  return encoded;
 }

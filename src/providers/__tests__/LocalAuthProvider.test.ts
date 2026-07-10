@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
+import { MemoryStateStore } from "../../stores/MemoryStateStore";
 import type { AuthContext, AuthProviderConfig, UserInfo } from "../../types/auth";
 import { AuthErrors } from "../../utils/authErrors";
 import { Logger } from "../../utils/Logger";
@@ -25,6 +25,8 @@ describe("LocalAuthProvider", () => {
   const userRepository = {
     findOrCreate: vi.fn<(provider: string, externalId: string, data: any) => Promise<UserInfo>>(),
     findById: vi.fn<(id: string) => Promise<UserInfo | null>>(),
+    findByProviderAndExternalId:
+      vi.fn<(provider: string, externalId: string) => Promise<UserInfo | null>>(),
   } as unknown as any;
 
   const baseConfig: AuthProviderConfig = {
@@ -64,7 +66,7 @@ describe("LocalAuthProvider", () => {
       [
         "alice:$2b$10$hash123",
         "bob:plain",
-        `md5user:$apr1$salt$${md5Hash}`,
+        `md5user:${md5Hash}`,
         `shauser:{SHA}${shaHash}`,
         "plainuser:secret",
         "unknown:??",
@@ -115,6 +117,21 @@ describe("LocalAuthProvider", () => {
     expect(ui.html).toContain("Oops");
   });
 
+  it("renderLoginUI 应转义表单 action 与错误文案", async () => {
+    await provider.initialize(baseConfig);
+    const ui = await provider.renderLoginUI(
+      createContext({
+        interactionUid: 'interaction" onsubmit="alert(1)',
+        query: { error: '<script>alert("x")</script>' } as any,
+      }),
+    );
+
+    expect(ui.html).toContain("/interaction/interaction%22%20onsubmit%3D%22alert(1)/login");
+    expect(ui.html).not.toContain('onsubmit="alert(1)');
+    expect(ui.html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
+    expect(ui.html).not.toContain("<script>");
+  });
+
   describe("authenticate", () => {
     beforeEach(async () => {
       await provider.initialize(baseConfig);
@@ -131,25 +148,82 @@ describe("LocalAuthProvider", () => {
       expect(result).toEqual({ success: false, error: expected });
     });
 
-    it("未知格式密码验证失败时返回 passwordIncorrect", async () => {
+    it("未知格式密码验证失败时返回统一凭据错误", async () => {
       const result = await provider.authenticate(
         createContext({
           body: { authMethod: "local", username: "unknown", password: "secret" },
         }),
       );
 
-      expect(result.error).toEqual(AuthErrors.passwordIncorrect("unknown"));
+      expect(result.error).toEqual(AuthErrors.invalidCredentials());
       expect(result.success).toBe(false);
     });
 
-    it("密码不正确时返回 passwordIncorrect", async () => {
+    it("密码不正确时返回统一凭据错误", async () => {
       const context = createContext();
       mocks.bcryptCompareMock.mockResolvedValue(false);
 
       const result = await provider.authenticate(context);
 
-      expect(result.error).toEqual(AuthErrors.passwordIncorrect("alice"));
+      expect(result.error).toEqual(AuthErrors.invalidCredentials());
       expect(result.success).toBe(false);
+    });
+
+    it("连续失败达到默认阈值后拒绝后续尝试", async () => {
+      mocks.bcryptCompareMock.mockResolvedValue(false);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await provider.authenticate(createContext());
+      }
+
+      mocks.bcryptCompareMock.mockResolvedValue(true);
+      const result = await provider.authenticate(createContext());
+
+      expect(result).toEqual({ success: false, error: AuthErrors.invalidCredentials() });
+      expect(mocks.bcryptCompareMock).toHaveBeenCalledTimes(6);
+    });
+
+    it("不存在的用户名不会占用登录失败状态", async () => {
+      mocks.bcryptCompareMock.mockResolvedValue(false);
+
+      for (let index = 0; index < 20; index++) {
+        await provider.authenticate(
+          createContext({
+            body: {
+              authMethod: "local",
+              username: `unknown-${index}`,
+              password: "secret",
+            },
+          }),
+        );
+      }
+
+      expect((provider as any).loginFailures.size).toBe(0);
+    });
+
+    it("共享 stateStore 时跨实例执行登录锁定", async () => {
+      const stateStore = new MemoryStateStore();
+      const firstProvider = new LocalAuthProvider(userRepository, stateStore);
+      const secondProvider = new LocalAuthProvider(userRepository, stateStore);
+
+      try {
+        await firstProvider.initialize(baseConfig);
+        await secondProvider.initialize(baseConfig);
+        mocks.bcryptCompareMock.mockResolvedValue(false);
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await firstProvider.authenticate(createContext());
+        }
+
+        mocks.bcryptCompareMock.mockClear();
+        mocks.bcryptCompareMock.mockResolvedValue(true);
+        const result = await secondProvider.authenticate(createContext());
+
+        expect(result).toEqual({ success: false, error: AuthErrors.invalidCredentials() });
+        expect(mocks.bcryptCompareMock).toHaveBeenCalledTimes(1);
+      } finally {
+        await firstProvider.destroy();
+        await secondProvider.destroy();
+        stateStore.destroy();
+      }
     });
 
     it("验证成功时调用 findOrCreate 并返回成功", async () => {
@@ -174,6 +248,27 @@ describe("LocalAuthProvider", () => {
         email: "alice@local",
         emailVerified: false,
       });
+    });
+
+    it("移除 adminUsers 中的本地用户会撤销后台组", async () => {
+      (provider as any).config.adminUsers = [];
+      userRepository.findByProviderAndExternalId.mockResolvedValue({
+        sub: "user-1",
+        groups: ["gitea-oidc-admins", "team-a"],
+      });
+      userRepository.findOrCreate.mockResolvedValue({
+        sub: "user-1",
+        username: "alice",
+      } as UserInfo);
+      mocks.bcryptCompareMock.mockResolvedValue(true);
+
+      await provider.authenticate(createContext());
+
+      expect(userRepository.findOrCreate).toHaveBeenCalledWith(
+        "local",
+        "alice",
+        expect.objectContaining({ groups: ["team-a"] }),
+      );
     });
 
     it("支持 md5 密码格式", async () => {
@@ -273,7 +368,11 @@ describe("LocalAuthProvider", () => {
       const result = await (provider as any).verifyPassword("secret", "mystery");
 
       expect(result).toBe(false);
-      expect(loggerSpy).toHaveBeenCalledWith("[LocalAuth] Unknown password format:", "mystery");
+      expect(loggerSpy).toHaveBeenCalledWith("[LocalAuth] Unknown password format");
+      expect(loggerSpy).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("mystery"),
+      );
     });
 
     it("verifyBcrypt 异常时返回 false 并记录错误", async () => {
@@ -285,7 +384,7 @@ describe("LocalAuthProvider", () => {
       expect(result).toBe(false);
       expect(loggerSpy).toHaveBeenCalledWith(
         "[LocalAuth] Bcrypt verification error:",
-        expect.any(Error),
+        expect.objectContaining({ name: "Error", message: "boom" }),
       );
     });
   });

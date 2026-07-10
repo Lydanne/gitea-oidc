@@ -106,6 +106,9 @@ describe("PgsqlUserRepository", () => {
     repository = new PgsqlUserRepository("postgresql://localhost/test");
     await new Promise((resolve) => setImmediate(resolve));
     expect(initClient.query).toHaveBeenCalled();
+    expect(initClient.query.mock.calls[0][0]).toContain(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_provider_external_unique",
+    );
     expect(initClient.release).toHaveBeenCalled();
   });
 
@@ -117,6 +120,7 @@ describe("PgsqlUserRepository", () => {
   });
 
   it("should create a user and send expected parameters", async () => {
+    const identityClient = setupNextClient(() => ({ rows: [] }));
     const insertClient = setupNextClient();
 
     const created = await repository.create(baseUserData);
@@ -128,6 +132,7 @@ describe("PgsqlUserRepository", () => {
     expect(params[1]).toBe(baseUserData.username);
     expect(params[7]).toEqual(baseUserData.externalId);
     expect(params[13]).toEqual(baseUserData.metadata);
+    expect(identityClient.release).toHaveBeenCalled();
     expect(insertClient.release).toHaveBeenCalled();
   });
 
@@ -200,6 +205,7 @@ describe("PgsqlUserRepository", () => {
 
   it("should create a user via findOrCreate when missing and attach externalId", async () => {
     const finderClient = setupNextClient(() => ({ rows: [] }));
+    const identityClient = setupNextClient(() => ({ rows: [] }));
     const insertClient = setupNextClient();
 
     const created = await repository.findOrCreate(
@@ -211,18 +217,21 @@ describe("PgsqlUserRepository", () => {
     expect(created.externalId).toBe("new-external");
     expect(created.metadata).toEqual(baseUserData.metadata);
     expect(finderClient.release).toHaveBeenCalled();
+    expect(identityClient.release).toHaveBeenCalled();
     expect(insertClient.release).toHaveBeenCalled();
     expect(insertClient.query.mock.calls[0][1][13]).toEqual(baseUserData.metadata);
   });
 
   it("should reuse existing user via findOrCreate when present", async () => {
     const row = createRow();
-    // findOrCreate 现在会调用 update，update 会先 findById 再执行 UPDATE
+    // findOrCreate 现在会调用 update，update 会先 findById 并校验外部身份再执行 UPDATE
     // 1. findByProviderAndExternalId
     const findClient = setupNextClient(() => ({ rows: [row] }));
     // 2. update -> findById
     const findByIdClient = setupNextClient(() => ({ rows: [row] }));
-    // 3. update -> UPDATE query
+    // 3. update -> assertProviderIdentityAvailable
+    const identityClient = setupNextClient(() => ({ rows: [row] }));
+    // 4. update -> UPDATE query
     const updateClient = setupNextClient(() => ({ rows: [] }));
 
     const result = await repository.findOrCreate("local", "ext123", stripUserData(baseUserData));
@@ -232,12 +241,14 @@ describe("PgsqlUserRepository", () => {
     expect(result.email).toEqual(row.email);
     expect(findClient.release).toHaveBeenCalled();
     expect(findByIdClient.release).toHaveBeenCalled();
+    expect(identityClient.release).toHaveBeenCalled();
     expect(updateClient.release).toHaveBeenCalled();
   });
 
   it("should update an existing user and keep metadata", async () => {
     const existing = createRow();
     const finderClient = setupNextClient(() => ({ rows: [existing] }));
+    const identityClient = setupNextClient(() => ({ rows: [existing] }));
     const updateClient = setupNextClient();
 
     const updated = await repository.update(existing.sub, {
@@ -252,7 +263,25 @@ describe("PgsqlUserRepository", () => {
     expect(updateClient.query.mock.calls[0][1][11]).toEqual({ role: "admin" });
     expect(updateClient.query.mock.calls[0][1][17]).toBe(existing.sub);
     expect(finderClient.release).toHaveBeenCalled();
+    expect(identityClient.release).toHaveBeenCalled();
     expect(updateClient.release).toHaveBeenCalled();
+  });
+
+  it("should reject provider identity collisions on update", async () => {
+    const existing = createRow({ sub: "user-2", externalId: "ext2" });
+    const occupied = createRow({ sub: "user-1", externalId: "ext1" });
+    const finderClient = setupNextClient(() => ({ rows: [existing] }));
+    const identityClient = setupNextClient(() => ({ rows: [occupied] }));
+
+    await expect(
+      repository.update(existing.sub, {
+        authProvider: "local",
+        externalId: "ext1",
+      }),
+    ).rejects.toThrow("Provider identity already exists: local/ext1");
+
+    expect(finderClient.release).toHaveBeenCalled();
+    expect(identityClient.release).toHaveBeenCalled();
   });
 
   it("should throw when updating a missing user", async () => {
@@ -310,6 +339,43 @@ describe("PgsqlUserRepository", () => {
     expect(normalizedSql).toContain('ORDER BY "authProvider" ASC');
     expect(client.query.mock.calls[0][1]).toEqual(["Pgsql User", "pg@example.com", "local"]);
     expect(users).toEqual(rows.map(expectedUserFromRow));
+  });
+
+  it("should reject unsafe sort fields before sending SQL", async () => {
+    await expect(repository.list({ sortBy: "username; DROP TABLE users" })).rejects.toThrow(
+      /Unsupported user sort field/,
+    );
+
+    expect(mockPool.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("should wait for table initialization before running the first query", async () => {
+    await repository.close();
+    mockPool.connect.mockClear();
+    mockPool.end.mockClear();
+
+    let resolveInit: (() => void) | undefined;
+    const initClient = setupNextClient(
+      () =>
+        new Promise((resolve) => {
+          resolveInit = () => resolve({ rows: [] });
+        }),
+    );
+    const findClient = setupNextClient(() => ({ rows: [] }));
+    repository = new PgsqlUserRepository("postgresql://localhost/test");
+
+    const findPromise = repository.findById("user-1");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(initClient.query).toHaveBeenCalledWith(expect.stringContaining("CREATE TABLE"));
+    expect(findClient.query).not.toHaveBeenCalled();
+    expect(mockPool.connect).toHaveBeenCalledTimes(1);
+
+    resolveInit?.();
+    await findPromise;
+
+    expect(findClient.query).toHaveBeenCalledWith("SELECT * FROM users WHERE sub = $1", ["user-1"]);
+    expect(mockPool.connect).toHaveBeenCalledTimes(2);
   });
 
   it("should convert rows to user objects without optional flags", () => {

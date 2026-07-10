@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
 import { withUserDefaults } from "../utils/userDefaults";
 import { generateUserId } from "../utils/userIdGenerator";
+import { getUserListSortColumn, normalizeUserListOptions } from "./userListOptions";
 
 export class SqliteUserRepository implements UserRepository {
   private db: Database.Database;
@@ -45,6 +46,9 @@ export class SqliteUserRepository implements UserRepository {
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users("authProvider");
       CREATE INDEX IF NOT EXISTS idx_users_provider_external ON users("authProvider", "externalId");
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_provider_external_unique
+      ON users("authProvider", "externalId")
+      WHERE "externalId" IS NOT NULL;
     `;
 
     this.db.exec(createTableSQL);
@@ -160,7 +164,21 @@ export class SqliteUserRepository implements UserRepository {
       updatedAt: new Date(),
     };
 
-    return await this.create(userToCreate);
+    try {
+      return await this.create(userToCreate);
+    } catch (err) {
+      // 并发的首次登录可能同时越过上面的查询；唯一索引决定胜者，失败方读取
+      // 胜者并按原有“同步资料”语义更新，不能把正常并发登录变成 500。
+      const concurrentUser = await this.findByProviderAndExternalId(provider, externalId);
+      if (concurrentUser) {
+        return this.update(concurrentUser.sub, {
+          ...userData,
+          authProvider: provider,
+          externalId,
+        });
+      }
+      throw err;
+    }
   }
 
   async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
@@ -178,6 +196,8 @@ export class SqliteUserRepository implements UserRepository {
       createdAt: userData.createdAt || now,
       updatedAt: userData.updatedAt || now,
     };
+
+    await this.assertProviderIdentityAvailable(user, user.sub);
 
     const row = this.userToRow(user);
 
@@ -227,6 +247,8 @@ export class SqliteUserRepository implements UserRepository {
       sub: user.sub,
       updatedAt: new Date(Date.now() + 1),
     };
+
+    await this.assertProviderIdentityAvailable(updatedUser, sub);
 
     const row = this.userToRow(updatedUser);
 
@@ -292,18 +314,17 @@ export class SqliteUserRepository implements UserRepository {
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
+    const listOptions = normalizeUserListOptions(options);
     let sql = "SELECT * FROM users";
     const params: any[] = [];
 
     // 过滤
     const conditions: string[] = [];
-    if (options?.filter) {
-      for (const [key, value] of Object.entries(options.filter)) {
-        if (["username", "name", "email", "authProvider"].includes(key)) {
-          const columnName = key === "authProvider" ? '"authProvider"' : key;
-          conditions.push(`${columnName} = ?`);
-          params.push(value);
-        }
+    if (listOptions.filter) {
+      for (const [key, value] of Object.entries(listOptions.filter)) {
+        const columnName = key === "authProvider" ? '"authProvider"' : key;
+        conditions.push(`${columnName} = ?`);
+        params.push(value);
       }
     }
 
@@ -312,16 +333,16 @@ export class SqliteUserRepository implements UserRepository {
     }
 
     // 排序
-    if (options?.sortBy) {
-      const sortBy = options.sortBy === "authProvider" ? '"authProvider"' : options.sortBy;
-      const sortOrder = options.sortOrder === "desc" ? "DESC" : "ASC";
+    if (listOptions.sortBy) {
+      const sortBy = getUserListSortColumn(listOptions.sortBy);
+      const sortOrder = listOptions.sortOrder === "desc" ? "DESC" : "ASC";
       sql += ` ORDER BY ${sortBy} ${sortOrder}`;
     }
 
     // 分页
-    if (options?.offset !== undefined || options?.limit !== undefined) {
-      const offset = options.offset || 0;
-      const limit = options.limit;
+    if (listOptions.offset !== undefined || listOptions.limit !== undefined) {
+      const offset = listOptions.offset || 0;
+      const limit = listOptions.limit;
       sql += " LIMIT ? OFFSET ?";
       params.push(limit || -1, offset);
     }
@@ -352,5 +373,16 @@ export class SqliteUserRepository implements UserRepository {
       this.db.close();
       resolve();
     });
+  }
+
+  private async assertProviderIdentityAvailable(user: UserInfo, sub: string): Promise<void> {
+    if (!user.externalId) {
+      return;
+    }
+
+    const existing = await this.findByProviderAndExternalId(user.authProvider, user.externalId);
+    if (existing && existing.sub !== sub) {
+      throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
+    }
   }
 }

@@ -7,9 +7,12 @@ import type {
   ProviderApiClient,
   ProviderApiRequest,
   ProviderApiResponse,
+  ProviderTokenOwnerType,
   ProviderTokenRepository,
   ProviderTokenStatus,
 } from "../types/providerApi";
+
+const PROVIDER_API_TOKEN_KINDS = new Set<ProviderTokenOwnerType>(["user", "app"]);
 
 /**
  * Provider API 服务配置
@@ -72,6 +75,7 @@ export class ProviderApiService {
       throw new Error(`Provider API client not found: ${provider}`);
     }
 
+    assertValidProviderApiRequest(request);
     this.assertRequestAllowed(request, actor);
     return client.request<T>(request, actor);
   }
@@ -97,6 +101,10 @@ export class ProviderApiService {
       throw new Error(`Provider token not found: ${provider}/${ownerType}/${ownerId}`);
     }
 
+    if (token.status === "revoked") {
+      return "revoked";
+    }
+
     return client.probeToken(token);
   }
 
@@ -120,5 +128,45 @@ export class ProviderApiService {
     if (ownerId !== actor.userId && !this.isAdmin(actor)) {
       throw new Error("Cross-user provider requests require admin permission");
     }
+  }
+}
+
+function assertValidProviderApiRequest(request: ProviderApiRequest): void {
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    throw new Error("Provider API request body must be an object");
+  }
+
+  if (typeof request.operation !== "string" || request.operation.length === 0) {
+    throw new Error("Provider API operation is required");
+  }
+
+  if (!PROVIDER_API_TOKEN_KINDS.has(request.tokenKind)) {
+    throw new Error("Provider API tokenKind must be user or app");
+  }
+
+  if (request.ownerId !== undefined && typeof request.ownerId !== "string") {
+    throw new Error("Provider API ownerId must be a string");
+  }
+
+  if (request.method !== undefined && typeof request.method !== "string") {
+    throw new Error("Provider API method must be a string");
+  }
+
+  if (request.path !== undefined && typeof request.path !== "string") {
+    throw new Error("Provider API path must be a string");
+  }
+
+  assertOptionalRecord(request.pathParams, "pathParams");
+  assertOptionalRecord(request.query, "query");
+  assertOptionalRecord(request.headers, "headers");
+}
+
+function assertOptionalRecord(value: unknown, name: string): void {
+  if (value === undefined) {
+    return;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Provider API ${name} must be an object`);
   }
 }

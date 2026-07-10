@@ -18,8 +18,7 @@ describe("GiteaOidcClient", () => {
       accessToken: "oidc-token",
     });
     const result = await client.providerRequest("feishu", {
-      method: "GET",
-      path: "/authen/v1/user_info",
+      operation: "authen.user_info",
       tokenKind: "user",
     });
 

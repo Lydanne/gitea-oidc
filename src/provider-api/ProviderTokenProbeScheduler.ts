@@ -4,7 +4,11 @@
 
 import type { ProviderTokenRepository } from "../types/providerApi";
 import { Logger } from "../utils/Logger";
+import { sanitizeForLog } from "../utils/logSanitizer";
+import { summarizeTokenError } from "../utils/tokenCrypto";
 import { ProviderApiService } from "./ProviderApiService";
+
+const DEFAULT_MAX_TOKENS_PER_RUN = 100;
 
 /**
  * Provider token 自动探活调度器配置
@@ -21,6 +25,9 @@ export interface ProviderTokenProbeSchedulerOptions {
 
   /** 过期前多少秒纳入探活 */
   refreshSkewSeconds: number;
+
+  /** 每轮最多探活多少个 token */
+  maxTokensPerRun?: number;
 }
 
 /**
@@ -41,7 +48,7 @@ export class ProviderTokenProbeScheduler {
 
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
-        Logger.warn("[ProviderTokenProbe] 探活失败:", err);
+        Logger.warn("[ProviderTokenProbe] 探活失败:", sanitizeForLog(err));
       });
     }, this.options.probeIntervalSeconds * 1000);
     this.timer.unref();
@@ -61,10 +68,14 @@ export class ProviderTokenProbeScheduler {
    * 执行一次探活
    */
   async runOnce(): Promise<void> {
-    const tokens = await this.options.tokenRepository.list();
     const threshold = Date.now() + this.options.refreshSkewSeconds * 1000;
+    const tokens = await this.listProbeCandidates(new Date(threshold));
 
     for (const token of tokens) {
+      if (token.status === "revoked") {
+        continue;
+      }
+
       const shouldProbe =
         token.status !== "valid" ||
         !token.lastProbedAt ||
@@ -85,9 +96,30 @@ export class ProviderTokenProbeScheduler {
           provider: token.provider,
           ownerType: token.ownerType,
           ownerId: token.ownerId,
-          error: err instanceof Error ? err.message : String(err),
+          error: summarizeTokenError(err),
         });
       }
     }
   }
+
+  private async listProbeCandidates(expiresBefore: Date) {
+    const limit = normalizeMaxTokensPerRun(this.options.maxTokensPerRun);
+    if (this.options.tokenRepository.listProbeCandidates) {
+      return this.options.tokenRepository.listProbeCandidates({ expiresBefore, limit });
+    }
+
+    return this.options.tokenRepository.list({ limit });
+  }
+}
+
+function normalizeMaxTokensPerRun(value?: number): number {
+  if (value === undefined) {
+    return DEFAULT_MAX_TOKENS_PER_RUN;
+  }
+
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error("Provider token probe maxTokensPerRun must be a positive integer");
+  }
+
+  return Math.min(value, 500);
 }

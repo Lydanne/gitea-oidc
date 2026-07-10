@@ -25,6 +25,7 @@ describe("AuthCoordinator", () => {
   const stateStoreMock = () => ({
     set: vi.fn(),
     get: vi.fn(),
+    take: vi.fn(),
     delete: vi.fn(),
     listAll: undefined as (() => any) | undefined,
   });
@@ -138,6 +139,103 @@ describe("AuthCoordinator", () => {
       expect(() => coordinator.registerProvider(provider)).toThrow(/already registered/);
     });
 
+    it("rejects unsafe provider names before registration", () => {
+      const provider = createProvider({ name: "../admin" });
+
+      expect(() => coordinator.registerProvider(provider)).toThrow(/Invalid auth provider name/);
+      expect(coordinator.getProvider("../admin")).toBeUndefined();
+    });
+
+    it("rejects unsafe plugin route, asset and webhook paths", () => {
+      const metadata = {
+        name: "feishu",
+        displayName: "Feishu",
+        permissions: [
+          PluginPermission.REGISTER_ROUTES,
+          PluginPermission.REGISTER_STATIC,
+          PluginPermission.REGISTER_WEBHOOK,
+        ],
+      };
+
+      expect(() =>
+        coordinator.registerProvider(
+          createProvider({
+            registerRoutes: vi
+              .fn()
+              .mockReturnValue([{ method: "GET", path: "/../admin", handler: vi.fn() }]),
+            getMetadata: vi.fn().mockReturnValue(metadata),
+          }),
+        ),
+      ).toThrow(/Invalid plugin route path/);
+      expect(coordinator.getProvider("feishu")).toBeUndefined();
+      expect(app.route).not.toHaveBeenCalled();
+
+      expect(() =>
+        coordinator.registerProvider(
+          createProvider({
+            registerStaticAssets: vi
+              .fn()
+              .mockReturnValue([{ path: "/icon.svg?token=1", content: "<svg />" }]),
+            getMetadata: vi.fn().mockReturnValue(metadata),
+          }),
+        ),
+      ).toThrow(/Invalid plugin static asset path/);
+      expect(coordinator.getProvider("feishu")).toBeUndefined();
+      expect(app.get).not.toHaveBeenCalled();
+
+      expect(() =>
+        coordinator.registerProvider(
+          createProvider({
+            registerWebhooks: vi.fn().mockReturnValue([{ path: "//webhook", handler: vi.fn() }]),
+            getMetadata: vi.fn().mockReturnValue(metadata),
+          }),
+        ),
+      ).toThrow(/Invalid plugin webhook path/);
+      expect(coordinator.getProvider("feishu")).toBeUndefined();
+      expect(app.post).not.toHaveBeenCalled();
+    });
+
+    it("does not allow plugin route options to override the mounted route boundary", () => {
+      const handler = vi.fn();
+      const injectedHandler = vi.fn();
+      const provider = createProvider({
+        registerRoutes: vi.fn().mockReturnValue([
+          {
+            method: "GET",
+            path: "/callback",
+            handler,
+            options: {
+              method: "POST",
+              url: "/admin/api/users",
+              handler: injectedHandler,
+              schema: { querystring: { type: "object" } },
+            },
+          },
+        ]),
+        getMetadata: vi.fn().mockReturnValue({
+          name: "feishu",
+          displayName: "Feishu",
+          permissions: [PluginPermission.REGISTER_ROUTES],
+        }),
+      });
+
+      coordinator.registerProvider(provider);
+
+      expect(app.route).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          url: "/auth/feishu/callback",
+          handler,
+          schema: { querystring: { type: "object" } },
+        }),
+      );
+      expect(app.route).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: "/admin/api/users",
+        }),
+      );
+    });
+
     it("webhook handler验证签名失败返回401，成功时调用原处理", async () => {
       const handler = vi.fn().mockResolvedValue({ ok: true });
       const verifySignature = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
@@ -181,10 +279,13 @@ describe("AuthCoordinator", () => {
       coordinator.registerProvider(provider);
       const registeredHook = app.addHook.mock.calls.find((call) => call[0] === "onRequest")?.[1];
 
+      await registeredHook?.({ url: "/auth/feishu?health=1" } as any, {} as any);
       await registeredHook?.({ url: "/auth/feishu/callback" } as any, {} as any);
+      await registeredHook?.({ url: "/auth/feishu2/callback" } as any, {} as any);
+      await registeredHook?.({ url: "/auth/feishu-extra/callback" } as any, {} as any);
       await registeredHook?.({ url: "/auth/other" } as any, {} as any);
 
-      expect(hookHandler).toHaveBeenCalledTimes(1);
+      expect(hookHandler).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -245,16 +346,16 @@ describe("AuthCoordinator", () => {
       );
     });
 
-    it("verifyOAuthState returns data and deletes state", async () => {
+    it("verifyOAuthState atomically consumes state", async () => {
       const data: OAuthStateData = {
         interactionUid: "i-1",
         provider: "feishu",
         createdAt: Date.now(),
       };
-      stateStore.get.mockResolvedValue(data);
+      stateStore.take.mockResolvedValue(data);
       const result = await coordinator.verifyOAuthState("state-1");
       expect(result).toEqual(data);
-      expect(stateStore.delete).toHaveBeenCalledWith("state-1");
+      expect(stateStore.take).toHaveBeenCalledWith("state-1");
     });
 
     it("verifyOAuthState returns null when expired", async () => {
@@ -265,14 +366,13 @@ describe("AuthCoordinator", () => {
         provider: "feishu",
         createdAt: new Date("2025-01-01T00:00:00Z").getTime(),
       };
-      stateStore.get.mockResolvedValue(data);
+      stateStore.take.mockResolvedValue(data);
       const result = await coordinator.verifyOAuthState("state-1");
       expect(result).toBeNull();
-      expect(stateStore.delete).toHaveBeenCalledWith("state-1");
       vi.useRealTimers();
     });
 
-    it("verifyOAuthState logs listAll when available", async () => {
+    it("verifyOAuthState does not dump stored state contents when listAll is available", async () => {
       const listAll = vi.fn().mockReturnValue({ foo: "bar" });
       stateStore.listAll = listAll;
       const data: OAuthStateData = {
@@ -280,17 +380,19 @@ describe("AuthCoordinator", () => {
         provider: "feishu",
         createdAt: Date.now(),
       };
-      stateStore.get.mockResolvedValue(data);
+      stateStore.take.mockResolvedValue(data);
 
       const result = await coordinator.verifyOAuthState("state-2");
 
       expect(result).toEqual(data);
-      expect(listAll).toHaveBeenCalled();
-      expect(app.log.info).toHaveBeenCalledWith(expect.stringContaining("Current stored states"));
+      expect(listAll).not.toHaveBeenCalled();
+      expect(app.log.info).not.toHaveBeenCalledWith(
+        expect.stringContaining("Current stored states"),
+      );
     });
 
     it("verifyOAuthState warns when state missing", async () => {
-      stateStore.get.mockResolvedValue(null);
+      stateStore.take.mockResolvedValue(null);
 
       const result = await coordinator.verifyOAuthState("state-missing");
 
@@ -301,13 +403,15 @@ describe("AuthCoordinator", () => {
     });
 
     it("verifyOAuthState handles store errors", async () => {
-      stateStore.get.mockRejectedValue(new Error("boom"));
+      stateStore.take.mockRejectedValue(new Error("boom"));
 
       const result = await coordinator.verifyOAuthState("state-error");
 
       expect(result).toBeNull();
       expect(app.log.error).toHaveBeenCalledWith(
-        expect.objectContaining({ err: expect.any(Error) }),
+        expect.objectContaining({
+          err: expect.objectContaining({ name: "Error", message: "boom" }),
+        }),
         "Failed to verify OAuth state",
       );
     });
@@ -320,18 +424,18 @@ describe("AuthCoordinator", () => {
         300,
       );
 
-      stateStore.get.mockResolvedValue({
+      stateStore.take.mockResolvedValue({
         userId: "user-1",
         timestamp: Date.now(),
         type: "auth_result",
       });
       const userId = await coordinator.getAuthResult("inter-1");
       expect(userId).toBe("user-1");
-      expect(stateStore.delete).toHaveBeenCalledWith("auth_result_inter-1");
+      expect(stateStore.take).toHaveBeenCalledWith("auth_result_inter-1");
     });
 
     it("getAuthResult returns null when expired or invalid", async () => {
-      stateStore.get.mockResolvedValue({
+      stateStore.take.mockResolvedValue({
         userId: "user-1",
         timestamp: Date.now() - 400000,
         type: "auth_result",
@@ -339,7 +443,7 @@ describe("AuthCoordinator", () => {
       const expired = await coordinator.getAuthResult("inter-1");
       expect(expired).toBeNull();
 
-      stateStore.get.mockResolvedValue({ foo: "bar" });
+      stateStore.take.mockResolvedValue({ foo: "bar" });
       const invalid = await coordinator.getAuthResult("inter-2");
       expect(invalid).toBeNull();
     });
@@ -380,15 +484,24 @@ describe("AuthCoordinator", () => {
 
     it("propagates initialization errors并记录日志", async () => {
       const provider = createProvider({
-        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+        initialize: vi
+          .fn()
+          .mockRejectedValue(new Error("init failed Authorization: Bearer provider-token")),
       });
       coordinator.registerProvider(provider);
 
       await expect(coordinator.initialize()).rejects.toThrow("init failed");
       expect(app.log.error).toHaveBeenCalledWith(
-        expect.objectContaining({ err: expect.any(Error), provider: "feishu" }),
+        expect.objectContaining({
+          err: expect.objectContaining({
+            name: "Error",
+            message: expect.stringContaining("[REDACTED]"),
+          }),
+          provider: "feishu",
+        }),
         "Failed to initialize provider",
       );
+      expect(JSON.stringify(app.log.error.mock.calls)).not.toContain("provider-token");
     });
 
     it("destroy ignores provider destroy errors但记录日志", async () => {
@@ -398,7 +511,10 @@ describe("AuthCoordinator", () => {
       await coordinator.destroy();
 
       expect(app.log.error).toHaveBeenCalledWith(
-        expect.objectContaining({ err: expect.any(Error), provider: "feishu" }),
+        expect.objectContaining({
+          err: expect.objectContaining({ name: "Error", message: "boom" }),
+          provider: "feishu",
+        }),
         "Failed to destroy provider",
       );
       expect(coordinator.getProviders()).toHaveLength(0);
@@ -450,7 +566,7 @@ describe("AuthCoordinator", () => {
       ).rejects.toThrow("finish failed");
       expect(app.log.error).toHaveBeenCalledWith(
         expect.objectContaining({
-          err: expect.any(Error),
+          err: expect.objectContaining({ name: "Error", message: "finish failed" }),
           userId: "user-err",
           interactionUid: "uid-err",
         }),
@@ -508,7 +624,10 @@ describe("AuthCoordinator", () => {
       const result = await coordinator.findAccount("user-2");
       expect(result).toBeNull();
       expect(app.log.error).toHaveBeenCalledWith(
-        expect.objectContaining({ err: expect.any(Error), userId: "user-2" }),
+        expect.objectContaining({
+          err: expect.objectContaining({ name: "Error", message: "db error" }),
+          userId: "user-2",
+        }),
         "Failed to find account",
       );
     });

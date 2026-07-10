@@ -128,7 +128,8 @@ OIDC 适配器负责持久化存储 OIDC Provider 的状态数据(如 Session、
     "host": "0.0.0.0",
     "port": 3000,
     "url": "https://idp.example.com",
-    "trustProxy": true
+    "trustProxy": true,
+    "trustedProxyIps": ["127.0.0.1"]
   },
   "adapter": {
     "type": "redis",
@@ -136,6 +137,15 @@ OIDC 适配器负责持久化存储 OIDC Provider 的状态数据(如 Session、
       "url": "redis://redis-server:6379",
       "password": "your-redis-password",
       "keyPrefix": "prod:oidc:"
+    }
+  },
+  "auth": {
+    "stateStore": {
+      "type": "redis",
+      "redis": {
+        "url": "redis://redis-server:6379",
+        "keyPrefix": "prod:state:"
+      }
     }
   },
   "oidc": {
@@ -160,6 +170,7 @@ export default {
     port: parseInt(process.env.PORT || '3000'),
     url: process.env.SERVER_URL || 'http://localhost:3000',
     trustProxy: process.env.TRUST_PROXY === 'true',
+    trustedProxyIps: (process.env.TRUSTED_PROXY_IPS || '').split(',').filter(Boolean),
   },
   
   adapter: {

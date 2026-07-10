@@ -7,7 +7,10 @@ import type { Provider } from "oidc-provider";
 import { ProviderApiService } from "../provider-api/ProviderApiService";
 import type { UserRepository } from "../types/auth";
 import type { ProviderApiRequest } from "../types/providerApi";
-import { resolveBearerUser } from "../utils/oidcToken";
+import { resolveBearerToken } from "../utils/oidcToken";
+import { summarizeTokenError } from "../utils/tokenCrypto";
+
+export const PROVIDER_API_REQUIRED_SCOPE = "provider_api";
 
 /**
  * Provider API 路由配置
@@ -27,6 +30,9 @@ export interface ProviderApiRoutesOptions {
 
   /** 是否启用 SDK 代理 */
   sdkProxy: boolean;
+
+  /** 允许调用 SDK 代理路由的 OIDC client_id */
+  allowedClientIds?: string[];
 }
 
 /**
@@ -35,20 +41,29 @@ export interface ProviderApiRoutesOptions {
  */
 export function registerProviderApiRoutes(options: ProviderApiRoutesOptions): void {
   const { app, oidcProvider, userRepository, providerApiService, sdkProxy } = options;
+  const allowedClientIds = new Set(options.allowedClientIds ?? []);
 
   if (!sdkProxy) {
     return;
   }
 
   app.post("/api/provider/:provider/request", async (request, reply) => {
-    const user = await resolveBearerUser(
+    const bearer = await resolveBearerToken(
       oidcProvider,
       userRepository,
       request.headers.authorization,
     );
 
-    if (!user) {
+    if (!bearer) {
       return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    if (allowedClientIds.size > 0 && (!bearer.clientId || !allowedClientIds.has(bearer.clientId))) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    if (!hasScope(bearer.scope, PROVIDER_API_REQUIRED_SCOPE)) {
+      return reply.code(403).send({ error: "Forbidden" });
     }
 
     const { provider } = request.params as { provider: string };
@@ -56,14 +71,37 @@ export function registerProviderApiRoutes(options: ProviderApiRoutesOptions): vo
 
     try {
       const result = await providerApiService.request(provider, providerRequest, {
-        userId: user.sub,
-        groups: user.groups,
-        roles: user.roles,
+        userId: bearer.user.sub,
+        groups: bearer.user.groups,
+        roles: bearer.user.roles,
       });
       return reply.send(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return reply.code(message.includes("permission") ? 403 : 400).send({ error: message });
+      const error = toProviderApiError(err);
+      return reply.code(error.statusCode).send({ error: error.message });
     }
   });
+}
+
+function toProviderApiError(error: unknown): { statusCode: number; message: string } {
+  const message = summarizeTokenError(error);
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes("permission")) {
+    return { statusCode: 403, message: "Forbidden" };
+  }
+
+  if (lowerMessage.includes("token not found")) {
+    return { statusCode: 404, message: "Provider token not found" };
+  }
+
+  if (lowerMessage.includes("client not found")) {
+    return { statusCode: 404, message: "Provider API provider not found" };
+  }
+
+  return { statusCode: 400, message };
+}
+
+function hasScope(scope: string | undefined, requiredScope: string): boolean {
+  return new Set((scope ?? "").split(/\s+/).filter(Boolean)).has(requiredScope);
 }

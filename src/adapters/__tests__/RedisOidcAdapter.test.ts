@@ -23,6 +23,7 @@ vi.mock("redis", () => {
     sAdd: vi.fn().mockResolvedValue(1),
     sRem: vi.fn().mockResolvedValue(1),
     sMembers: vi.fn().mockResolvedValue([]),
+    eval: vi.fn().mockResolvedValue(1),
     multi: vi.fn().mockReturnValue({
       del: vi.fn().mockReturnThis(),
       exec: vi.fn().mockResolvedValue([]),
@@ -45,6 +46,16 @@ describe("RedisOidcAdapter", () => {
     // 获取 mock 的 Redis 客户端
     const { createClient } = await import("redis");
     mockClient = (createClient as any)();
+    mockClient.get.mockReset().mockResolvedValue(null);
+    mockClient.set.mockReset().mockResolvedValue("OK");
+    mockClient.setEx.mockReset().mockResolvedValue("OK");
+    mockClient.del.mockReset().mockResolvedValue(1);
+    mockClient.ttl.mockReset().mockResolvedValue(-1);
+    mockClient.expire.mockReset().mockResolvedValue(1);
+    mockClient.sAdd.mockReset().mockResolvedValue(1);
+    mockClient.sRem.mockReset().mockResolvedValue(1);
+    mockClient.sMembers.mockReset().mockResolvedValue([]);
+    mockClient.eval.mockReset().mockResolvedValue(1);
 
     // 创建适配器实例
     const options: RedisOidcAdapterOptions = {
@@ -137,7 +148,7 @@ describe("RedisOidcAdapter", () => {
 
       await adapter.upsert(id, payload);
 
-      expect(mockClient.sAdd).toHaveBeenCalledWith("test:grantId:grant-123", id);
+      expect(mockClient.sAdd).toHaveBeenCalledWith("test:Session:grantId:grant-123", id);
     });
 
     it("应该为索引设置过期时间", async () => {
@@ -148,12 +159,23 @@ describe("RedisOidcAdapter", () => {
         grantId: "grant-456",
       };
       const expiresIn = 600;
+      mockClient.ttl.mockResolvedValueOnce(-2);
 
       await adapter.upsert(id, payload, expiresIn);
 
       expect(mockClient.setEx).toHaveBeenCalledWith("test:userCode:USER-CODE-456", expiresIn, id);
       expect(mockClient.setEx).toHaveBeenCalledWith("test:uid:UID-456", expiresIn, id);
-      expect(mockClient.expire).toHaveBeenCalledWith("test:grantId:grant-456", expiresIn);
+      expect(mockClient.expire).toHaveBeenCalledWith("test:Session:grantId:grant-456", expiresIn);
+    });
+
+    it("grant 索引不会被短生命周期记录缩短", async () => {
+      mockClient.ttl.mockResolvedValueOnce(-2).mockResolvedValueOnce(3600);
+
+      await adapter.upsert("refresh", { grantId: "shared" }, 3600);
+      await adapter.upsert("access", { grantId: "shared" }, 60);
+
+      expect(mockClient.expire).toHaveBeenCalledTimes(1);
+      expect(mockClient.expire).toHaveBeenCalledWith("test:Session:grantId:shared", 3600);
     });
   });
 
@@ -239,60 +261,32 @@ describe("RedisOidcAdapter", () => {
   describe("consume", () => {
     it("应该消费记录并标记为已消费", async () => {
       const id = "test-id-11";
-      const payload = { userId: "user123" };
-      const ttl = 300;
-
-      mockClient.get.mockResolvedValueOnce(JSON.stringify(payload));
-      mockClient.ttl.mockResolvedValueOnce(ttl);
-
-      const result = await adapter.consume(id);
-
-      expect(result).toHaveProperty("consumed");
-      expect(result.userId).toBe("user123");
-      expect(mockClient.setEx).toHaveBeenCalled();
+      await expect(adapter.consume(id)).resolves.toBeUndefined();
+      expect(mockClient.eval).toHaveBeenCalledWith(
+        expect.stringContaining("payload.consumed"),
+        expect.objectContaining({ keys: ["test:Session:test-id-11"] }),
+      );
     });
 
     it("应该返回 undefined 当记录不存在时", async () => {
-      mockClient.get.mockResolvedValueOnce(null);
-
-      const result = await adapter.consume("non-existent-id");
-
-      expect(result).toBeUndefined();
+      mockClient.eval.mockResolvedValueOnce(0);
+      await expect(adapter.consume("non-existent-id")).resolves.toBeUndefined();
     });
 
     it("应该返回 undefined 当记录已被消费时", async () => {
       const id = "test-id-12";
-      const payload = { userId: "user123", consumed: 1234567890 };
-
-      mockClient.get.mockResolvedValueOnce(JSON.stringify(payload));
-
-      const result = await adapter.consume(id);
-
-      expect(result).toBeUndefined();
+      mockClient.eval.mockResolvedValueOnce(-1);
+      await expect(adapter.consume(id)).rejects.toThrow("already been consumed");
     });
 
     it("应该处理没有 TTL 的记录", async () => {
       const id = "test-id-13";
-      const payload = { userId: "user123" };
-
-      mockClient.get.mockResolvedValueOnce(JSON.stringify(payload));
-      mockClient.ttl.mockResolvedValueOnce(-1);
-
-      const result = await adapter.consume(id);
-
-      expect(result).toHaveProperty("consumed");
-      expect(mockClient.set).toHaveBeenCalled();
+      await expect(adapter.consume(id)).resolves.toBeUndefined();
     });
 
     it("应该处理 JSON 解析错误", async () => {
-      mockClient.get.mockResolvedValueOnce("invalid json");
-
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const result = await adapter.consume("test-id-14");
-
-      expect(result).toBeUndefined();
-      expect(consoleSpy).toHaveBeenCalled();
-      consoleSpy.mockRestore();
+      mockClient.eval.mockRejectedValueOnce(new Error("invalid json"));
+      await expect(adapter.consume("test-id-14")).rejects.toThrow("invalid json");
     });
   });
 
@@ -312,7 +306,7 @@ describe("RedisOidcAdapter", () => {
       const id = "test-id-16";
       const payload = { userCode: "USER-CODE-999", userId: "user123" };
 
-      mockClient.get.mockResolvedValueOnce(JSON.stringify(payload));
+      mockClient.get.mockResolvedValueOnce(JSON.stringify(payload)).mockResolvedValueOnce(id);
 
       await adapter.destroy(id);
 
@@ -323,7 +317,7 @@ describe("RedisOidcAdapter", () => {
       const id = "test-id-17";
       const payload = { uid: "UID-999", userId: "user123" };
 
-      mockClient.get.mockResolvedValueOnce(JSON.stringify(payload));
+      mockClient.get.mockResolvedValueOnce(JSON.stringify(payload)).mockResolvedValueOnce(id);
 
       await adapter.destroy(id);
 
@@ -338,7 +332,7 @@ describe("RedisOidcAdapter", () => {
 
       await adapter.destroy(id);
 
-      expect(mockClient.sRem).toHaveBeenCalledWith("test:grantId:grant-999", id);
+      expect(mockClient.sRem).toHaveBeenCalledWith("test:Session:grantId:grant-999", id);
     });
 
     it("应该处理记录不存在的情况", async () => {
@@ -357,7 +351,7 @@ describe("RedisOidcAdapter", () => {
 
       await adapter.revokeByGrantId(grantId);
 
-      expect(mockClient.sMembers).toHaveBeenCalledWith("test:grantId:grant-123");
+      expect(mockClient.sMembers).toHaveBeenCalledWith("test:Session:grantId:grant-123");
 
       const multi = mockClient.multi();
       expect(multi.del).toHaveBeenCalledTimes(4); // 3 个 ID + 1 个 grantId 键
@@ -373,12 +367,14 @@ describe("RedisOidcAdapter", () => {
 
   describe("disconnect", () => {
     it("应该断开 Redis 连接", async () => {
+      await adapter.find("warm-up");
       await RedisOidcAdapter.disconnect();
 
       expect(mockClient.quit).toHaveBeenCalled();
     });
 
     it("应该处理多次断开调用", async () => {
+      await adapter.find("warm-up");
       await RedisOidcAdapter.disconnect();
       await RedisOidcAdapter.disconnect();
 
@@ -423,7 +419,7 @@ describe("RedisOidcAdapter", () => {
 
       await adapter.upsert("grant-123", { grantId: "GRANT-ID" });
 
-      expect(mockClient.sAdd).toHaveBeenCalledWith("grant:grantId:GRANT-ID", "grant-123");
+      expect(mockClient.sAdd).toHaveBeenCalledWith("grant:Grant:grantId:GRANT-ID", "grant-123");
     });
   });
 

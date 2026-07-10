@@ -74,6 +74,9 @@ cp oidc.db oidc.db.backup.$(date +%Y%m%d)
 pnpm start
 ```
 
+在 Linux/Unix 系统上，自动生成和手动生成的 JWKS 文件会被写成 `0600` 权限；加载已有
+JWKS 文件时，如果发现 group/other 访问位，也会在读取前收紧到 `0600`。
+
 输出示例:
 
 ```
@@ -143,6 +146,9 @@ chmod 600 jwks.json
 chmod 600 oidc.db
 ```
 
+`jwks.json` 包含签名私钥。服务会自动收紧该文件权限，但部署时仍应确认它没有被提交到镜像、
+仓库或共享给非服务运行用户。
+
 ### 3. 密钥轮换
 
 定期轮换 JWKS 密钥以提高安全性:
@@ -162,6 +168,26 @@ pnpm start
 
 ### 4. 生产环境配置
 
+生产环境启动时必须提供 `gitea-oidc.config.js` 或 `gitea-oidc.config.json`。
+当 `NODE_ENV=production` 且两个配置文件都不存在时，服务会拒绝启动，避免误用开发默认
+Cookie key、客户端密钥和本地 URL。
+生产环境配置验证还会阻止以下高风险配置继续启动：
+
+- `server.url` 不是 HTTPS 公网地址、包含 query/fragment，或 `oidc.issuer` 没有等于
+  `${server.url}/oidc`、包含 query/fragment。
+- 客户端 `redirect_uris` 或 `post_logout_redirect_uris` 使用非 HTTPS 地址。
+- `oidc.cookieKeys` 使用示例默认值，或客户端 `client_secret` 太短、仍是示例默认值。
+- 启用内置后台但没有任何 OIDC client 的 `redirect_uris` 包含
+  `${server.url}${admin.basePath}/callback`，或该 client 不支持授权码流程和
+  `client_secret_basic`。
+- `server.corsOrigins` 中配置了非 HTTPS Origin，或包含 path、query、fragment。
+- 用户仓储或 OIDC 适配器使用 `memory`。
+- `oidc.features.devInteractions.enabled` 为 `true`，或启用了 `trustProxy` 但没有将其限制为
+  实际反向代理的 IP/CIDR。
+- 启用本地认证但未配置 `passwordFile`，或 `passwordFormat` 不是 `bcrypt`。
+- 启用的 Provider API provider 配置了非 HTTPS `baseUrl`，或 `baseUrl` 带用户名、密码、
+  query、fragment 等不稳定边界。
+
 在 `gitea-oidc.config.json` 中配置生产环境参数:
 
 ```json
@@ -170,7 +196,9 @@ pnpm start
     "host": "0.0.0.0",
     "port": 3000,
     "url": "https://idp.example.com",
-    "trustProxy": true
+    "trustProxy": true,
+    "trustedProxyIps": ["127.0.0.1"],
+    "corsOrigins": ["https://app.example.com"]
   },
   "oidc": {
     "issuer": "https://idp.example.com/oidc",
@@ -184,12 +212,51 @@ pnpm start
 
 **重要配置项:**
 
-- `server.url`: 使用 HTTPS 和实际域名
+- `server.url`: 使用 HTTPS 和实际域名，不能包含 query 或 fragment
 - `server.trustProxy`: 在反向代理后必须设为 `true`
-- `oidc.issuer`: 使用 HTTPS 和实际 OIDC 挂载路径，默认是 `${server.url}/oidc`
-- `oidc.cookieKeys`: 使用强随机密钥
+- `server.trustedProxyIps`: 仅列出实际反向代理的 IP 或 CIDR；不要对公网客户端无条件信任
+  `X-Forwarded-*` 请求头
+- `server.corsOrigins`: 默认空数组；只有浏览器端跨域调用 SDK 或 Provider API 时才列出精确
+  HTTPS Origin，不能包含 path、query 或 fragment
+- `oidc.issuer`: 必须等于 `${server.url}/oidc`，和服务端固定 `/oidc` 挂载路径一致，不能包含
+  query 或 fragment
+- `oidc.cookieKeys`: 使用强随机密钥，不能保留示例默认值
+- `clients[].client_secret`: 生产环境至少 16 字符，不能保留示例默认值
+- `auth.providers.local.config.passwordFormat`: 生产环境启用本地认证时必须显式设置为
+  `bcrypt`，不要使用 `auto`、`md5` 或 `sha`
+- 本地认证默认连续失败 5 次后锁定账号 15 分钟，可通过
+  `auth.providers.local.config.lockoutPolicy` 调整；认证失败始终返回统一的“用户名或密码错误”
+  信息，避免枚举账号。不存在的用户名不会创建失败状态，已存在账号的失败计数保存到
+  `auth.stateStore`
+- `oidc.features.devInteractions.enabled`: 必须保持 `false`；它仅用于本地调试，生产环境会被
+  配置校验直接拒绝
 
-### 5. 生成强随机密钥
+### 5. 管理后台与 Provider API 安全配置
+
+启用内置管理后台或 Provider API 前，确认以下配置：
+
+- `admin.allowedGroups` 使用专用后台组名，例如 `gitea-oidc-admins`，不要复用普通团队名。
+- `providerApi.enabled` 默认关闭；只有确实需要代理飞书、钉钉等平台 API 时才开启。
+- 开启 `providerApi.enabled` 时，`providerApi.tokenEncryptionKey` 必须是至少 32 字符的随机值。
+- 开启 Provider API SDK 代理时，`providerApi.allowedClientIds` 必须列出允许调用代理的
+  OIDC `client_id`，避免任意 OIDC 客户端复用用户 access token 调用 Provider API。
+- `providerApi.requestTimeoutMs` 控制第三方 Provider 出站请求超时时间，默认 `10000` 毫秒；
+  生产环境不要配置得过大，避免慢连接或无响应 Provider 长时间占用请求处理资源。
+- `providerApi.responseBodyLimitBytes` 控制读取第三方响应体的最大字节数，默认 `1048576`
+  字节；生产环境不要配置得过大，避免异常大响应占用服务端内存。
+- 后台 HTTPS 部署会给 session cookie 追加 `Secure`，同时要求 `server.url` 使用公网 HTTPS
+  地址且 `oidc.issuer` 等于 `${server.url}/oidc`。
+- 统一登录页 `/interaction/:uid` 会设置 CSP、frame、nosniff 和 referrer 安全头；如果扩展
+  自定义认证 Provider，`renderLoginUI()` 返回的 raw HTML 片段应视为可信代码并自行保持转义。
+- Provider API 的 `allowedOperations` 只开放必要操作，实际 `method` 和 `path` 由服务端定义。
+- 启用的 Provider API provider 的 `baseUrl` 必须是 HTTPS，且不能包含用户名、密码、query 或
+  fragment，避免第三方 token 通过明文或混淆 URL 出站。
+- Provider API 不会默认对任意 Origin 开放 CORS；如需浏览器 SDK 跨域访问，只在
+  `server.corsOrigins` 中配置可信前端 Origin。
+
+更多用法见 [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)。
+
+### 6. 生成强随机密钥
 
 Cookie 密钥生成示例:
 
@@ -203,6 +270,7 @@ openssl rand -base64 32
 在部署到生产环境前,请确认:
 
 - [ ] ✅ 已生成 `jwks.json` 文件
+- [ ] ✅ 已提供 `gitea-oidc.config.js` 或 `gitea-oidc.config.json`
 - [ ] ✅ `jwks.json` 已添加到 `.gitignore`
 - [ ] ✅ `oidc.db` 已添加到 `.gitignore`
 - [ ] ✅ 文件权限已正确设置 (600)
@@ -216,19 +284,27 @@ openssl rand -base64 32
 
 如果需要部署多个实例(负载均衡):
 
-### 方案 1: 共享文件系统
+多实例必须使用 Redis OIDC 适配器和 Redis `auth.stateStore`；后者同时保存 OAuth state、
+一次性回调结果、后台会话和本地登录失败计数。SQLite 文件（包括 NFS）只支持单实例，不能
+作为并发多节点的 OIDC 存储。
 
-将 `oidc.db` 和 `jwks.json` 放在共享文件系统上(如 NFS):
-
-```bash
-# 所有实例使用相同的文件
-/shared/oidc.db
-/shared/jwks.json
+```json
+{
+  "adapter": {
+    "type": "redis",
+    "redis": { "url": "redis://redis:6379", "keyPrefix": "oidc:" }
+  },
+  "auth": {
+    "stateStore": {
+      "type": "redis",
+      "redis": { "url": "redis://redis:6379", "keyPrefix": "gitea-oidc:state:" }
+    }
+  }
+}
 ```
 
-### 方案 2: 使用 PostgreSQL (推荐)
-
-未来版本将支持 PostgreSQL 适配器,适合大规模部署。
+所有实例仍必须共享同一个持久化 `jwks.filePath`；首次创建采用文件锁和原子重命名，避免并发
+启动时写入不同签名密钥。
 
 ## 故障排除
 

@@ -43,8 +43,8 @@ export interface AdminUserPayload {
   username: string;
   name: string;
   email: string;
-  authProvider: string;
-  externalId: string;
+  authProvider?: string;
+  externalId?: string;
   groups: string[];
   roles: string[];
   status: UserStatus;

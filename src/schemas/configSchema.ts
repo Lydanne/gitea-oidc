@@ -13,6 +13,8 @@ export const ServerConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(3000),
   url: z.url({ message: "服务器 URL 必须是有效的 URL" }),
   trustProxy: z.boolean().default(false),
+  trustedProxyIps: z.array(z.string().min(1)).optional().default([]),
+  corsOrigins: z.array(z.url({ message: "CORS Origin 必须是有效的 URL" })).default([]),
 });
 
 /**
@@ -149,6 +151,25 @@ export const UserRepositoryConfigSchema = z
 export const AuthConfigSchema = z.object({
   userRepository: UserRepositoryConfigSchema,
   providers: z.record(z.string(), AuthProviderConfigSchema),
+  stateStore: z
+    .object({
+      type: z.enum(["memory", "redis"]),
+      redis: z
+        .object({
+          url: z.string().optional(),
+          host: z.string().optional(),
+          port: z.number().int().min(1).max(65535).optional(),
+          password: z.string().optional(),
+          database: z.number().int().min(0).max(15).optional().default(0),
+          keyPrefix: z.string().optional().default("gitea-oidc:state:"),
+        })
+        .optional(),
+    })
+    .refine((data) => data.type !== "redis" || Boolean(data.redis?.url || data.redis?.host), {
+      message: "Redis stateStore 必须提供 redis 配置，且必须包含 url 或 host",
+    })
+    .optional()
+    .default({ type: "memory" }),
 });
 
 /**
@@ -157,7 +178,7 @@ export const AuthConfigSchema = z.object({
 export const AdminConfigSchema = z.object({
   enabled: z.boolean().default(true),
   basePath: z.string().regex(/^\/[a-zA-Z0-9/_-]*$/, "后台路径必须以 / 开头"),
-  allowedGroups: z.array(z.string().min(1)).default(["Owners"]),
+  allowedGroups: z.array(z.string().min(1)).default(["gitea-oidc-admins"]),
   sessionTtlSeconds: z.number().int().positive().default(3600),
 });
 
@@ -175,14 +196,37 @@ export const ProviderApiProviderConfigSchema = z.object({
 /**
  * Provider API 配置 Schema
  */
-export const ProviderApiConfigSchema = z.object({
-  enabled: z.boolean().default(true),
-  tokenEncryptionKey: z.string().min(16, "Provider token 加密密钥至少需要 16 个字符"),
-  refreshSkewSeconds: z.number().int().nonnegative().default(300),
-  probeIntervalSeconds: z.number().int().positive().default(300),
-  sdkProxy: z.boolean().default(true),
-  providers: z.record(z.string(), ProviderApiProviderConfigSchema).default({}),
-});
+export const ProviderApiConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    tokenEncryptionKey: z.string().optional().default(""),
+    refreshSkewSeconds: z.number().int().nonnegative().default(300),
+    probeIntervalSeconds: z.number().int().positive().default(300),
+    requestTimeoutMs: z.number().int().min(1000).max(60000).default(10000),
+    responseBodyLimitBytes: z.number().int().min(1024).max(10485760).default(1048576),
+    sdkProxy: z.boolean().default(true),
+    allowedClientIds: z.array(z.string().min(1)).default([]),
+    providers: z.record(z.string(), ProviderApiProviderConfigSchema).default({}),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.enabled) {
+      return;
+    }
+
+    const defaultKeys = new Set([
+      "change-this-provider-token-key",
+      "replace-with-a-long-random-secret",
+      "replace-with-a-long-random-provider-token-key",
+    ]);
+
+    if (data.tokenEncryptionKey.length < 32 || defaultKeys.has(data.tokenEncryptionKey)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["tokenEncryptionKey"],
+        message: "启用 Provider API 时必须配置至少 32 字符的非默认 providerApi.tokenEncryptionKey",
+      });
+    }
+  });
 
 /**
  * SQLite 适配器配置 Schema
@@ -253,15 +297,18 @@ export const GiteaOidcConfigSchema = z.object({
   admin: AdminConfigSchema.default({
     enabled: true,
     basePath: "/admin",
-    allowedGroups: ["Owners"],
+    allowedGroups: ["gitea-oidc-admins"],
     sessionTtlSeconds: 3600,
   }),
   providerApi: ProviderApiConfigSchema.default({
-    enabled: true,
-    tokenEncryptionKey: "change-this-provider-token-key",
+    enabled: false,
+    tokenEncryptionKey: "",
     refreshSkewSeconds: 300,
     probeIntervalSeconds: 300,
+    requestTimeoutMs: 10000,
+    responseBodyLimitBytes: 1048576,
     sdkProxy: true,
+    allowedClientIds: [],
     providers: {},
   }),
   adapter: OidcAdapterConfigSchema.optional().default({

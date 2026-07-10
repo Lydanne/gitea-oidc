@@ -17,6 +17,8 @@ const baseProviderConfig: AuthProviderConfig = {
     scope: "user_info",
     userMapping: {},
     groupMapping: { 研发部: "dev-group" },
+    encryptKey: "encrypt-key-123",
+    verificationToken: "token-123",
   } satisfies FeishuAuthConfig,
 };
 
@@ -84,12 +86,18 @@ describe("FeishuAuthProvider", () => {
     vi.restoreAllMocks();
   });
 
-  const encryptFeishuPayload = (encryptKey: string, data: Record<string, any>): string => {
+  const encryptFeishuPayload = (
+    encryptKey: string,
+    data: Record<string, any>,
+    appId = "app-test",
+  ): string => {
     const keyHash = createHash("sha256").update(encryptKey).digest();
     const iv = keyHash.slice(0, 16);
     const randomPrefix = Buffer.from("1234567890123456");
     const json = Buffer.from(JSON.stringify(data));
-    const plain = Buffer.concat([randomPrefix, json, Buffer.from("app_id")]);
+    const messageLength = Buffer.alloc(4);
+    messageLength.writeUInt32BE(json.length, 0);
+    const plain = Buffer.concat([randomPrefix, messageLength, json, Buffer.from(appId)]);
     const cipher = createCipheriv("aes-256-cbc", keyHash, iv);
     const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
     return encrypted.toString("base64");
@@ -201,7 +209,9 @@ describe("FeishuAuthProvider", () => {
         provider: "feishu",
         interactionUid: "i-uid",
       });
-      vi.spyOn(provider as any, "exchangeCodeForToken").mockResolvedValue("user-token");
+      vi.spyOn(provider as any, "exchangeCodeForToken").mockResolvedValue({
+        accessToken: "user-token",
+      });
       vi.spyOn(provider as any, "getFeishuUserInfo").mockResolvedValue(feishuUser);
       const user: UserInfo = {
         sub: "user-1",
@@ -226,7 +236,8 @@ describe("FeishuAuthProvider", () => {
         expect.objectContaining({
           username: "open-1",
           email: "test@example.com",
-          groups: expect.arrayContaining(["dev-group"]),
+          emailVerified: false,
+          groups: ["dev-group"],
         }),
       );
     });
@@ -407,10 +418,10 @@ describe("FeishuAuthProvider", () => {
       expect((provider as any).mapUsername(feishuUser)).toBe("mapped-user");
       expect((provider as any).mapName(feishuUser)).toBe("mapped-name");
       expect((provider as any).mapEmail(feishuUser)).toBe("mapped@example.com");
-      expect((provider as any).mapGroups(feishuUser)).toEqual(["Owners", "dev-group"]);
+      expect((provider as any).mapGroups(feishuUser)).toEqual(["dev-group"]);
     });
 
-    it("mapGroups 在无映射时返回部门名称并追加 Owners", () => {
+    it("mapGroups 在无映射时返回部门名称且不追加后台管理员组", () => {
       delete (provider as any).config.groupMapping;
       const feishuUser: any = {
         open_id: "open-1",
@@ -424,7 +435,7 @@ describe("FeishuAuthProvider", () => {
         },
       };
 
-      expect((provider as any).mapGroups(feishuUser)).toEqual(["DeptA", "DeptB", "Owners"]);
+      expect((provider as any).mapGroups(feishuUser)).toEqual(["DeptA", "DeptB"]);
     });
 
     it("缺少映射字段时使用默认值", () => {
@@ -446,7 +457,7 @@ describe("FeishuAuthProvider", () => {
       const handleSpy = vi.spyOn(provider as any, "handleCallback").mockResolvedValue({
         success: true,
         userId: "user-1",
-        metadata: { interactionUid: "i-123" },
+        metadata: { interactionUid: 'i "123' },
       });
       const routes = provider.registerRoutes();
       const callbackRoute = routes.find(
@@ -469,8 +480,8 @@ describe("FeishuAuthProvider", () => {
       await callbackRoute?.handler(request, reply);
 
       expect(handleSpy).toHaveBeenCalled();
-      expect(coordinator.storeAuthResult).toHaveBeenCalledWith("i-123", "user-1");
-      expect(reply.redirect).toHaveBeenCalledWith("/interaction/i-123/complete");
+      expect(coordinator.storeAuthResult).toHaveBeenCalledWith('i "123', "user-1");
+      expect(reply.redirect).toHaveBeenCalledWith("/interaction/i%20%22123/complete");
     });
 
     it("returns 400 when callback fails", async () => {
@@ -503,9 +514,11 @@ describe("FeishuAuthProvider", () => {
     });
 
     it("处理加密 challenge 请求并返回 challenge", async () => {
-      const decryptSpy = vi
-        .spyOn(provider as any, "decryptFeishuData")
-        .mockReturnValue({ type: "url_verification", challenge: "enc-token" });
+      const decryptSpy = vi.spyOn(provider as any, "decryptFeishuData").mockReturnValue({
+        type: "url_verification",
+        challenge: "enc-token",
+        token: "token-123",
+      });
       const routes = provider.registerRoutes();
       const callbackRoute = routes.find(
         (route) => route.method === "POST" && route.path === "/callback",
@@ -552,14 +565,14 @@ describe("FeishuAuthProvider", () => {
       expect(reply.send).toHaveBeenCalledWith({ error: "Decryption failed" });
     });
 
-    it("处理明文 challenge 请求", async () => {
+    it("处理带验证 token 的明文 challenge 请求", async () => {
       const routes = provider.registerRoutes();
       const callbackRoute = routes.find(
         (route) => route.method === "POST" && route.path === "/callback",
       );
       const request = {
         method: "POST",
-        body: { challenge: "plain-token" },
+        body: { challenge: "plain-token", token: "token-123" },
         headers: {},
       } as any;
       const reply = {
@@ -571,6 +584,28 @@ describe("FeishuAuthProvider", () => {
       await callbackRoute?.handler(request, reply);
 
       expect(reply.send).toHaveBeenCalledWith({ challenge: "plain-token" });
+    });
+
+    it("拒绝验证 token 不匹配的 callback challenge", async () => {
+      const routes = provider.registerRoutes();
+      const callbackRoute = routes.find(
+        (route) => route.method === "POST" && route.path === "/callback",
+      );
+      const request = {
+        method: "POST",
+        body: { challenge: "plain-token", token: "wrong-token" },
+        headers: {},
+      } as any;
+      const reply = {
+        send: vi.fn(),
+        code: vi.fn().mockReturnThis(),
+        redirect: vi.fn(),
+      } as any;
+
+      await callbackRoute?.handler(request, reply);
+
+      expect(reply.code).toHaveBeenCalledWith(401);
+      expect(reply.send).toHaveBeenCalledWith({ error: "Invalid verification token" });
     });
 
     it("handleCallback 成功但缺少 interactionUid 时返回 400", async () => {
@@ -629,6 +664,22 @@ describe("FeishuAuthProvider", () => {
       expect(result).toEqual(payload);
     });
 
+    it("rejects encrypted payload with mismatched app_id", () => {
+      const key = "encrypt-key-123";
+      (provider as any).config.encryptKey = key;
+      const encrypted = encryptFeishuPayload(
+        key,
+        {
+          challenge: "abc",
+          token: "token-123",
+          type: "url_verification",
+        },
+        "other-app",
+      );
+
+      expect(() => (provider as any).decryptFeishuData(encrypted)).toThrow(/app_id/);
+    });
+
     it("should throw when encrypt key missing", () => {
       delete (provider as any).config.encryptKey;
       expect(() => (provider as any).decryptFeishuData("payload")).toThrow(
@@ -643,7 +694,7 @@ describe("FeishuAuthProvider", () => {
       expect(() => (provider as any).decryptFeishuData("invalid-base64")).toThrow();
       expect(errorSpy).toHaveBeenCalledWith(
         "[FeishuAuth] Failed to decrypt data:",
-        expect.any(Error),
+        expect.objectContaining({ name: expect.any(String), message: expect.any(String) }),
       );
     });
   });
@@ -657,27 +708,27 @@ describe("FeishuAuthProvider", () => {
       expect(result).toBe(false);
     });
 
-    it("skips verification when token not configured", async () => {
-      delete (provider as any).config.verificationToken;
+    it("rejects webhook signature verification when encrypt key is not configured", async () => {
+      delete (provider as any).config.encryptKey;
       const request = {
         headers: {
           "x-lark-signature": "sig",
-          "x-lark-request-timestamp": "111",
+          "x-lark-request-timestamp": `${Math.floor(Date.now() / 1000)}`,
           "x-lark-request-nonce": "nonce",
         },
         body: {},
       } as any;
       const result = await (provider as any).verifyFeishuSignature(request);
-      expect(result).toBe(true);
+      expect(result).toBe(false);
     });
 
     it("validates correct signature", async () => {
-      (provider as any).config.verificationToken = "token-123";
+      (provider as any).config.encryptKey = "encrypt-key-123";
       const timestamp = `${Math.floor(Date.now() / 1000)}`;
       const nonce = "nonce-1";
       const body = { foo: "bar" };
       const signature = createHash("sha256")
-        .update(`${timestamp}${nonce}token-123${JSON.stringify(body)}`)
+        .update(`${timestamp}${nonce}encrypt-key-123${JSON.stringify(body)}`)
         .digest("hex");
 
       const result = await (provider as any).verifyFeishuSignature({
@@ -692,12 +743,50 @@ describe("FeishuAuthProvider", () => {
       expect(result).toBe(true);
     });
 
+    it("validates signatures against the raw request body when available", async () => {
+      (provider as any).config.encryptKey = "encrypt-key-123";
+      const timestamp = `${Math.floor(Date.now() / 1000)}`;
+      const nonce = "nonce-raw";
+      const rawBody = '{"b":2,"a":1}';
+      const signature = createHash("sha256")
+        .update(`${timestamp}${nonce}encrypt-key-123${rawBody}`)
+        .digest("hex");
+
+      const result = await (provider as any).verifyFeishuSignature({
+        headers: {
+          "x-lark-signature": signature,
+          "x-lark-request-timestamp": timestamp,
+          "x-lark-request-nonce": nonce,
+        },
+        body: { a: 1, b: 2 },
+        rawBody,
+      } as any);
+
+      expect(result).toBe(true);
+    });
+
+    it("rejects stale signature timestamps", async () => {
+      (provider as any).config.encryptKey = "encrypt-key-123";
+      const request = {
+        headers: {
+          "x-lark-signature": "sig",
+          "x-lark-request-timestamp": "1",
+          "x-lark-request-nonce": "nonce",
+        },
+        body: {},
+      } as any;
+
+      const result = await (provider as any).verifyFeishuSignature(request);
+
+      expect(result).toBe(false);
+    });
+
     it("returns false for invalid signature", async () => {
-      (provider as any).config.verificationToken = "token-abc";
+      (provider as any).config.encryptKey = "encrypt-key-123";
       const request = {
         headers: {
           "x-lark-signature": "invalid",
-          "x-lark-request-timestamp": "1",
+          "x-lark-request-timestamp": `${Math.floor(Date.now() / 1000)}`,
           "x-lark-request-nonce": "2",
         },
         body: { foo: "bar" },
@@ -709,10 +798,10 @@ describe("FeishuAuthProvider", () => {
     });
 
     it("JSON.stringify 失败时返回 false 并记录错误", async () => {
-      (provider as any).config.verificationToken = "token-123";
+      (provider as any).config.encryptKey = "encrypt-key-123";
       const body: any = {};
       body.self = body;
-      const timestamp = "1";
+      const timestamp = `${Math.floor(Date.now() / 1000)}`;
       const nonce = "2";
       const loggerSpy = vi.spyOn(Logger, "error").mockImplementation(() => {});
 
@@ -728,7 +817,7 @@ describe("FeishuAuthProvider", () => {
       expect(result).toBe(false);
       expect(loggerSpy).toHaveBeenCalledWith(
         "[FeishuAuth] Error verifying signature:",
-        expect.any(TypeError),
+        expect.objectContaining({ name: "TypeError", message: expect.any(String) }),
       );
     });
   });
@@ -738,7 +827,9 @@ describe("FeishuAuthProvider", () => {
       const webhooks = provider.registerWebhooks();
       const webhook = webhooks[0];
       const response = await webhook.handler(
-        { body: { type: "url_verification", challenge: "challenge-token" } } as any,
+        {
+          body: { type: "url_verification", challenge: "challenge-token", token: "token-123" },
+        } as any,
         {} as any,
       );
 
@@ -749,11 +840,27 @@ describe("FeishuAuthProvider", () => {
       const webhooks = provider.registerWebhooks();
       const webhook = webhooks[0];
       const response = await webhook.handler(
-        { body: { type: "user.updated", event: { id: 1 } } } as any,
+        { body: { type: "user.updated", header: { token: "token-123" }, event: { id: 1 } } } as any,
         {} as any,
       );
 
       expect(response).toEqual({ success: true });
+    });
+
+    it("rejects webhook events with missing or invalid verification token", async () => {
+      const webhooks = provider.registerWebhooks();
+      const webhook = webhooks[0];
+      const reply = { code: vi.fn().mockReturnThis(), send: vi.fn() } as any;
+
+      await webhook.handler(
+        {
+          body: { type: "user.updated", header: { token: "wrong-token" }, event: { id: 1 } },
+        } as any,
+        reply,
+      );
+
+      expect(reply.code).toHaveBeenCalledWith(401);
+      expect(reply.send).toHaveBeenCalledWith({ error: "Invalid verification token" });
     });
 
     it("delegates verifySignature to verifyFeishuSignature", async () => {

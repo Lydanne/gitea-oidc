@@ -5,6 +5,13 @@
   "description": "Simple OpenID Connect Identity Provider using Fastify and TypeScript",
   "main": "dist/server.js",
   "types": "dist/server.d.ts",
+  "files": [
+    "dist",
+    "public/admin",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
   "exports": {
     ".": {
       "types": "./dist/server.d.ts",
@@ -19,31 +26,32 @@
       "import": "./dist/config.js"
     },
     "./client": {
-      "types": "./dist/client.d.ts",
+      "types": "./dist/sdk/client.d.ts",
       "import": "./dist/client.js"
     },
     "./express": {
-      "types": "./dist/express.d.ts",
+      "types": "./dist/sdk/express.d.ts",
       "import": "./dist/express.js"
     },
     "./nest": {
-      "types": "./dist/nest.d.ts",
+      "types": "./dist/sdk/nest.d.ts",
       "import": "./dist/nest.js"
     },
     "./vue": {
-      "types": "./dist/vue.d.ts",
+      "types": "./dist/sdk/vue.d.ts",
       "import": "./dist/vue.js"
     }
   },
   "scripts": {
-    "preinstall": "node scripts/preinstall.js",
-    "dev": "tsx watch src/server.ts",
+    "clean": "node scripts/clean-build.mjs",
+    "dev": "NODE_ENV=development tsx watch src/server.ts",
     "dev:admin": "vite --config admin-src/vite.config.ts --host 0.0.0.0",
     "build:admin": "vite build --config admin-src/vite.config.ts",
-    "build": "vite build --config admin-src/vite.config.ts && rolldown -c rolldown.config.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
-    "build:prod": "vite build --config admin-src/vite.config.ts && rolldown -c rolldown.config.prod.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
-    "start": "node dist/server.js",
+    "build": "pnpm clean && vite build --config admin-src/vite.config.ts && rolldown -c rolldown.config.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "build:prod": "pnpm clean && vite build --config admin-src/vite.config.ts && rolldown -c rolldown.config.prod.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "start": "NODE_ENV=production node dist/server.js",
     "test": "vitest run",
+    "test:pack": "node scripts/check-pack.mjs",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
     "release": "release-it",
@@ -68,14 +76,6 @@
     "pnpm": ">=10.0.0"
   },
   "packageManager": "pnpm@10.0.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "bcrypt",
-      "better-sqlite3",
-      "esbuild",
-      "protobufjs"
-    ]
-  },
   "publishConfig": {
     "access": "public"
   },

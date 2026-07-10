@@ -51,15 +51,12 @@ export class RedisOidcAdapter implements Adapter {
   private static clientPromise: Promise<any> | null = null;
   private name: string;
   private keyPrefix: string;
+  private options: RedisOidcAdapterOptions;
 
   constructor(name: string, options: RedisOidcAdapterOptions = {}) {
     this.name = name;
+    this.options = options;
     this.keyPrefix = options.keyPrefix || "oidc:";
-
-    // 确保 Redis 客户端已初始化
-    if (!RedisOidcAdapter.client && !RedisOidcAdapter.clientPromise) {
-      RedisOidcAdapter.clientPromise = this.initializeClient(options);
-    }
   }
 
   /**
@@ -101,7 +98,8 @@ export class RedisOidcAdapter implements Adapter {
       return await RedisOidcAdapter.clientPromise;
     }
 
-    throw new Error("Redis client not initialized");
+    RedisOidcAdapter.clientPromise = this.initializeClient(this.options);
+    return RedisOidcAdapter.clientPromise;
   }
 
   /**
@@ -129,7 +127,11 @@ export class RedisOidcAdapter implements Adapter {
    * 生成 grantId 索引键
    */
   private grantIdKey(grantId: string): string {
-    return `${this.keyPrefix}grantId:${grantId}`;
+    return `${this.keyPrefix}${this.name}:grantId:${grantId}`;
+  }
+
+  private accountIdKey(accountId: string): string {
+    return `${this.keyPrefix}accountId:${accountId}`;
   }
 
   /**
@@ -139,6 +141,9 @@ export class RedisOidcAdapter implements Adapter {
     const client = await this.getClient();
     const key = this.key(id);
     const value = JSON.stringify(payload);
+    const previousPayload = await this.find(id);
+
+    await this.removeStaleIndexes(client, id, previousPayload, payload);
 
     // 设置主键值
     if (expiresIn) {
@@ -168,10 +173,12 @@ export class RedisOidcAdapter implements Adapter {
 
     if (payload.grantId) {
       const grantIdKey = this.grantIdKey(payload.grantId);
-      await client.sAdd(grantIdKey, id);
-      if (expiresIn) {
-        await client.expire(grantIdKey, expiresIn);
-      }
+      await this.addExpiringSetMember(client, grantIdKey, id, expiresIn);
+    }
+
+    if (payload.accountId) {
+      const accountIdKey = this.accountIdKey(payload.accountId);
+      await this.addExpiringSetMember(client, accountIdKey, `${this.name}:${id}`, expiresIn);
     }
   }
 
@@ -228,44 +235,37 @@ export class RedisOidcAdapter implements Adapter {
   /**
    * 消费记录（标记为已使用）
    */
-  async consume(id: string): Promise<any> {
+  async consume(id: string): Promise<void> {
     const client = await this.getClient();
     const key = this.key(id);
+    const result = await client.eval(
+      [
+        "local value = redis.call('GET', KEYS[1])",
+        "if not value then return 0 end",
+        "local payload = cjson.decode(value)",
+        "if payload.consumed then return -1 end",
+        "local ttl = redis.call('TTL', KEYS[1])",
+        "if ttl == -2 then return 0 end",
+        "payload.consumed = tonumber(ARGV[1])",
+        "if ttl > 0 then",
+        "  redis.call('SETEX', KEYS[1], ttl, cjson.encode(payload))",
+        "else",
+        "  redis.call('SET', KEYS[1], cjson.encode(payload))",
+        "end",
+        "return 1",
+      ].join("\n"),
+      { keys: [key], arguments: [String(Math.floor(Date.now() / 1000))] },
+    );
 
-    // 获取当前值
-    const value = await client.get(key);
-    if (!value) {
-      return undefined;
+    if (Number(result) === -1) {
+      throw new Error(`OIDC ${this.name} record has already been consumed`);
     }
-
-    let payload: any;
-    try {
-      payload = JSON.parse(value);
-    } catch (err) {
-      console.error("[RedisOidcAdapter] JSON parse error:", err);
-      return undefined;
+    if (Number(result) === 0) {
+      return;
     }
-
-    // 检查是否已被消费
-    if (payload.consumed) {
-      return undefined;
+    if (Number(result) !== 1) {
+      throw new Error(`OIDC ${this.name} consume operation failed`);
     }
-
-    // 标记为已消费
-    payload.consumed = Math.floor(Date.now() / 1000);
-
-    // 获取剩余 TTL
-    const ttl = await client.ttl(key);
-
-    // 更新值
-    const newValue = JSON.stringify(payload);
-    if (ttl > 0) {
-      await client.setEx(key, ttl, newValue);
-    } else {
-      await client.set(key, newValue);
-    }
-
-    return payload;
   }
 
   /**
@@ -284,14 +284,17 @@ export class RedisOidcAdapter implements Adapter {
     // 清理索引
     if (payload) {
       if (payload.userCode) {
-        await client.del(this.userCodeKey(payload.userCode));
+        await this.deleteIndexIfPointsTo(client, this.userCodeKey(payload.userCode), id);
       }
       if (payload.uid) {
-        await client.del(this.uidKey(payload.uid));
+        await this.deleteIndexIfPointsTo(client, this.uidKey(payload.uid), id);
       }
       if (payload.grantId) {
         const grantIdKey = this.grantIdKey(payload.grantId);
         await client.sRem(grantIdKey, id);
+      }
+      if (payload.accountId) {
+        await client.sRem(this.accountIdKey(payload.accountId), `${this.name}:${id}`);
       }
     }
   }
@@ -324,15 +327,109 @@ export class RedisOidcAdapter implements Adapter {
   }
 
   /**
+   * 删除账户所属的所有 OIDC 模型记录。账户索引使用 `model:id` 成员，避免不同
+   * adapter 模型之间同名 id 互相误删。
+   */
+  static async revokeByAccountId(
+    accountId: string,
+    options: RedisOidcAdapterOptions | undefined,
+  ): Promise<void> {
+    const client = await RedisOidcAdapter.getSharedClient(options);
+    const keyPrefix = options?.keyPrefix || "oidc:";
+    const accountKey = `${keyPrefix}accountId:${accountId}`;
+    const members = await client.sMembers(accountKey);
+    if (members.length === 0) {
+      return;
+    }
+
+    const pipeline = client.multi();
+    for (const member of members) {
+      const separator = member.indexOf(":");
+      if (separator <= 0) {
+        continue;
+      }
+      const name = member.slice(0, separator);
+      const id = member.slice(separator + 1);
+      pipeline.del(`${keyPrefix}${name}:${id}`);
+    }
+    pipeline.del(accountKey);
+    await pipeline.exec();
+  }
+
+  /**
    * 关闭 Redis 连接
    * 注意: 这会关闭所有适配器共享的连接
    */
   static async disconnect(): Promise<void> {
-    if (RedisOidcAdapter.client) {
-      await RedisOidcAdapter.client.quit();
+    const client =
+      RedisOidcAdapter.client ?? (await RedisOidcAdapter.clientPromise?.catch(() => null));
+    try {
+      if (client) {
+        await client.quit();
+        console.log("[RedisOidcAdapter] Redis Client Disconnected");
+      }
+    } finally {
       RedisOidcAdapter.client = null;
       RedisOidcAdapter.clientPromise = null;
-      console.log("[RedisOidcAdapter] Redis Client Disconnected");
     }
+  }
+
+  private async addExpiringSetMember(
+    client: any,
+    key: string,
+    member: string,
+    expiresIn?: number,
+  ): Promise<void> {
+    // 每条记录的 TTL 不同：索引必须保留到其中最长的有效期，不能被短 AccessToken 缩短。
+    const previousTtl = await client.ttl(key);
+    await client.sAdd(key, member);
+    if (
+      expiresIn !== undefined &&
+      expiresIn > 0 &&
+      (previousTtl === -2 || (previousTtl >= 0 && previousTtl < expiresIn))
+    ) {
+      await client.expire(key, expiresIn);
+    }
+  }
+
+  private async deleteIndexIfPointsTo(client: any, key: string, id: string): Promise<void> {
+    if ((await client.get(key)) === id) {
+      await client.del(key);
+    }
+  }
+
+  private async removeStaleIndexes(
+    client: any,
+    id: string,
+    previousPayload: any,
+    nextPayload: any,
+  ): Promise<void> {
+    if (!previousPayload) {
+      return;
+    }
+
+    if (previousPayload.userCode && previousPayload.userCode !== nextPayload.userCode) {
+      await this.deleteIndexIfPointsTo(client, this.userCodeKey(previousPayload.userCode), id);
+    }
+    if (previousPayload.uid && previousPayload.uid !== nextPayload.uid) {
+      await this.deleteIndexIfPointsTo(client, this.uidKey(previousPayload.uid), id);
+    }
+    if (previousPayload.grantId && previousPayload.grantId !== nextPayload.grantId) {
+      await client.sRem(this.grantIdKey(previousPayload.grantId), id);
+    }
+    if (previousPayload.accountId && previousPayload.accountId !== nextPayload.accountId) {
+      await client.sRem(this.accountIdKey(previousPayload.accountId), `${this.name}:${id}`);
+    }
+  }
+
+  private static async getSharedClient(options?: RedisOidcAdapterOptions): Promise<any> {
+    if (RedisOidcAdapter.client) {
+      return RedisOidcAdapter.client;
+    }
+    if (!RedisOidcAdapter.clientPromise) {
+      const bootstrap = new RedisOidcAdapter("bootstrap", options ?? {});
+      return bootstrap.getClient();
+    }
+    return RedisOidcAdapter.clientPromise;
   }
 }

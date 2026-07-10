@@ -44,7 +44,7 @@ export class MemoryStateStore implements StateStore {
 
   async set(state: string, data: any, ttl: number): Promise<void> {
     // 检查内存限制，必要时清理过期数据
-    if (this.states.size >= this.maxSize) {
+    if (!this.states.has(state) && this.states.size >= this.maxSize) {
       await this.cleanup();
 
       // 如果仍然超过限制，使用LRU策略清理
@@ -97,6 +97,33 @@ export class MemoryStateStore implements StateStore {
       );
     }
     return entry.data;
+  }
+
+  async take(state: string): Promise<any> {
+    // Map 的读取和删除在第一个 await 前完成，因此同一进程内的并发调用只有一个能取到值。
+    const entry = this.states.get(state);
+    if (!entry) {
+      this.stats.misses++;
+      return null;
+    }
+
+    this.states.delete(state);
+    if (Date.now() > entry.expiresAt) {
+      this.stats.expired++;
+      return null;
+    }
+
+    this.stats.hits++;
+    return entry.data;
+  }
+
+  async increment(state: string, ttl: number): Promise<number> {
+    const entry = this.states.get(state);
+    const current =
+      entry && Date.now() <= entry.expiresAt && typeof entry.data === "number" ? entry.data : 0;
+    const next = current + 1;
+    await this.set(state, next, Math.max(1, ttl));
+    return next;
   }
 
   async delete(state: string): Promise<void> {

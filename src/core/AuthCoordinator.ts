@@ -22,6 +22,7 @@ import type {
 import { PluginPermission } from "../types/auth";
 import { renderLoginPageHTML } from "../ui/loginPageRenderer";
 import { AuthErrors } from "../utils/authErrors";
+import { sanitizeForLog } from "../utils/logSanitizer";
 import { PermissionChecker } from "./PermissionChecker";
 
 export interface AuthCoordinatorConfig {
@@ -71,6 +72,8 @@ export class AuthCoordinator implements IAuthCoordinator {
    * 注册认证插件
    */
   registerProvider(provider: AuthProvider): void {
+    assertSafePluginName(provider.name);
+
     if (this.providers.has(provider.name)) {
       throw new Error(`Provider ${provider.name} already registered`);
     }
@@ -84,54 +87,77 @@ export class AuthCoordinator implements IAuthCoordinator {
       );
     }
 
-    this.providers.set(provider.name, provider);
-    this.app.log.info(`Registered auth provider: ${provider.name}`);
+    // 先收集并验证全部声明，随后才向 Fastify 注册。这样一个后置的非法路径或
+    // 缺失权限不会留下已经挂载的半套插件路由。
+    const routes = provider.registerRoutes ? provider.registerRoutes() : undefined;
+    const staticAssets = provider.registerStaticAssets
+      ? provider.registerStaticAssets()
+      : undefined;
+    const webhooks = provider.registerWebhooks ? provider.registerWebhooks() : undefined;
+
+    if (routes) {
+      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_ROUTES);
+      for (const route of routes) {
+        buildPluginChildPath(`/auth/${provider.name}`, route.path, "route");
+        sanitizePluginRouteOptions(route.options);
+      }
+    }
+    if (staticAssets) {
+      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_STATIC);
+      for (const asset of staticAssets) {
+        buildPluginChildPath(`/auth/${provider.name}`, asset.path, "static asset");
+      }
+    }
+    if (webhooks) {
+      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_WEBHOOK);
+      for (const webhook of webhooks) {
+        buildPluginChildPath(`/auth/${provider.name}`, webhook.path, "webhook");
+      }
+    }
+    if (provider.registerMiddleware) {
+      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_MIDDLEWARE);
+    }
 
     // 注册插件路由（需要权限）
-    if (provider.registerRoutes) {
-      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_ROUTES);
-      this.registerProviderRoutes(provider);
+    if (routes) {
+      this.registerProviderRoutes(provider, routes);
     }
 
     // 注册插件静态资源（需要权限）
-    if (provider.registerStaticAssets) {
-      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_STATIC);
-      this.registerProviderStaticAssets(provider);
+    if (staticAssets) {
+      this.registerProviderStaticAssets(provider, staticAssets);
     }
 
     // 注册插件 Webhook（需要权限）
-    if (provider.registerWebhooks) {
-      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_WEBHOOK);
-      this.registerProviderWebhooks(provider);
+    if (webhooks) {
+      this.registerProviderWebhooks(provider, webhooks);
     }
 
     // 注册插件中间件（需要权限，受限）
     if (provider.registerMiddleware) {
-      this.permissionChecker.requirePermission(provider.name, PluginPermission.REGISTER_MIDDLEWARE);
       this.registerProviderMiddleware(provider);
     }
+
+    this.providers.set(provider.name, provider);
+    this.app.log.info(`Registered auth provider: ${provider.name}`);
   }
 
   /**
    * 注册插件路由
    */
-  private registerProviderRoutes(provider: AuthProvider): void {
-    if (!provider.registerRoutes) {
-      return;
-    }
-
-    const routes = provider.registerRoutes();
+  private registerProviderRoutes(provider: AuthProvider, routes: any[]): void {
     const basePath = `/auth/${provider.name}`;
 
     for (const route of routes) {
-      const fullPath = `${basePath}${route.path}`;
+      const fullPath = buildPluginChildPath(basePath, route.path, "route");
+      const routeOptions = sanitizePluginRouteOptions(route.options);
 
       this.app.route({
+        ...routeOptions,
         method: route.method,
         url: fullPath,
         handler: route.handler,
         schema: route.options?.schema,
-        ...route.options,
       });
 
       this.app.log.info(
@@ -144,16 +170,11 @@ export class AuthCoordinator implements IAuthCoordinator {
   /**
    * 注册插件静态资源
    */
-  private registerProviderStaticAssets(provider: AuthProvider): void {
-    if (!provider.registerStaticAssets) {
-      return;
-    }
-
-    const assets = provider.registerStaticAssets();
+  private registerProviderStaticAssets(provider: AuthProvider, assets: any[]): void {
     const basePath = `/auth/${provider.name}`;
 
     for (const asset of assets) {
-      const fullPath = `${basePath}${asset.path}`;
+      const fullPath = buildPluginChildPath(basePath, asset.path, "static asset");
 
       this.app.get(fullPath, async (request, reply) => {
         if (asset.contentType) {
@@ -173,16 +194,11 @@ export class AuthCoordinator implements IAuthCoordinator {
   /**
    * 注册插件 Webhook
    */
-  private registerProviderWebhooks(provider: AuthProvider): void {
-    if (!provider.registerWebhooks) {
-      return;
-    }
-
-    const webhooks = provider.registerWebhooks();
+  private registerProviderWebhooks(provider: AuthProvider, webhooks: any[]): void {
     const basePath = `/auth/${provider.name}`;
 
     for (const webhook of webhooks) {
-      const fullPath = `${basePath}${webhook.path}`;
+      const fullPath = buildPluginChildPath(basePath, webhook.path, "webhook");
 
       this.app.post(fullPath, async (request, reply) => {
         // 验证签名（如果提供）
@@ -218,7 +234,7 @@ export class AuthCoordinator implements IAuthCoordinator {
         // 只为插件路径注册钩子
         this.app.addHook(hookName, async (request: FastifyRequest, reply: FastifyReply) => {
           // 只在请求匹配插件路径时执行
-          if (request.url.startsWith(basePath)) {
+          if (isPluginRequestPath(request.url, basePath)) {
             await handler(request, reply);
           }
         });
@@ -226,7 +242,10 @@ export class AuthCoordinator implements IAuthCoordinator {
     };
 
     provider.registerMiddleware(context).catch((err: unknown) => {
-      this.app.log.error({ err, provider: provider.name }, "Failed to register middleware");
+      this.app.log.error(
+        { err: sanitizeForLog(err), provider: provider.name },
+        "Failed to register middleware",
+      );
     });
 
     this.app.log.info(`Registered middleware for provider: ${provider.name}`);
@@ -259,7 +278,10 @@ export class AuthCoordinator implements IAuthCoordinator {
         const ui = await provider.renderLoginUI(context);
         loginOptions.push({ provider, ui });
       } catch (err) {
-        this.app.log.error({ err, provider: provider.name }, "Failed to render login UI");
+        this.app.log.error(
+          { err: sanitizeForLog(err), provider: provider.name },
+          "Failed to render login UI",
+        );
       }
     }
 
@@ -326,7 +348,10 @@ export class AuthCoordinator implements IAuthCoordinator {
 
       return result;
     } catch (err) {
-      this.app.log.error({ err, provider: authMethod }, "Authentication error");
+      this.app.log.error(
+        { err: sanitizeForLog(err), provider: authMethod },
+        "Authentication error",
+      );
 
       return {
         success: false,
@@ -349,7 +374,7 @@ export class AuthCoordinator implements IAuthCoordinator {
       }
       return user;
     } catch (err) {
-      this.app.log.error({ err, userId }, "Failed to find account");
+      this.app.log.error({ err: sanitizeForLog(err), userId }, "Failed to find account");
       return null;
     }
   }
@@ -389,14 +414,8 @@ export class AuthCoordinator implements IAuthCoordinator {
     try {
       this.app.log.info(`[OAuth State] Verifying state: ${state.substring(0, 8)}...`);
 
-      // 列出所有存储的 state（调试用）
-      if ("listAll" in this.stateStore && typeof (this.stateStore as any).listAll === "function") {
-        const allStates = (this.stateStore as any).listAll();
-        this.app.log.info(`[OAuth State] Current stored states: ${JSON.stringify(allStates)}`);
-      }
-
-      // 获取 state 数据
-      const data = await this.stateStore.get(state);
+      // 原子读取并消费 state，避免并发 callback 重放同一个 OAuth state。
+      const data = await this.stateStore.take(state);
 
       if (!data) {
         this.app.log.warn(`[OAuth State] Invalid or expired state: ${state.substring(0, 8)}...`);
@@ -412,18 +431,14 @@ export class AuthCoordinator implements IAuthCoordinator {
       if (age > 600000) {
         // 10 分钟
         this.app.log.warn(`[OAuth State] Expired state: ${state.substring(0, 8)}..., age=${age}ms`);
-        await this.stateStore.delete(state);
         return null;
       }
-
-      // 消费 state（一次性使用）
-      await this.stateStore.delete(state);
 
       this.app.log.info(`[OAuth State] Verified and consumed state for ${data.provider}`);
 
       return data;
     } catch (err) {
-      this.app.log.error({ err }, "Failed to verify OAuth state");
+      this.app.log.error({ err: sanitizeForLog(err) }, "Failed to verify OAuth state");
       return null;
     }
   }
@@ -447,7 +462,7 @@ export class AuthCoordinator implements IAuthCoordinator {
 
   async getAuthResult(interactionUid: string): Promise<string | null> {
     const key = `auth_result_${interactionUid}`;
-    const result = await this.stateStore.get(key);
+    const result = await this.stateStore.take(key);
 
     if (!result) {
       return null;
@@ -466,12 +481,8 @@ export class AuthCoordinator implements IAuthCoordinator {
 
     // 检查是否过期（5分钟）
     if (Date.now() - authResult.timestamp > 300000) {
-      await this.stateStore.delete(key);
       return null;
     }
-
-    // 消费后删除
-    await this.stateStore.delete(key);
 
     return authResult.userId;
   }
@@ -504,7 +515,10 @@ export class AuthCoordinator implements IAuthCoordinator {
 
       this.app.log.info(`OIDC interaction finished for user: ${userId}, uid: ${interactionUid}`);
     } catch (err) {
-      this.app.log.error({ err, userId, interactionUid }, "Failed to finish OIDC interaction");
+      this.app.log.error(
+        { err: sanitizeForLog(err), userId, interactionUid },
+        "Failed to finish OIDC interaction",
+      );
       throw err;
     }
   }
@@ -531,7 +545,10 @@ export class AuthCoordinator implements IAuthCoordinator {
         await provider.initialize(config);
         this.app.log.info(`Initialized provider: ${name}`);
       } catch (err) {
-        this.app.log.error({ err, provider: name }, "Failed to initialize provider");
+        this.app.log.error(
+          { err: sanitizeForLog(err), provider: name },
+          "Failed to initialize provider",
+        );
         throw err;
       }
     }
@@ -552,7 +569,10 @@ export class AuthCoordinator implements IAuthCoordinator {
           await provider.destroy();
           this.app.log.info(`Destroyed provider: ${name}`);
         } catch (err) {
-          this.app.log.error({ err, provider: name }, "Failed to destroy provider");
+          this.app.log.error(
+            { err: sanitizeForLog(err), provider: name },
+            "Failed to destroy provider",
+          );
         }
       }
     }
@@ -568,7 +588,52 @@ export class AuthCoordinator implements IAuthCoordinator {
     try {
       await this.userRepository.update(userId, { lastLoginAt: new Date() });
     } catch (err) {
-      this.app.log.warn({ err, userId }, "Failed to update last login time");
+      this.app.log.warn({ err: sanitizeForLog(err), userId }, "Failed to update last login time");
     }
+  }
+}
+
+function assertSafePluginName(name: string): void {
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) {
+    throw new Error(`Invalid auth provider name: ${name}`);
+  }
+}
+
+function buildPluginChildPath(basePath: string, path: string, kind: string): string {
+  if (!isSafePluginChildPath(path)) {
+    throw new Error(`Invalid plugin ${kind} path: ${path}`);
+  }
+  return `${basePath}${path}`;
+}
+
+function sanitizePluginRouteOptions(options: Record<string, any> | undefined): Record<string, any> {
+  if (!options) {
+    return {};
+  }
+
+  const { handler: _handler, method: _method, path: _path, url: _url, ...safeOptions } = options;
+  return safeOptions;
+}
+
+function isSafePluginChildPath(path: string): boolean {
+  if (!path.startsWith("/") || path.includes("//") || /[?#%\\]/.test(path)) {
+    return false;
+  }
+  if (!/^\/[A-Za-z0-9._~:/-]*$/.test(path)) {
+    return false;
+  }
+
+  return path
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .every((segment) => segment !== "." && segment !== "..");
+}
+
+function isPluginRequestPath(requestUrl: string, basePath: string): boolean {
+  try {
+    const pathname = new URL(requestUrl, "http://plugin.local").pathname;
+    return pathname === basePath || pathname.startsWith(`${basePath}/`);
+  } catch {
+    return false;
   }
 }

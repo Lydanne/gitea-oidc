@@ -5,6 +5,7 @@
  */
 
 import { type AuthError, AuthErrorCode } from "../types/auth";
+import { sanitizeForLog } from "./logSanitizer";
 
 /**
  * 创建认证错误
@@ -82,7 +83,7 @@ export const AuthErrors = {
    * 用户不存在
    */
   userNotFound: (username: string) =>
-    createAuthError(AuthErrorCode.USER_NOT_FOUND, `User not found: ${username}`, {
+    createAuthError(AuthErrorCode.USER_NOT_FOUND, "User not found", {
       details: { username },
       suggestedAction: "请检查用户名是否正确",
     }),
@@ -91,7 +92,7 @@ export const AuthErrors = {
    * 密码错误
    */
   passwordIncorrect: (username: string) =>
-    createAuthError(AuthErrorCode.PASSWORD_INCORRECT, `Password incorrect for user: ${username}`, {
+    createAuthError(AuthErrorCode.PASSWORD_INCORRECT, "Password incorrect", {
       details: { username },
       retryable: true,
       suggestedAction: "请检查密码是否正确",
@@ -217,11 +218,11 @@ export function formatAuthError(error: AuthError): string {
   const parts = [`[${error.code}] ${error.message}`];
 
   if (error.details) {
-    parts.push(`Details: ${JSON.stringify(error.details)}`);
+    parts.push(`Details: ${JSON.stringify(sanitizeForLog(error.details))}`);
   }
 
   if (error.cause) {
-    parts.push(`Cause: ${error.cause.message}`);
+    parts.push(`Cause: ${error.cause.name}`);
   }
 
   return parts.join(" | ");

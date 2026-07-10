@@ -24,9 +24,14 @@ export function renderLoginPageHTML(
     }
 
     if (ui.type === "redirect" && ui.button && ui.redirectUrl) {
+      const redirectUrl = sanitizeLoginUrl(ui.redirectUrl);
+      if (!redirectUrl) {
+        continue;
+      }
+      const iconUrl = ui.button.icon ? sanitizeLoginUrl(ui.button.icon) : "";
       buttons.push(`
-        <a href="${escapeHtml(ui.redirectUrl)}" class="oauth-button">
-          ${ui.button.icon ? `<img src="${escapeHtml(ui.button.icon)}" alt="${escapeHtml(provider.displayName)}" />` : ""}
+        <a href="${escapeHtml(redirectUrl)}" class="oauth-button">
+          ${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="${escapeHtml(provider.displayName)}" />` : ""}
           <span>${escapeHtml(ui.button.text)}</span>
         </a>
       `);
@@ -158,4 +163,36 @@ function escapeHtml(text: string): string {
     "'": "&#039;",
   };
   return text.replace(/[&<>"']/g, (match) => map[match]);
+}
+
+function sanitizeLoginUrl(url: string): string | null {
+  if (hasControlCharacter(url)) {
+    return null;
+  }
+
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) {
+      return true;
+    }
+  }
+
+  return false;
 }

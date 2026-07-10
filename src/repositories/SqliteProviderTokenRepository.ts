@@ -6,11 +6,16 @@ import Database from "better-sqlite3";
 import type {
   ProviderTokenListOptions,
   ProviderTokenOwnerType,
+  ProviderTokenProbeCandidateOptions,
   ProviderTokenRecord,
   ProviderTokenRepository,
   ProviderTokenStatus,
 } from "../types/providerApi";
-import { TokenEncryptor } from "../utils/tokenCrypto";
+import { sanitizeTokenErrorText, TokenEncryptor } from "../utils/tokenCrypto";
+import {
+  normalizeProviderTokenListOptions,
+  normalizeProviderTokenProbeCandidateOptions,
+} from "./providerTokenListOptions";
 
 /**
  * SQLite Provider token 仓储
@@ -102,25 +107,26 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
   }
 
   async list(options?: ProviderTokenListOptions): Promise<ProviderTokenRecord[]> {
+    const listOptions = normalizeProviderTokenListOptions(options);
     let sql = "SELECT * FROM provider_tokens";
     const params: any[] = [];
     const conditions: string[] = [];
 
-    if (options?.provider) {
+    if (listOptions.provider) {
       conditions.push("provider = ?");
-      params.push(options.provider);
+      params.push(listOptions.provider);
     }
-    if (options?.ownerType) {
+    if (listOptions.ownerType) {
       conditions.push('"ownerType" = ?');
-      params.push(options.ownerType);
+      params.push(listOptions.ownerType);
     }
-    if (options?.ownerId) {
+    if (listOptions.ownerId) {
       conditions.push('"ownerId" = ?');
-      params.push(options.ownerId);
+      params.push(listOptions.ownerId);
     }
-    if (options?.status) {
+    if (listOptions.status) {
       conditions.push("status = ?");
-      params.push(options.status);
+      params.push(listOptions.status);
     }
 
     if (conditions.length > 0) {
@@ -129,16 +135,51 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
 
     sql += ' ORDER BY "updatedAt" DESC';
 
-    if (options?.limit !== undefined) {
+    if (listOptions.limit !== undefined) {
       sql += " LIMIT ?";
-      params.push(options.limit);
+      params.push(listOptions.limit);
     }
-    if (options?.offset !== undefined) {
+    if (listOptions.offset !== undefined) {
       sql += " OFFSET ?";
-      params.push(options.offset);
+      params.push(listOptions.offset);
     }
 
     const rows = this.db.prepare(sql).all(...params) as any[];
+    return rows.map((row) => this.rowToRecord(row));
+  }
+
+  async listProbeCandidates(
+    options: ProviderTokenProbeCandidateOptions,
+  ): Promise<ProviderTokenRecord[]> {
+    const probeOptions = normalizeProviderTokenProbeCandidateOptions(options);
+    const rows = this.db
+      .prepare(
+        `
+          SELECT * FROM provider_tokens
+          WHERE status != ? AND (
+            status != ? OR "lastProbedAt" IS NULL OR "expiresAt" IS NULL OR "expiresAt" <= ?
+          )
+          ORDER BY
+            CASE
+              WHEN status != ? THEN 0
+              WHEN "lastProbedAt" IS NULL THEN 1
+              WHEN "expiresAt" IS NULL THEN 2
+              ELSE 3
+            END ASC,
+            COALESCE("lastProbedAt", 0) ASC,
+            COALESCE("expiresAt", 0) ASC,
+            "updatedAt" ASC
+          LIMIT ?
+        `,
+      )
+      .all(
+        "revoked",
+        "valid",
+        probeOptions.expiresBefore.getTime(),
+        "valid",
+        probeOptions.limit,
+      ) as any[];
+
     return rows.map((row) => this.rowToRecord(row));
   }
 
@@ -157,7 +198,15 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
           WHERE provider = ? AND "ownerType" = ? AND "ownerId" = ?
         `,
       )
-      .run(status, lastError ?? null, Date.now(), Date.now(), provider, ownerType, ownerId);
+      .run(
+        status,
+        sanitizeTokenErrorText(lastError) ?? null,
+        Date.now(),
+        Date.now(),
+        provider,
+        ownerType,
+        ownerId,
+      );
   }
 
   async delete(
@@ -170,6 +219,10 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
         'DELETE FROM provider_tokens WHERE provider = ? AND "ownerType" = ? AND "ownerId" = ?',
       )
       .run(provider, ownerType, ownerId);
+  }
+
+  async deleteByOwnerId(ownerId: string): Promise<void> {
+    this.db.prepare('DELETE FROM provider_tokens WHERE "ownerId" = ?').run(ownerId);
   }
 
   async clear(): Promise<void> {
@@ -230,7 +283,7 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
       status: record.status,
       lastProbedAt: record.lastProbedAt?.getTime() ?? null,
       lastRefreshAt: record.lastRefreshAt?.getTime() ?? null,
-      lastError: record.lastError ?? null,
+      lastError: sanitizeTokenErrorText(record.lastError) ?? null,
       metadata: record.metadata ? JSON.stringify(record.metadata) : null,
       createdAt: record.createdAt?.getTime() ?? Date.now(),
       updatedAt: record.updatedAt?.getTime() ?? Date.now(),
@@ -252,7 +305,7 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
       status: row.status,
       lastProbedAt: row.lastProbedAt ? new Date(row.lastProbedAt) : undefined,
       lastRefreshAt: row.lastRefreshAt ? new Date(row.lastRefreshAt) : undefined,
-      lastError: row.lastError || undefined,
+      lastError: sanitizeTokenErrorText(row.lastError),
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),

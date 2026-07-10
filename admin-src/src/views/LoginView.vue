@@ -31,7 +31,7 @@ const loginStartUrl = computed(
       <div class="login-copy">
         <p class="eyebrow">后台管理</p>
         <h1 id="admin-login-title">登录管理台</h1>
-        <p>使用本服务 OIDC 完成认证，只有 Owners 组成员可以进入后台。</p>
+        <p>使用本服务 OIDC 完成认证，只有配置的管理员组成员可以进入后台。</p>
       </div>
 
       <Button

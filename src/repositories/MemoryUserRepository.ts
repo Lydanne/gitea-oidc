@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
 import { withUserDefaults } from "../utils/userDefaults";
 import { generateUserId } from "../utils/userIdGenerator";
+import { normalizeUserListOptions } from "./userListOptions";
 
 export class MemoryUserRepository implements UserRepository {
   private users = new Map<string, UserInfo>();
@@ -114,11 +115,17 @@ export class MemoryUserRepository implements UserRepository {
 
     const normalizedUser = withUserDefaults(user);
 
+    if (this.users.has(normalizedUser.sub)) {
+      throw new Error(`User already exists: ${normalizedUser.sub}`);
+    }
+
+    this.assertProviderIdentityAvailable(normalizedUser, normalizedUser.sub);
+
     this.users.set(normalizedUser.sub, normalizedUser);
 
     // 更新索引
-    if (normalizedUser.externalId) {
-      const key = `${normalizedUser.authProvider}:${normalizedUser.externalId}`;
+    const key = getProviderIndexKey(normalizedUser);
+    if (key) {
       this.providerIndex.set(key, normalizedUser.sub);
     }
 
@@ -143,10 +150,17 @@ export class MemoryUserRepository implements UserRepository {
       ...merged,
     });
 
+    this.assertProviderIdentityAvailable(updatedUser, userId);
+
     this.users.set(userId, updatedUser);
 
-    if (updatedUser.externalId) {
-      this.providerIndex.set(`${updatedUser.authProvider}:${updatedUser.externalId}`, userId);
+    const oldKey = getProviderIndexKey(user);
+    const newKey = getProviderIndexKey(updatedUser);
+    if (oldKey && oldKey !== newKey && this.providerIndex.get(oldKey) === userId) {
+      this.providerIndex.delete(oldKey);
+    }
+    if (newKey) {
+      this.providerIndex.set(newKey, userId);
     }
 
     return updatedUser;
@@ -167,12 +181,13 @@ export class MemoryUserRepository implements UserRepository {
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
+    const listOptions = normalizeUserListOptions(options);
     let users = Array.from(this.users.values());
 
     // 过滤
-    if (options?.filter) {
+    if (listOptions.filter) {
       users = users.filter((user) => {
-        for (const [key, value] of Object.entries(options.filter!)) {
+        for (const [key, value] of Object.entries(listOptions.filter!)) {
           if ((user as any)[key] !== value) {
             return false;
           }
@@ -182,9 +197,9 @@ export class MemoryUserRepository implements UserRepository {
     }
 
     // 排序
-    if (options?.sortBy) {
-      const sortBy = options.sortBy;
-      const sortOrder = options.sortOrder || "asc";
+    if (listOptions.sortBy) {
+      const sortBy = listOptions.sortBy;
+      const sortOrder = listOptions.sortOrder || "asc";
 
       users.sort((a, b) => {
         const aVal = (a as any)[sortBy];
@@ -197,9 +212,9 @@ export class MemoryUserRepository implements UserRepository {
     }
 
     // 分页
-    if (options?.offset !== undefined || options?.limit !== undefined) {
-      const offset = options.offset || 0;
-      const limit = options.limit || users.length;
+    if (listOptions.offset !== undefined || listOptions.limit !== undefined) {
+      const offset = listOptions.offset || 0;
+      const limit = listOptions.limit || users.length;
       users = users.slice(offset, offset + limit);
     }
 
@@ -217,4 +232,20 @@ export class MemoryUserRepository implements UserRepository {
   size(): number {
     return this.users.size;
   }
+
+  private assertProviderIdentityAvailable(user: UserInfo, userId: string): void {
+    const key = getProviderIndexKey(user);
+    if (!key) {
+      return;
+    }
+
+    const existingUserId = this.providerIndex.get(key);
+    if (existingUserId && existingUserId !== userId) {
+      throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
+    }
+  }
+}
+
+function getProviderIndexKey(user: Pick<UserInfo, "authProvider" | "externalId">): string | null {
+  return user.externalId ? `${user.authProvider}:${user.externalId}` : null;
 }

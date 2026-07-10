@@ -26,6 +26,15 @@
       "url": "redis://localhost:6379",
       "keyPrefix": "oidc:"
     }
+  },
+  "auth": {
+    "stateStore": {
+      "type": "redis",
+      "redis": {
+        "url": "redis://localhost:6379",
+        "keyPrefix": "gitea-oidc:state:"
+      }
+    }
   }
 }
 ```
@@ -93,7 +102,8 @@ oidc:Session:session-id-123           # 主数据
 oidc:AccessToken:token-id-456         # 主数据
 oidc:userCode:USER-CODE-789           # userCode 索引 -> id
 oidc:uid:interaction-uid-012          # uid 索引 -> id
-oidc:grantId:grant-id-345             # grantId 索引 -> Set<id>
+oidc:AccessToken:grantId:grant-id-345 # 模型级 grantId 索引 -> Set<id>
+oidc:accountId:account-id-678         # 账户索引 -> Set<model:id>
 ```
 
 ### 键命名规则
@@ -101,7 +111,14 @@ oidc:grantId:grant-id-345             # grantId 索引 -> Set<id>
 - **主键**: `{keyPrefix}{name}:{id}`
 - **userCode 索引**: `{keyPrefix}userCode:{userCode}`
 - **uid 索引**: `{keyPrefix}uid:{uid}`
-- **grantId 索引**: `{keyPrefix}grantId:{grantId}` (使用 Set 存储)
+- **grantId 索引**: `{keyPrefix}{model}:grantId:{grantId}` (使用 Set 存储，按模型隔离)
+- **accountId 索引**: `{keyPrefix}accountId:{accountId}` (用于用户删除或身份重绑时撤销全部
+  OIDC 记录)
+
+生产环境使用 Redis 适配器时必须同时设置 `auth.stateStore.type: "redis"`。该存储还用于
+跨实例共享后台会话和本地登录失败计数。如果只把令牌
+模型放入 Redis 而 OAuth state 或后台会话仍在内存，负载均衡后的回调会随机失败，且一次性 state
+无法跨节点原子消费。
 
 ## 生产环境部署
 

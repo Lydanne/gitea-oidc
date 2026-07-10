@@ -20,8 +20,7 @@ describe("useProviderRequest", () => {
     });
 
     const pending = api.request("feishu", {
-      method: "GET",
-      path: "/authen/v1/user_info",
+      operation: "authen.user_info",
       tokenKind: "user",
     });
     expect(api.loading.value).toBe(true);

@@ -1,6 +1,6 @@
 FROM node:22
 
-# 设置 CI 环境变量
+# 构建阶段需要安装 devDependencies
 ENV CI=true
 
 WORKDIR /app
@@ -19,6 +19,8 @@ RUN pnpm run build:prod
 
 # 重新编译原生依赖
 RUN npm rebuild better-sqlite3
+
+ENV NODE_ENV=production
 
 EXPOSE 3000
 

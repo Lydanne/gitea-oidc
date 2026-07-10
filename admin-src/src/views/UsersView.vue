@@ -89,7 +89,7 @@ const openEdit = (user: AdminUser) => {
 
 /** 保存创建或编辑后的用户。 */
 const saveUser = async () => {
-  const payload = formToPayload(userForm.value);
+  const payload = formToPayload(userForm.value, { includeIdentity: dialogMode.value !== "edit" });
   if (!payload.username) {
     handleError(new Error("用户名不能为空"));
     return;
@@ -274,7 +274,11 @@ const setStatus = async (user: AdminUser, status: UserStatus) => {
     :style="{ width: 'min(760px, calc(100vw - 32px))' }"
   >
     <UserDetailList v-if="dialogMode === 'detail'" :user="selectedUser" />
-    <UserFormFields v-else v-model="userForm" />
+    <UserFormFields
+      v-else
+      v-model="userForm"
+      :identity-read-only="dialogMode === 'edit'"
+    />
 
     <template #footer>
       <Button label="关闭" severity="secondary" outlined @click="dialogVisible = false" />

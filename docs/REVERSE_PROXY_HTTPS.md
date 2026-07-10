@@ -27,7 +27,8 @@
     "host": "0.0.0.0",
     "port": 3000,
     "url": "https://your-domain.com",
-    "trustProxy": true  // ⭐ 关键配置：启用代理信任
+    "trustProxy": true,
+    "trustedProxyIps": ["127.0.0.1"]
   },
   "oidc": {
     "issuer": "https://your-domain.com/oidc",  // 使用 HTTPS 和 /oidc 挂载路径
@@ -39,8 +40,10 @@
 **关键配置说明：**
 
 - `server.url`: 设置为公网访问的 HTTPS 地址
-- `oidc.issuer`: 设置为公网 OIDC 发行者地址，默认挂载路径为 `${server.url}/oidc`
+- `oidc.issuer`: 设置为公网 OIDC 发行者地址，必须等于 `${server.url}/oidc`
 - `server.trustProxy`: **必须设置为 `true`**，这样应用才能识别反向代理传递的协议信息
+- `server.trustedProxyIps`: 仅填写实际反向代理的 IP 或 CIDR；不要无条件信任来自公网的
+  `X-Forwarded-*` 头
 
 ### 2. 反向代理配置
 
@@ -99,12 +102,12 @@ Caddy 会自动处理 HTTPS 和转发头信息。
 
 1. **客户端** → HTTPS 请求 → **反向代理**（Nginx/Traefik）
 2. **反向代理** → HTTP 请求 + `X-Forwarded-Proto: https` 头 → **gitea-oidc**
-3. **gitea-oidc** 检测到 `trustProxy: true`，识别 `X-Forwarded-Proto` 头
+3. **gitea-oidc** 只在来源匹配 `trustedProxyIps` 时信任 `X-Forwarded-Proto` 头
 4. **oidc-provider** 生成 HTTPS 的端点 URL
 
 ### 技术细节
 
-- `trustProxy: true` 会同时配置 Fastify 和 oidc-provider（Koa）
+- `trustProxy: true` 配合 `trustedProxyIps` 会同时配置 Fastify 和 oidc-provider（Koa）
 - Fastify 的 `trustProxy` 让它能识别 `X-Forwarded-*` 头
 - oidc-provider 的 `proxy` 属性（Koa 特性）让它能正确生成 HTTPS URL
 
@@ -135,7 +138,8 @@ curl https://your-domain.com/oidc/.well-known/openid-configuration | jq
 
 ### Q: 我已经设置了 `issuer` 为 HTTPS，为什么其他端点还是 HTTP？
 
-A: 仅设置 `issuer` 不够，必须同时设置 `trustProxy: true`。oidc-provider 会根据**实际请求的协议**生成端点 URL，而不是仅依赖 issuer 配置。
+A: 仅设置 `issuer` 不够，必须同时设置 `trustProxy: true` 并配置 `trustedProxyIps`。
+oidc-provider 会根据**实际请求的协议**生成端点 URL，而不是仅依赖 issuer 配置。
 
 ### Q: 本地开发时需要设置 `trustProxy` 吗？
 
@@ -145,7 +149,7 @@ A: 不需要。本地开发直接访问应用时，设置为 `false` 即可。�
 
 A: 配置方式相同。确保：
 
-1. 容器内的配置文件设置了 `trustProxy: true`
+1. 容器内的配置文件设置了 `trustProxy: true` 和 `trustedProxyIps`
 2. 反向代理正确转发了 `X-Forwarded-*` 头
 3. 容器可以被反向代理访问（网络配置正确）
 

@@ -30,6 +30,7 @@ describe("loadConfig", () => {
 
   afterEach(() => {
     cwdSpy.mockRestore();
+    vi.unstubAllEnvs();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -71,12 +72,46 @@ describe("loadConfig", () => {
   });
 
   it("falls back to default config when no file found", async () => {
+    const validated = {
+      valid: true,
+      warnings: ["dev defaults"],
+      errors: [],
+      config: {
+        server: { url: "http://localhost:3000" },
+        auth: { providers: { local: { enabled: true } } },
+      },
+    } as const;
+    mockValidateConfig.mockReturnValue(validated);
+
     const { loadConfig } = await importConfigModule();
     const result = await loadConfig();
 
-    expect(mockValidateConfig).not.toHaveBeenCalled();
+    expect(mockValidateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: expect.objectContaining({ url: "http://localhost:3000" }),
+        oidc: expect.objectContaining({
+          cookieKeys: ["dev-cookie-key-change-me-32-chars-min"],
+        }),
+        clients: [
+          expect.objectContaining({
+            client_id: "gitea",
+            client_secret: "dev-client-secret-change-me",
+          }),
+        ],
+      }),
+    );
+    expect(mockPrintValidationResult).toHaveBeenCalledWith(validated);
     expect(result.server.url).toBe("http://localhost:3000");
     expect(result.auth.providers.local.enabled).toBe(true);
+  });
+
+  it("throws in production when no config file is found", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    const { loadConfig } = await importConfigModule();
+
+    await expect(loadConfig()).rejects.toThrow(/生产环境必须提供/);
+    expect(mockValidateConfig).not.toHaveBeenCalled();
   });
 
   it("loads JS config (function export) and merges before验证", async () => {
@@ -105,25 +140,23 @@ describe("loadConfig", () => {
     expect(result).toBe(validated.config);
   });
 
-  it("returns default config when JS config fails to load", async () => {
+  it("throws when JS config fails to load", async () => {
     const jsConfig = 'throw new Error("boom")';
     writeFileSync(join(tempDir, "gitea-oidc.config.js"), jsConfig);
 
     const { loadConfig } = await importConfigModule();
-    const result = await loadConfig();
 
+    await expect(loadConfig()).rejects.toThrow(/JS 配置文件加载失败/);
     expect(mockValidateConfig).not.toHaveBeenCalled();
-    expect(result.server.port).toBe(3000);
   });
 
-  it("returns default config when JSON parsing fails", async () => {
+  it("throws when JSON parsing fails", async () => {
     writeFileSync(join(tempDir, "gitea-oidc.config.json"), '{"server": ');
 
     const { loadConfig } = await importConfigModule();
-    const result = await loadConfig();
 
+    await expect(loadConfig()).rejects.toThrow(/JSON 配置文件解析失败/);
     expect(mockValidateConfig).not.toHaveBeenCalled();
-    expect(result.server.host).toBe("0.0.0.0");
   });
 
   it("loads trustProxy configuration from JSON config", async () => {
@@ -135,7 +168,7 @@ describe("loadConfig", () => {
         trustProxy: true,
       },
       oidc: {
-        issuer: "https://oidc.example.com",
+        issuer: "https://oidc.example.com/oidc",
       },
     };
     writeFileSync(join(tempDir, "gitea-oidc.config.json"), JSON.stringify(jsonConfig));
@@ -152,7 +185,7 @@ describe("loadConfig", () => {
           trustProxy: true,
         },
         oidc: {
-          issuer: "https://oidc.example.com",
+          issuer: "https://oidc.example.com/oidc",
         },
       },
     } as const;
@@ -173,6 +206,35 @@ describe("loadConfig", () => {
     expect(result.server.url).toBe("https://oidc.example.com");
   });
 
+  it("replaces default auth providers when a config explicitly provides providers", async () => {
+    writeFileSync(
+      join(tempDir, "gitea-oidc.config.json"),
+      JSON.stringify({
+        auth: {
+          providers: {
+            feishu: {
+              enabled: false,
+              displayName: "飞书登录",
+              config: {},
+            },
+          },
+        },
+      }),
+    );
+    mockValidateConfig.mockImplementation((config) => ({
+      valid: true,
+      warnings: [],
+      errors: [],
+      config,
+    }));
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(result.auth.providers.feishu).toBeDefined();
+    expect(result.auth.providers.local).toBeUndefined();
+  });
+
   it("loads trustProxy configuration from JS config", async () => {
     const jsConfig = `export default {
       server: { 
@@ -182,7 +244,7 @@ describe("loadConfig", () => {
         trustProxy: true
       },
       oidc: {
-        issuer: 'https://oidc.example.com'
+        issuer: 'https://oidc.example.com/oidc'
       }
     };`;
     writeFileSync(join(tempDir, "gitea-oidc.config.js"), jsConfig);
@@ -199,7 +261,7 @@ describe("loadConfig", () => {
           trustProxy: true,
         },
         oidc: {
-          issuer: "https://oidc.example.com",
+          issuer: "https://oidc.example.com/oidc",
         },
       },
     } as const;
@@ -250,7 +312,7 @@ describe("loadConfig", () => {
     expect(result.server.trustProxy).toBe(false);
   });
 
-  it("exits process when validation fails", async () => {
+  it("throws when validation fails instead of terminating the host process", async () => {
     writeFileSync(
       join(tempDir, "gitea-oidc.config.json"),
       JSON.stringify({ server: { port: 4001 } }),
@@ -261,15 +323,10 @@ describe("loadConfig", () => {
       warnings: [],
     };
     mockValidateConfig.mockReturnValue(invalidResult as any);
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as any);
-
     const { loadConfig } = await importConfigModule();
 
-    await expect(loadConfig()).resolves.toBeUndefined();
+    await expect(loadConfig()).rejects.toThrow("server: invalid");
     expect(mockPrintValidationResult).toHaveBeenCalledWith(invalidResult);
-    expect(exitSpy).toHaveBeenCalledWith(1);
-
-    exitSpy.mockRestore();
   });
 });
 

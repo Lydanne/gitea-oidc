@@ -33,12 +33,16 @@ export interface GiteaOidcConfig {
    * - port: 服务端口，范围 1-65535
    * - url: 公开访问的完整 URL，用于 OIDC 发现和回调
    * - trustProxy: 是否信任反向代理的 X-Forwarded-* 头（在 Nginx/Traefik 等反向代理后必须启用）
+   * - corsOrigins: 允许跨域调用的浏览器 Origin；默认空数组表示不发送 CORS 响应头
    */
   server: {
     host: string;
     port: number;
     url: string;
     trustProxy: boolean;
+    /** 受信任反向代理的 IP/CIDR 列表；生产环境启用 trustProxy 时必填。 */
+    trustedProxyIps?: string[];
+    corsOrigins: string[];
   };
 
   /**
@@ -112,6 +116,10 @@ export interface GiteaOidcConfig {
        * - 如姓名、邮箱等
        */
       profile: string[];
+      /**
+       * 自定义 scope 到声明字段列表的映射
+       */
+      [scope: string]: string[];
     };
 
     /**
@@ -231,6 +239,8 @@ const defaultConfig: GiteaOidcConfig = {
     port: 3000,
     url: "http://localhost:3000",
     trustProxy: false,
+    trustedProxyIps: [],
+    corsOrigins: [],
   },
 
   logging: {
@@ -240,7 +250,7 @@ const defaultConfig: GiteaOidcConfig = {
 
   oidc: {
     issuer: "http://localhost:3000/oidc",
-    cookieKeys: ["some-secret-key"],
+    cookieKeys: ["dev-cookie-key-change-me-32-chars-min"],
     ttl: {
       AccessToken: 3600,
       AuthorizationCode: 600,
@@ -250,6 +260,7 @@ const defaultConfig: GiteaOidcConfig = {
     claims: {
       openid: ["sub"],
       profile: ["name", "email", "groups", "roles", "status"],
+      provider_api: [],
     },
     features: {
       devInteractions: { enabled: false },
@@ -261,7 +272,7 @@ const defaultConfig: GiteaOidcConfig = {
   clients: [
     {
       client_id: "gitea",
-      client_secret: "secret",
+      client_secret: "dev-client-secret-change-me",
       redirect_uris: [
         "http://localhost:3001/user/oauth2/gitea/callback",
         "http://localhost:3000/admin/callback",
@@ -286,24 +297,35 @@ const defaultConfig: GiteaOidcConfig = {
           passwordFile: ".htpasswd",
           passwordFormat: "bcrypt",
           adminUsers: ["admin"],
+          lockoutPolicy: {
+            enabled: true,
+            maxAttempts: 5,
+            lockoutDuration: 900,
+          },
         },
       },
+    },
+    stateStore: {
+      type: "memory",
     },
   },
 
   admin: {
     enabled: true,
     basePath: "/admin",
-    allowedGroups: ["Owners"],
+    allowedGroups: ["gitea-oidc-admins"],
     sessionTtlSeconds: 3600,
   },
 
   providerApi: {
-    enabled: true,
-    tokenEncryptionKey: "change-this-provider-token-key",
+    enabled: false,
+    tokenEncryptionKey: "",
     refreshSkewSeconds: 300,
     probeIntervalSeconds: 300,
+    requestTimeoutMs: 10000,
+    responseBodyLimitBytes: 1048576,
     sdkProxy: true,
+    allowedClientIds: [],
     providers: {
       feishu: {
         enabled: false,
@@ -369,9 +391,7 @@ export async function loadConfig(): Promise<GiteaOidcConfig> {
           : configModule.default || configModule;
       console.log(`✅ JS 配置文件已加载: ${configPath}`);
     } catch (error) {
-      console.error(`❌ JS 配置文件加载错误: ${error}`);
-      console.log("⚠️  使用默认配置继续运行");
-      return defaultConfig;
+      throw new Error(`JS 配置文件加载失败: ${formatConfigLoadError(error)}`);
     }
   } else if (existsSync(jsonConfigPath)) {
     configPath = jsonConfigPath;
@@ -380,32 +400,41 @@ export async function loadConfig(): Promise<GiteaOidcConfig> {
       userConfig = JSON.parse(configFile);
       console.log(`✅ JSON 配置文件已加载: ${configPath}`);
     } catch (error) {
-      console.error(`❌ JSON 配置文件解析错误: ${error}`);
-      console.log("⚠️  使用默认配置继续运行");
-      return defaultConfig;
+      throw new Error(`JSON 配置文件解析失败: ${formatConfigLoadError(error)}`);
     }
   } else {
     console.log(`⚠️  配置文件未找到，查找路径:`);
     console.log(`   - ${jsConfigPath}`);
     console.log(`   - ${jsonConfigPath}`);
+    if (isProductionRuntime()) {
+      throw new Error("生产环境必须提供 gitea-oidc.config.js 或 gitea-oidc.config.json");
+    }
     console.log("💡 提示: 创建 gitea-oidc.config.js 或 gitea-oidc.config.json 文件来自定义配置");
-    return defaultConfig;
+    return validateLoadedConfig(defaultConfig);
   }
 
-  // 深度合并配置（用户配置覆盖默认配置）
+  // 认证提供者是安全边界：用户声明 providers 时，不能把默认 local/.htpasswd
+  // 隐式带入生产配置。其他字段继续按现有规则深度合并。
   const mergedConfig = deepMerge(defaultConfig, userConfig);
 
+  return validateLoadedConfig(mergedConfig);
+}
+
+async function validateLoadedConfig(config: GiteaOidcConfig): Promise<GiteaOidcConfig> {
   // 使用 Zod 验证配置
   const { validateConfig: zodValidateConfig, printValidationResult } = await import(
     "./utils/configValidator"
   );
-  const validation = zodValidateConfig(mergedConfig);
+  const validation = zodValidateConfig(config);
 
   printValidationResult(validation);
 
   if (!validation.valid) {
-    console.error("❌ 配置验证失败，程序无法继续运行");
-    process.exit(1);
+    throw new Error(
+      `配置验证失败:\n${validation.errors
+        .map((error) => `${error.path}: ${error.message}`)
+        .join("\n")}`,
+    );
   }
 
   return validation.config!;
@@ -432,7 +461,12 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
 
   for (const key in source) {
     if (source[key] !== undefined) {
-      if (
+      if (key === "auth" && (source as any).auth?.providers !== undefined) {
+        (result as any).auth = {
+          ...deepMerge((result as any).auth, (source as any).auth),
+          providers: (source as any).auth.providers,
+        };
+      } else if (
         typeof source[key] === "object" &&
         source[key] !== null &&
         !Array.isArray(source[key]) &&
@@ -448,6 +482,16 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
   }
 
   return result;
+}
+
+function formatConfigLoadError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isProductionRuntime(): boolean {
+  // 未显式声明 development/test 的直接启动必须默认走安全的生产校验，避免 Docker
+  // 或 node dist/server.js 因漏设 NODE_ENV 而静默降级。
+  return process.env.NODE_ENV !== "development" && process.env.NODE_ENV !== "test";
 }
 
 export function defineConfig(config: GiteaOidcConfig): GiteaOidcConfig {

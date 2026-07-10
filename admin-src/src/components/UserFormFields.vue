@@ -5,6 +5,7 @@ import { type UserForm, userStatusOptions } from "../types/admin";
 
 /** 用户表单双向模型。 */
 const model = defineModel<UserForm>({ required: true });
+defineProps<{ identityReadOnly?: boolean }>();
 </script>
 
 <template>
@@ -23,11 +24,11 @@ const model = defineModel<UserForm>({ required: true });
     </label>
     <label class="field">
       <span>Provider</span>
-      <InputText v-model="model.authProvider" autocomplete="off" fluid />
+      <InputText v-model="model.authProvider" :disabled="identityReadOnly" autocomplete="off" fluid />
     </label>
     <label class="field">
       <span>外部 ID</span>
-      <InputText v-model="model.externalId" autocomplete="off" fluid />
+      <InputText v-model="model.externalId" :disabled="identityReadOnly" autocomplete="off" fluid />
     </label>
     <label class="field">
       <span>状态</span>
@@ -41,7 +42,12 @@ const model = defineModel<UserForm>({ required: true });
     </label>
     <label class="field">
       <span>用户组</span>
-      <InputText v-model="model.groups" placeholder="Owners, Developers" autocomplete="off" fluid />
+      <InputText
+        v-model="model.groups"
+        placeholder="gitea-oidc-admins, Developers"
+        autocomplete="off"
+        fluid
+      />
     </label>
     <label class="field">
       <span>角色</span>
@@ -57,4 +63,3 @@ const model = defineModel<UserForm>({ required: true });
     </label>
   </div>
 </template>
-

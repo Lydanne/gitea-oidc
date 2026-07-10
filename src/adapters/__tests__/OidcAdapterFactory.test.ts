@@ -4,6 +4,9 @@
  * 测试适配器工厂的所有功能
  */
 
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type OidcAdapterConfig, OidcAdapterFactory } from "../OidcAdapterFactory";
 import { RedisOidcAdapter } from "../RedisOidcAdapter";
@@ -106,6 +109,12 @@ describe("OidcAdapterFactory", () => {
       const adapter = OidcAdapterFactory.create("Session");
 
       expect(adapter).toBeUndefined();
+    });
+
+    it("memory 类型不会向 oidc-provider 暴露返回 undefined 的 adapter 工厂", () => {
+      OidcAdapterFactory.configure({ type: "memory" });
+
+      expect(OidcAdapterFactory.getAdapterFactory()).toBeUndefined();
     });
 
     it("应该在未配置时抛出错误", () => {
@@ -364,26 +373,33 @@ describe("OidcAdapterFactory", () => {
 
   describe("集成测试", () => {
     it("应该支持完整的配置-创建-清理流程", async () => {
+      const tempDirectory = await mkdtemp(join(tmpdir(), "gitea-oidc-adapter-"));
+
       // 配置
       const config: OidcAdapterConfig = {
         type: "sqlite",
         sqlite: {
-          dbPath: "./integration-test.db",
+          dbPath: join(tempDirectory, "integration-test.db"),
         },
       };
 
-      OidcAdapterFactory.configure(config);
+      try {
+        OidcAdapterFactory.configure(config);
 
-      // 创建适配器
-      const factory = OidcAdapterFactory.getAdapterFactory();
-      const sessionAdapter = factory("Session");
-      const tokenAdapter = factory("AccessToken");
+        // 创建适配器
+        const factory = OidcAdapterFactory.getAdapterFactory();
+        const sessionAdapter = factory("Session");
+        const tokenAdapter = factory("AccessToken");
 
-      expect(sessionAdapter).toBeInstanceOf(SqliteOidcAdapter);
-      expect(tokenAdapter).toBeInstanceOf(SqliteOidcAdapter);
+        expect(sessionAdapter).toBeInstanceOf(SqliteOidcAdapter);
+        expect(tokenAdapter).toBeInstanceOf(SqliteOidcAdapter);
 
-      // 清理
-      await expect(OidcAdapterFactory.cleanup()).resolves.not.toThrow();
+        // 清理
+        await expect(OidcAdapterFactory.cleanup()).resolves.not.toThrow();
+      } finally {
+        await OidcAdapterFactory.cleanup();
+        await rm(tempDirectory, { force: true, recursive: true });
+      }
     });
 
     it("应该支持配置切换", () => {

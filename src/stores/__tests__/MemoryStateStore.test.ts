@@ -77,6 +77,32 @@ describe("MemoryStateStore", () => {
     expect(store.size()).toBe(0);
   });
 
+  it("take 应原子读取并消费一次性 state", async () => {
+    const store = createStore();
+    const payload = { provider: "feishu" };
+    await store.set("single-use", payload, 10);
+
+    const [first, second] = await Promise.all([store.take("single-use"), store.take("single-use")]);
+
+    expect([first, second]).toContainEqual(payload);
+    expect([first, second]).toContain(null);
+    expect(await store.get("single-use")).toBeNull();
+  });
+
+  it("increment 应原子递增并刷新 TTL", async () => {
+    const store = createStore();
+
+    expect(await store.increment("counter", 5)).toBe(1);
+    vi.advanceTimersByTime(4000);
+    expect(await store.increment("counter", 5)).toBe(2);
+    vi.advanceTimersByTime(2000);
+
+    expect(await store.get("counter")).toBe(2);
+    expect(
+      await Promise.all([store.increment("counter", 5), store.increment("counter", 5)]),
+    ).toEqual([3, 4]);
+  });
+
   it("cleanup 应该移除所有已过期 state", async () => {
     const store = createStore();
 

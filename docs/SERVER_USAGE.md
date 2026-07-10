@@ -49,6 +49,8 @@ const customConfig: GiteaOidcConfig = {
     port: 4000,
     url: 'http://localhost:4000',
     trustProxy: false,
+    trustedProxyIps: [],
+    corsOrigins: [],
   },
   logging: {
     enabled: true,
@@ -56,7 +58,10 @@ const customConfig: GiteaOidcConfig = {
   },
   oidc: {
     issuer: 'http://localhost:4000/oidc',
-    cookieKeys: ['your-secret-key-here'],
+    cookieKeys: [
+      'dev-cookie-key-at-least-32-chars-1',
+      'dev-cookie-key-at-least-32-chars-2',
+    ],
     ttl: {
       AccessToken: 3600,
       AuthorizationCode: 600,
@@ -65,7 +70,8 @@ const customConfig: GiteaOidcConfig = {
     },
     claims: {
       openid: ['sub'],
-      profile: ['name', 'email', 'picture'],
+      profile: ['name', 'email', 'picture', 'groups', 'roles', 'status'],
+      provider_api: [],
     },
     features: {
       devInteractions: { enabled: false },
@@ -75,8 +81,11 @@ const customConfig: GiteaOidcConfig = {
   },
   clients: [{
     client_id: 'my-app',
-    client_secret: 'my-secret',
-    redirect_uris: ['http://localhost:8080/callback'],
+    client_secret: 'my-client-secret-at-least-32-chars',
+    redirect_uris: [
+      'http://localhost:8080/callback',
+      'http://localhost:4000/admin/callback',
+    ],
     response_types: ['code'],
     grant_types: ['authorization_code', 'refresh_token'],
     token_endpoint_auth_method: 'client_secret_basic',
@@ -97,6 +106,24 @@ const customConfig: GiteaOidcConfig = {
         },
       },
     },
+    stateStore: { type: 'memory' },
+  },
+  admin: {
+    enabled: true,
+    basePath: '/admin',
+    allowedGroups: ['gitea-oidc-admins'],
+    sessionTtlSeconds: 3600,
+  },
+  providerApi: {
+    enabled: false,
+    tokenEncryptionKey: 'provider-token-key-at-least-32-chars',
+    refreshSkewSeconds: 300,
+    probeIntervalSeconds: 300,
+    requestTimeoutMs: 10000,
+    responseBodyLimitBytes: 1048576,
+    sdkProxy: true,
+    allowedClientIds: [],
+    providers: {},
   },
   adapter: {
     type: 'sqlite',
@@ -111,6 +138,13 @@ const app = await start(customConfig);
 console.log('OIDC 服务器已启动');
 ```
 
+传入 `customConfig` 时也会执行和配置文件一致的 Zod 校验与生产环境安全校验。
+如果 `NODE_ENV=production`，HTTP 公网 URL、memory 仓储、弱 `oidc.cookieKeys`、
+短或默认 `clients[].client_secret`、缺失 `providerApi.allowedClientIds` 等不安全配置会直接
+阻止启动。`start()` 会抛出错误而不是调用 `process.exit()`，因此宿主应用可以记录错误并决定
+自己的退出策略；调用方应在停止服务时执行 `await app.close()` 释放仓储、定时器和 OIDC 连接。
+直接传入的 `customConfig` 应是完整配置；它不会像配置文件路径一样先与开发默认配置深度合并。
+
 #### 示例 2: 使用配置文件
 
 ```typescript
@@ -119,10 +153,12 @@ import { start } from 'gitea-oidc/server';
 // 不传入配置参数，会自动从以下位置加载配置：
 // 1. gitea-oidc.config.js (优先)
 // 2. gitea-oidc.config.json (备选)
-// 3. 默认配置 (兜底)
+// 3. 没有配置文件时使用开发默认配置
 const app = await start();
 console.log('OIDC 服务器已启动');
 ```
+
+如果配置文件存在但无法加载、解析或通过校验，服务会直接启动失败，不会回退到默认配置。
 
 #### 示例 3: 集成到现有 Express/Fastify 应用
 
@@ -138,6 +174,7 @@ async function setupOIDC() {
       port: 3000,
       url: process.env.OIDC_ISSUER_URL || 'http://localhost:3000',
       trustProxy: process.env.NODE_ENV === 'production',
+      trustedProxyIps: (process.env.TRUSTED_PROXY_IPS || '').split(',').filter(Boolean),
     },
     // ... 其他配置
   };
@@ -164,8 +201,10 @@ setupOIDC();
 
 ### 关键配置项
 
-- **server.url**: 对外访问的服务根地址，例如 `https://idp.example.com`
-- **oidc.issuer**: 对外访问的 OIDC 发行者地址，默认是 `${server.url}/oidc`
+- **server.url**: 对外访问的服务根地址，例如 `https://idp.example.com`，不能包含 query 或
+  fragment
+- **oidc.issuer**: 对外访问的 OIDC 发行者地址，必须等于 `${server.url}/oidc`，不能包含 query
+  或 fragment
 - **server.trustProxy**: 在反向代理（Nginx/Traefik）后必须设置为 `true`
 - **oidc.cookieKeys**: 生产环境必须使用强密钥，建议使用多个密钥支持密钥轮换
 - **clients**: 配置允许使用此 IdP 的客户端应用
@@ -209,6 +248,7 @@ process.on('SIGTERM', async () => {
 
 - 端口是否被占用
 - 配置文件格式是否正确
+- 如果配置文件存在，加载、解析和校验失败都会阻止启动
 - 依赖是否完整安装
 
 ### 问题 2: 配置未生效

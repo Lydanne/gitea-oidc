@@ -4,6 +4,7 @@
  */
 
 import * as lark from "@larksuiteoapi/node-sdk";
+import { timingSafeEqual } from "crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
   AuthContext,
@@ -23,6 +24,10 @@ import type {
 import { PluginPermission } from "../types/auth";
 import { AuthErrors } from "../utils/authErrors";
 import { Logger } from "../utils/Logger";
+import { sanitizeForLog } from "../utils/logSanitizer";
+import { getRawRequestBody } from "../utils/rawBody";
+
+const FEISHU_SIGNATURE_TOLERANCE_SECONDS = 300;
 
 interface FeishuUserInfo {
   open_id: string;
@@ -137,6 +142,27 @@ interface FeishuEvent {
  * 飞书加密数据（可能是验证请求或事件通知）
  */
 type FeishuEncryptedData = FeishuUrlVerification | FeishuEvent;
+
+function summarizeFeishuPayload(payload: FeishuEncryptedData): Record<string, unknown> {
+  return {
+    type: payload.type,
+    hasChallenge: "challenge" in payload,
+    schema: "schema" in payload ? payload.schema : undefined,
+    eventType: "header" in payload ? payload.header?.event_type : undefined,
+    hasEvent: "event" in payload && Boolean(payload.event),
+  };
+}
+
+function summarizeFeishuWebhookEvent(event: any): Record<string, unknown> {
+  return {
+    type: event?.type,
+    eventType: event?.header?.event_type,
+    hasChallenge: Boolean(event?.challenge),
+    hasEvent: Boolean(event?.event),
+    eventKeys:
+      event?.event && typeof event.event === "object" ? Object.keys(event.event).sort() : [],
+  };
+}
 
 interface FeishuTokenResponse {
   code: number;
@@ -278,7 +304,9 @@ export class FeishuAuthProvider implements AuthProvider {
         username: this.mapUsername(feishuUser),
         name: this.mapName(feishuUser),
         email: email,
-        emailVerified: !!email,
+        // 飞书用户资料没有提供可验证的邮箱验证标志。无论是字段映射还是 synthetic
+        // fallback，都不能签发 email_verified=true。
+        emailVerified: false,
         groups: this.mapGroups(feishuUser),
         picture: feishuUser.avatar_url,
         phone: feishuUser.mobile,
@@ -293,6 +321,13 @@ export class FeishuAuthProvider implements AuthProvider {
         metadata: feishuUser,
       });
 
+      if (user.status && user.status !== "active") {
+        return {
+          success: false,
+          error: AuthErrors.invalidCredentials(),
+        };
+      }
+
       await this.storeUserToken(user.sub, userToken, feishuUser);
 
       return {
@@ -305,7 +340,7 @@ export class FeishuAuthProvider implements AuthProvider {
         },
       };
     } catch (err) {
-      Logger.error("[FeishuAuth] Callback error:", err);
+      Logger.error("[FeishuAuth] Callback error:", sanitizeForLog(err));
 
       return {
         success: false,
@@ -328,48 +363,62 @@ export class FeishuAuthProvider implements AuthProvider {
     const callbackHandler = async (request: FastifyRequest, reply: FastifyReply) => {
       const body = request.body as any;
 
-      // 打印请求详情用于调试
-      Logger.debug("[FeishuAuth] Callback request:", {
-        method: request.method,
-        query: request.query,
-        body: body,
-        headers: {
-          "content-type": request.headers["content-type"],
-          "x-lark-signature": request.headers["x-lark-signature"],
-        },
-      });
+      Logger.debug(
+        "[FeishuAuth] Callback request:",
+        sanitizeForLog({
+          method: request.method,
+          query: request.query,
+          body,
+          headers: {
+            "content-type": request.headers["content-type"],
+            "x-lark-signature": request.headers["x-lark-signature"],
+          },
+        }),
+      );
 
       // 处理飞书加密的 URL 验证请求
       if (request.method === "POST" && body?.encrypt) {
         try {
           Logger.info("[FeishuAuth] Received encrypted verification request");
           const decrypted = this.decryptFeishuData(body.encrypt);
-          Logger.debug("[FeishuAuth] Decrypted data:", decrypted);
+          Logger.debug(
+            "[FeishuAuth] Decrypted payload summary:",
+            summarizeFeishuPayload(decrypted),
+          );
 
           // 类型守卫：检查是否为 URL 验证请求
           if ("challenge" in decrypted && decrypted.type === "url_verification") {
-            Logger.info("[FeishuAuth] Returning challenge:", decrypted.challenge);
+            if (!this.isValidFeishuVerificationToken(decrypted.token)) {
+              return reply.code(401).send({ error: "Invalid verification token" });
+            }
+
+            Logger.info("[FeishuAuth] Returning encrypted URL verification challenge");
             return reply.send({ challenge: decrypted.challenge });
           }
 
           // 如果是事件通知，这里可以处理
           if ("header" in decrypted) {
+            if (!this.isValidFeishuVerificationToken(decrypted.header?.token)) {
+              return reply.code(401).send({ error: "Invalid verification token" });
+            }
+
             Logger.info("[FeishuAuth] Received event:", decrypted.header?.event_type);
             // 事件处理逻辑...
             return reply.send({ success: true });
           }
         } catch (err) {
-          Logger.error("[FeishuAuth] Failed to decrypt verification request:", err);
+          Logger.error("[FeishuAuth] Failed to decrypt verification request:", sanitizeForLog(err));
           return reply.code(400).send({ error: "Decryption failed" });
         }
       }
 
       // 处理未加密的 URL 验证请求
       if (request.method === "POST" && body?.challenge) {
-        Logger.info(
-          "[FeishuAuth] Received plain URL verification request, challenge:",
-          body.challenge,
-        );
+        if (!this.isValidFeishuVerificationToken(body.token)) {
+          return reply.code(401).send({ error: "Invalid verification token" });
+        }
+
+        Logger.info("[FeishuAuth] Received plain URL verification request");
         return reply.send({ challenge: body.challenge });
       }
 
@@ -396,7 +445,7 @@ export class FeishuAuthProvider implements AuthProvider {
           await this.coordinator.storeAuthResult(interactionUid, result.userId);
 
           // 重定向回交互页面，让它完成 OIDC 交互
-          return reply.redirect(`/interaction/${interactionUid}/complete`);
+          return reply.redirect(`/interaction/${encodeURIComponent(interactionUid)}/complete`);
         } else {
           return reply.code(400).send({
             error: "Invalid or expired state",
@@ -495,31 +544,35 @@ export class FeishuAuthProvider implements AuthProvider {
       let decrypted = decipher.update(encryptedData);
       decrypted = Buffer.concat([decrypted, decipher.final()]);
 
-      // 5. 转换为字符串
-      let decryptedStr = decrypted.toString("utf-8");
-      Logger.debug("[FeishuAuth] Decrypted raw string:", decryptedStr);
+      Logger.debug("[FeishuAuth] Decrypted payload received:", { length: decrypted.length });
 
-      // 6. 提取 JSON 部分（移除前面的随机字节）
-      // 飞书的加密数据格式：random(16 bytes) + msg_len(4 bytes) + msg + app_id
-      // 我们需要找到 JSON 的起始位置
-      const jsonStart = decryptedStr.indexOf("{");
-      if (jsonStart > 0) {
-        decryptedStr = decryptedStr.substring(jsonStart);
-        Logger.debug("[FeishuAuth] Cleaned JSON string:", decryptedStr);
-      }
-
-      // 7. 找到 JSON 的结束位置
-      const jsonEnd = decryptedStr.lastIndexOf("}");
-      if (jsonEnd > 0) {
-        decryptedStr = decryptedStr.substring(0, jsonEnd + 1);
-      }
-
-      return JSON.parse(decryptedStr);
+      return this.parseFeishuEncryptedPayload(decrypted);
     } catch (err) {
-      Logger.error("[FeishuAuth] Failed to decrypt data:", err);
-      Logger.error("[FeishuAuth] Encrypt key length:", this.config.encryptKey?.length);
+      Logger.error("[FeishuAuth] Failed to decrypt data:", sanitizeForLog(err));
       throw err;
     }
+  }
+
+  private parseFeishuEncryptedPayload(decrypted: Buffer): FeishuEncryptedData {
+    if (decrypted.length < 20) {
+      throw new Error("Invalid Feishu encrypted payload format");
+    }
+
+    // 飞书格式: random(16 bytes) + msg_len(4 bytes, big-endian) + msg + app_id
+    const messageLength = decrypted.readUInt32BE(16);
+    const messageStart = 20;
+    const messageEnd = messageStart + messageLength;
+    if (messageLength <= 0 || messageEnd > decrypted.length) {
+      throw new Error("Invalid Feishu encrypted payload message length");
+    }
+
+    const appId = decrypted.subarray(messageEnd).toString("utf8");
+    if (appId !== this.config.appId) {
+      throw new Error("Feishu encrypted payload app_id does not match configured appId");
+    }
+
+    const message = decrypted.subarray(messageStart, messageEnd).toString("utf8");
+    return JSON.parse(message);
   }
 
   /**
@@ -527,43 +580,66 @@ export class FeishuAuthProvider implements AuthProvider {
    * 参考: https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/request-url-verification-and-event-decryption
    */
   private async verifyFeishuSignature(request: FastifyRequest): Promise<boolean> {
-    const signature = request.headers["x-lark-signature"] as string;
-    const timestamp = request.headers["x-lark-request-timestamp"] as string;
-    const nonce = request.headers["x-lark-request-nonce"] as string;
+    const signature = getSingleHeader(request, "x-lark-signature");
+    const timestamp = getSingleHeader(request, "x-lark-request-timestamp");
+    const nonce = getSingleHeader(request, "x-lark-request-nonce");
 
     if (!signature || !timestamp || !nonce) {
       Logger.warn("[FeishuAuth] Missing signature headers");
       return false;
     }
 
-    // 如果没有配置 verificationToken，跳过验证（开发环境）
-    if (!this.config.verificationToken) {
-      Logger.warn(
-        "[FeishuAuth] Verification token not configured, skipping signature verification",
-      );
-      return true;
+    if (!this.config.encryptKey) {
+      Logger.warn("[FeishuAuth] Encrypt key not configured, rejecting webhook request");
+      return false;
+    }
+
+    if (!this.isFreshFeishuTimestamp(timestamp)) {
+      Logger.warn("[FeishuAuth] Stale or invalid signature timestamp");
+      return false;
     }
 
     try {
       // 飞书签名算法：SHA256(timestamp + nonce + encrypt_key + body)
       const crypto = await import("crypto");
-      const body = JSON.stringify(request.body);
-      const signContent = `${timestamp}${nonce}${this.config.verificationToken}${body}`;
+      const body = getRawRequestBody(request) ?? JSON.stringify(request.body ?? {});
+      const signContent = `${timestamp}${nonce}${this.config.encryptKey}${body}`;
 
       const hash = crypto.createHash("sha256");
       hash.update(signContent);
       const calculatedSignature = hash.digest("hex");
 
-      const isValid = calculatedSignature === signature;
+      const isValid = timingSafeStringEqual(calculatedSignature, signature);
       if (!isValid) {
         Logger.error("[FeishuAuth] Signature verification failed");
       }
 
       return isValid;
     } catch (err) {
-      Logger.error("[FeishuAuth] Error verifying signature:", err);
+      Logger.error("[FeishuAuth] Error verifying signature:", sanitizeForLog(err));
       return false;
     }
+  }
+
+  private isFreshFeishuTimestamp(timestamp: string): boolean {
+    const timestampSeconds = Number(timestamp);
+    if (!Number.isFinite(timestampSeconds)) {
+      return false;
+    }
+
+    return Math.abs(Date.now() / 1000 - timestampSeconds) <= FEISHU_SIGNATURE_TOLERANCE_SECONDS;
+  }
+
+  private isValidFeishuVerificationToken(token: unknown): boolean {
+    return Boolean(this.config.verificationToken && token === this.config.verificationToken);
+  }
+
+  private getFeishuPayloadVerificationToken(event: any): unknown {
+    if (event?.type === "url_verification") {
+      return event.token;
+    }
+
+    return event?.header?.token ?? event?.token;
   }
 
   /**
@@ -577,7 +653,11 @@ export class FeishuAuthProvider implements AuthProvider {
           // 处理飞书事件回调
           const event = request.body as any;
 
-          Logger.info("[FeishuAuth] Received webhook event:", event.type);
+          Logger.info("[FeishuAuth] Received webhook event:", summarizeFeishuWebhookEvent(event));
+
+          if (!this.isValidFeishuVerificationToken(this.getFeishuPayloadVerificationToken(event))) {
+            return reply.code(401).send({ error: "Invalid verification token" });
+          }
 
           // URL 验证请求
           if (event.type === "url_verification") {
@@ -592,7 +672,7 @@ export class FeishuAuthProvider implements AuthProvider {
             case "user.created":
             case "user.updated":
             case "user.deleted":
-              Logger.info("[FeishuAuth] User event:", event.type, event.event);
+              Logger.info("[FeishuAuth] User event:", summarizeFeishuWebhookEvent(event));
               break;
             default:
               Logger.info("[FeishuAuth] Unhandled event type:", event.type);
@@ -745,9 +825,9 @@ export class FeishuAuthProvider implements AuthProvider {
       const openId = basicUserInfo.open_id;
 
       Logger.debug("[FeishuAuth] Got basic user info:", {
-        open_id: openId,
-        name: basicUserInfo.name,
-        email: basicUserInfo.email,
+        hasOpenId: Boolean(openId),
+        hasName: Boolean(basicUserInfo.name),
+        hasEmail: Boolean(basicUserInfo.email),
       });
 
       // 2. 使用 SDK 获取完整用户信息(使用 tenant token)
@@ -775,21 +855,27 @@ export class FeishuAuthProvider implements AuthProvider {
           Logger.warn("[FeishuAuth] Failed to get full user info via SDK, using basic info:", {
             code: fullUserRes.code,
             msg: fullUserRes.msg,
-            open_id: openId,
+            hasOpenId: Boolean(openId),
           });
           return basicUserInfo;
         }
       } catch (error) {
-        Logger.warn("[FeishuAuth] Exception getting full user info via SDK, using basic info:", {
-          error: error instanceof Error ? error.message : String(error),
-          open_id: openId,
-        });
+        Logger.warn(
+          "[FeishuAuth] Exception getting full user info via SDK, using basic info:",
+          sanitizeForLog({
+            error: error instanceof Error ? error.message : String(error),
+            hasOpenId: Boolean(openId),
+          }),
+        );
         return basicUserInfo;
       }
     } catch (error) {
-      Logger.error("[FeishuAuth] Failed to get basic user info:", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      Logger.error(
+        "[FeishuAuth] Failed to get basic user info:",
+        sanitizeForLog({
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
       throw error;
     }
   }
@@ -830,18 +916,14 @@ export class FeishuAuthProvider implements AuthProvider {
   private mapGroups(feishuUser: FeishuUserInfo): string[] {
     const mapping = this.config.groupMapping;
     if (mapping) {
-      return Object.entries(mapping).reduce(
-        (acc, [key, value]) => {
-          if (feishuUser.fullInfo?.department_path?.some((d) => d.department_name.name === key)) {
-            acc.push(value);
-          }
-          return acc;
-        },
-        ["Owners"] as string[],
-      );
+      return Object.entries(mapping).reduce((acc, [key, value]) => {
+        if (feishuUser.fullInfo?.department_path?.some((d) => d.department_name.name === key)) {
+          acc.push(value);
+        }
+        return acc;
+      }, [] as string[]);
     }
     const groups = feishuUser.fullInfo?.department_path?.map((d) => d.department_name.name) ?? [];
-    groups.push("Owners");
     if (feishuUser.fullInfo?.department_ids?.length) {
       groups.push(...feishuUser.fullInfo.department_ids);
     }
@@ -852,4 +934,15 @@ export class FeishuAuthProvider implements AuthProvider {
     // SDK 会自动清理资源
     Logger.info("[FeishuAuth] Provider destroyed");
   }
+}
+
+function getSingleHeader(request: FastifyRequest, name: string): string | undefined {
+  const value = request.headers[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function timingSafeStringEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }

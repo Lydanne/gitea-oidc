@@ -42,6 +42,19 @@ describe("SqliteUserRepository", () => {
       expect(user.updatedAt).toBeInstanceOf(Date);
     });
 
+    it("应该在数据库层约束外部身份唯一", () => {
+      const indexes = (repository as any).db.prepare("PRAGMA index_list(users)").all();
+
+      expect(indexes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "idx_users_provider_external_unique",
+            unique: 1,
+          }),
+        ]),
+      );
+    });
+
     it("应该使用提供的创建和更新时间", async () => {
       const customTime = new Date("2023-01-01T00:00:00Z");
       const user = await repository.create({
@@ -192,6 +205,42 @@ describe("SqliteUserRepository", () => {
       expect(updated.updatedAt).toBeInstanceOf(Date);
     });
 
+    it("应该在更新外部身份后只允许新身份命中用户", async () => {
+      const created = await repository.create(mockUserData);
+
+      const updated = await repository.update(created.sub, {
+        authProvider: "feishu",
+        externalId: "open-new",
+      });
+
+      await expect(repository.findByProviderAndExternalId("local", "ext123")).resolves.toBeNull();
+      await expect(repository.findByProviderAndExternalId("feishu", "open-new")).resolves.toEqual(
+        updated,
+      );
+    });
+
+    it("应该拒绝把同一外部身份绑定到不同用户", async () => {
+      await repository.create({
+        ...mockUserData,
+        username: "user1",
+        email: "user1@example.com",
+        externalId: "ext1",
+      });
+      const user2 = await repository.create({
+        ...mockUserData,
+        username: "user2",
+        email: "user2@example.com",
+        externalId: "ext2",
+      });
+
+      await expect(
+        repository.update(user2.sub, {
+          authProvider: "local",
+          externalId: "ext1",
+        }),
+      ).rejects.toThrow("Provider identity already exists: local/ext1");
+    });
+
     it("应该为不存在的用户抛出错误", async () => {
       await expect(repository.update("nonexistent", { name: "test" })).rejects.toThrow(
         "User not found: nonexistent",
@@ -257,6 +306,12 @@ describe("SqliteUserRepository", () => {
       expect(users[0].username).toBe("user3");
       expect(users[1].username).toBe("user2");
       expect(users[2].username).toBe("user1");
+    });
+
+    it("应该拒绝非法排序字段", async () => {
+      await expect(repository.list({ sortBy: "username; DROP TABLE users" })).rejects.toThrow(
+        /Unsupported user sort field/,
+      );
     });
 
     it("应该支持分页", async () => {

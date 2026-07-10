@@ -2,6 +2,7 @@
  * 认证系统配置类型扩展
  */
 
+import type { RedisOidcAdapterOptions } from "../adapters/RedisOidcAdapter";
 import type { GiteaOidcConfig } from "../config";
 import type { AuthProviderConfig } from "./auth";
 
@@ -59,6 +60,15 @@ export interface AuthConfig {
 
   /** 认证提供者配置 */
   providers: Record<string, AuthProviderConfig>;
+
+  /**
+   * OAuth state 与后台会话的短期存储。单实例可用 memory；Redis OIDC 适配器的
+   * 多实例部署必须使用 redis，才能保证 state 和会话跨节点一致。
+   */
+  stateStore?: {
+    type: "memory" | "redis";
+    redis?: RedisOidcAdapterOptions;
+  };
 }
 
 /**
@@ -79,6 +89,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     port: 3000,
     url: "http://localhost:3000",
     trustProxy: false,
+    corsOrigins: [],
   },
 
   logging: {
@@ -98,6 +109,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     claims: {
       openid: ["sub"],
       profile: ["name", "email", "email_verified", "groups", "roles", "status"],
+      provider_api: [],
     },
     features: {
       devInteractions: { enabled: false },
@@ -157,16 +169,19 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
   admin: {
     enabled: true,
     basePath: "/admin",
-    allowedGroups: ["Owners"],
+    allowedGroups: ["gitea-oidc-admins"],
     sessionTtlSeconds: 3600,
   },
 
   providerApi: {
-    enabled: true,
-    tokenEncryptionKey: "change-this-provider-token-key",
+    enabled: false,
+    tokenEncryptionKey: "replace-with-a-long-random-provider-token-key",
     refreshSkewSeconds: 300,
     probeIntervalSeconds: 300,
+    requestTimeoutMs: 10000,
+    responseBodyLimitBytes: 1048576,
     sdkProxy: true,
+    allowedClientIds: [],
     providers: {
       feishu: {
         enabled: false,

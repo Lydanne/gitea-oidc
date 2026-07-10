@@ -3,9 +3,11 @@ import { Pool } from "pg";
 import type { ListOptions, UserInfo, UserRepository } from "../types/auth";
 import { withUserDefaults } from "../utils/userDefaults";
 import { generateUserId } from "../utils/userIdGenerator";
+import { getUserListSortColumn, normalizeUserListOptions } from "./userListOptions";
 
 export class PgsqlUserRepository implements UserRepository {
   private pool: Pool;
+  private ready: Promise<void>;
 
   constructor(uri: string) {
     this.pool = new Pool({
@@ -17,7 +19,7 @@ export class PgsqlUserRepository implements UserRepository {
       connectionTimeoutMillis: 2000, // 连接超时
     });
 
-    this.initializeDatabase();
+    this.ready = this.initializeDatabase();
   }
 
   private async initializeDatabase(): Promise<void> {
@@ -48,6 +50,9 @@ export class PgsqlUserRepository implements UserRepository {
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users("authProvider");
       CREATE INDEX IF NOT EXISTS idx_users_provider_external ON users("authProvider", "externalId");
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_provider_external_unique
+      ON users("authProvider", "externalId")
+      WHERE "externalId" IS NOT NULL;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS roles JSONB;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS "lastLoginAt" TIMESTAMP WITH TIME ZONE;
@@ -116,6 +121,7 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   async findById(sub: string): Promise<UserInfo | null> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       const result = await client.query("SELECT * FROM users WHERE sub = $1", [sub]);
@@ -126,6 +132,7 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   async findByUsername(username: string): Promise<UserInfo | null> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       const result = await client.query("SELECT * FROM users WHERE username = $1", [username]);
@@ -136,6 +143,7 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   async findByEmail(email: string): Promise<UserInfo | null> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       const result = await client.query("SELECT * FROM users WHERE email = $1", [email]);
@@ -149,6 +157,7 @@ export class PgsqlUserRepository implements UserRepository {
     provider: string,
     externalId: string,
   ): Promise<UserInfo | null> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       const sql = `
@@ -188,10 +197,25 @@ export class PgsqlUserRepository implements UserRepository {
       updatedAt: new Date(),
     };
 
-    return await this.create(userToCreate);
+    try {
+      return await this.create(userToCreate);
+    } catch (err) {
+      // PostgreSQL 的唯一索引是最终并发仲裁；仅在同一 provider identity 已被另一
+      // 请求创建时重试读取，其他约束错误（如用户名冲突）仍需原样暴露。
+      const concurrentUser = await this.findByProviderAndExternalId(provider, externalId);
+      if (concurrentUser) {
+        return this.update(concurrentUser.sub, {
+          ...userData,
+          authProvider: provider,
+          externalId,
+        });
+      }
+      throw err;
+    }
   }
 
   async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
+    await this.ready;
     const now = new Date();
 
     // 如果提供了 authProvider 和 externalId，使用哈希生成确定性的 sub
@@ -206,6 +230,8 @@ export class PgsqlUserRepository implements UserRepository {
       createdAt: userData.createdAt || now,
       updatedAt: userData.updatedAt || now,
     };
+
+    await this.assertProviderIdentityAvailable(user, user.sub);
 
     const row = this.userToRow(user);
 
@@ -262,6 +288,8 @@ export class PgsqlUserRepository implements UserRepository {
       updatedAt: new Date(),
     };
 
+    await this.assertProviderIdentityAvailable(updatedUser, sub);
+
     const row = this.userToRow(updatedUser);
 
     const sql = `
@@ -303,6 +331,7 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   async delete(sub: string): Promise<void> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       await client.query("DELETE FROM users WHERE sub = $1", [sub]);
@@ -312,19 +341,19 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
+    const listOptions = normalizeUserListOptions(options);
+    await this.ready;
     let sql = "SELECT * FROM users";
     const params: any[] = [];
     let paramIndex = 1;
 
     // 过滤
     const conditions: string[] = [];
-    if (options?.filter) {
-      for (const [key, value] of Object.entries(options.filter)) {
-        if (["username", "name", "email", "authProvider"].includes(key)) {
-          const columnName = key === "authProvider" ? '"authProvider"' : key;
-          conditions.push(`${columnName} = $${paramIndex++}`);
-          params.push(value);
-        }
+    if (listOptions.filter) {
+      for (const [key, value] of Object.entries(listOptions.filter)) {
+        const columnName = key === "authProvider" ? '"authProvider"' : key;
+        conditions.push(`${columnName} = $${paramIndex++}`);
+        params.push(value);
       }
     }
 
@@ -333,20 +362,20 @@ export class PgsqlUserRepository implements UserRepository {
     }
 
     // 排序
-    if (options?.sortBy) {
-      const sortBy = options.sortBy === "authProvider" ? '"authProvider"' : options.sortBy;
-      const sortOrder = options.sortOrder === "desc" ? "DESC" : "ASC";
+    if (listOptions.sortBy) {
+      const sortBy = getUserListSortColumn(listOptions.sortBy);
+      const sortOrder = listOptions.sortOrder === "desc" ? "DESC" : "ASC";
       sql += ` ORDER BY ${sortBy} ${sortOrder}`;
     }
 
     // 分页
-    if (options?.limit !== undefined) {
+    if (listOptions.limit !== undefined) {
       sql += ` LIMIT $${paramIndex++}`;
-      params.push(options.limit);
+      params.push(listOptions.limit);
     }
-    if (options?.offset !== undefined) {
+    if (listOptions.offset !== undefined) {
       sql += ` OFFSET $${paramIndex++}`;
-      params.push(options.offset);
+      params.push(listOptions.offset);
     }
 
     const client = await this.pool.connect();
@@ -359,6 +388,7 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   async clear(): Promise<void> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       await client.query("DELETE FROM users");
@@ -371,6 +401,7 @@ export class PgsqlUserRepository implements UserRepository {
    * 获取用户数量（用于调试）
    */
   async size(): Promise<number> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
       const result = await client.query("SELECT COUNT(*) as count FROM users");
@@ -384,6 +415,18 @@ export class PgsqlUserRepository implements UserRepository {
    * 关闭连接池
    */
   async close(): Promise<void> {
+    await this.ready.catch(() => undefined);
     await this.pool.end();
+  }
+
+  private async assertProviderIdentityAvailable(user: UserInfo, sub: string): Promise<void> {
+    if (!user.externalId) {
+      return;
+    }
+
+    const existing = await this.findByProviderAndExternalId(user.authProvider, user.externalId);
+    if (existing && existing.sub !== sub) {
+      throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
+    }
   }
 }

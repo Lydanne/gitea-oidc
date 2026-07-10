@@ -2,7 +2,7 @@ import cors from "@fastify/cors";
 import formBody from "@fastify/formbody";
 import middie from "@fastify/middie";
 import staticFiles from "@fastify/static";
-import fastify from "fastify";
+import fastify, { type FastifyInstance } from "fastify";
 import { type Configuration, Provider } from "oidc-provider";
 import path, { join } from "path";
 import { OidcAdapterFactory } from "./adapters/OidcAdapterFactory";
@@ -17,13 +17,54 @@ import { FeishuAuthProvider } from "./providers/FeishuAuthProvider";
 import { LocalAuthProvider } from "./providers/LocalAuthProvider";
 import { ProviderTokenRepositoryFactory } from "./repositories/ProviderTokenRepositoryFactory";
 import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory";
-import { registerAdminRoutes } from "./routes/adminRoutes";
+import { registerAdminRoutes, setAdminSecurityHeaders } from "./routes/adminRoutes";
 import { registerProviderApiRoutes } from "./routes/providerApiRoutes";
 import { MemoryStateStore } from "./stores/MemoryStateStore";
-import type { AuthContext, AuthProvider } from "./types/auth";
+import { RedisStateStore } from "./stores/RedisStateStore";
+import type { AuthContext, AuthProvider, StateStore } from "./types/auth";
+import type { ProviderTokenRepository } from "./types/providerApi";
 import { formatAuthError, getUserErrorMessage } from "./utils/authErrors";
+import {
+  formatValidationErrors,
+  printValidationResult,
+  validateConfig,
+} from "./utils/configValidator";
 import { getOrGenerateJWKS } from "./utils/jwksManager";
 import { Logger, LogLevel } from "./utils/Logger";
+import { sanitizeForLog, summarizeClaimsForLog, summarizeUserForLog } from "./utils/logSanitizer";
+import { registerRawJsonBodyParser } from "./utils/rawBody";
+
+interface ServerRuntimeResources {
+  app?: Pick<FastifyInstance, "close">;
+  authCoordinator?: Pick<AuthCoordinator, "destroy">;
+  userRepository?: { close?: () => Promise<void> | void };
+  providerTokenProbeScheduler?: Pick<ProviderTokenProbeScheduler, "stop">;
+  tokenRepository?: Pick<ProviderTokenRepository, "close">;
+  stateStore?: { destroy?: () => Promise<void> | void };
+}
+
+interface ServerCleanupOptions {
+  cleanupAdapters?: () => Promise<void>;
+  closeApp?: boolean;
+}
+
+interface HeaderTarget {
+  header?: (name: string, value: string) => unknown;
+  setHeader?: (name: string, value: string) => unknown;
+}
+
+const INTERACTION_CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'none'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https:",
+  "font-src 'self' data:",
+  "connect-src 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
 
 /**
  * 启动 OIDC 服务器
@@ -32,459 +73,521 @@ import { Logger, LogLevel } from "./utils/Logger";
  */
 export async function start(customConfig?: GiteaOidcConfig) {
   // 如果传入了自定义配置则使用，否则从文件加载
-  const config = customConfig ?? (await loadConfig());
+  const config =
+    customConfig === undefined ? await loadConfig() : validateRuntimeConfig(customConfig);
 
   const app = fastify({
-    logger: true,
-    trustProxy: config.server.trustProxy ?? false,
+    logger: config.logging.enabled
+      ? {
+          level: config.logging.level,
+          serializers: {
+            req(request) {
+              const pathname = new URL(request.url, "http://gitea-oidc.local").pathname;
+              return { method: request.method, url: pathname, remoteAddress: request.ip };
+            },
+          },
+        }
+      : false,
+    trustProxy: config.server.trustProxy
+      ? config.server.trustedProxyIps && config.server.trustedProxyIps.length > 0
+        ? config.server.trustedProxyIps
+        : true
+      : false,
   });
+  const runtimeResources: ServerRuntimeResources = { app };
+  let runtimeCleanup: Promise<void> | undefined;
+  const cleanupRuntime = () => {
+    runtimeCleanup ??= cleanupServerResources(runtimeResources, { closeApp: false });
+    return runtimeCleanup;
+  };
+  app.addHook("onClose", cleanupRuntime);
 
-  // 从配置获取日志设置并配置 Logger
-  const ENABLE_DETAILED_LOGGING = config.logging.enabled;
-  Logger.setLevel(ENABLE_DETAILED_LOGGING ? LogLevel.INFO : LogLevel.WARN);
-  // 注册中间件插件
-  await app.register(middie);
-  await app.register(cors, { origin: true });
-  // 解析 application/x-www-form-urlencoded 表单
-  await app.register(formBody);
+  try {
+    // 从配置获取日志设置并配置 Logger
+    Logger.setLevel(config.logging.enabled ? toLogLevel(config.logging.level) : LogLevel.ERROR);
+    // 注册中间件插件
+    await app.register(middie);
+    await app.register(cors, { origin: resolveCorsOrigin(config.server.corsOrigins) });
+    registerRawJsonBodyParser(app);
+    // 解析 application/x-www-form-urlencoded 表单
+    await app.register(formBody);
 
-  // 配置静态文件服务
-  await app.register(staticFiles, {
-    root: path.join(process.cwd(), "public"),
-    prefix: "/",
-  });
-
-  // 初始化认证系统
-  Logger.info("[认证系统] 正在初始化...");
-
-  const stateStore = new MemoryStateStore({
-    maxSize: 10000, // 最大存储10000个state
-    cleanupIntervalMs: 30000, // 每30秒清理一次
-  });
-  const userRepository = UserRepositoryFactory.create(config.auth.userRepository);
-  const tokenRepository = config.providerApi.enabled
-    ? ProviderTokenRepositoryFactory.create(
-        config.auth.userRepository,
-        config.providerApi.tokenEncryptionKey,
-      )
-    : undefined;
-  const providerApiService =
-    config.providerApi.enabled && tokenRepository
-      ? new ProviderApiService({
-          adminGroups: config.admin.allowedGroups,
-          tokenRepository,
-        })
-      : undefined;
-  let providerTokenProbeScheduler: ProviderTokenProbeScheduler | undefined;
-
-  // 创建认证协调器
-  const authCoordinator = new AuthCoordinator({
-    app,
-    stateStore,
-    userRepository,
-    providersConfig: config.auth.providers,
-  });
-
-  // 注册认证插件
-  if (config.auth.providers.local?.enabled) {
-    const localProvider = new LocalAuthProvider(userRepository);
-    authCoordinator.registerProvider(localProvider);
-    Logger.info("[认证系统] 已注册 LocalAuthProvider");
-  }
-
-  if (config.auth.providers.feishu?.enabled) {
-    const feishuProvider = new FeishuAuthProvider(userRepository, authCoordinator, tokenRepository);
-    authCoordinator.registerProvider(feishuProvider);
-    Logger.info("[认证系统] 已注册 FeishuAuthProvider");
-  }
-
-  // 初始化所有插件
-  await authCoordinator.initialize();
-  Logger.info("[认证系统] 初始化完成");
-
-  // 配置 OIDC 适配器
-  if (config.adapter) {
-    Logger.info(`[适配器] 配置类型: ${config.adapter.type}`);
-    OidcAdapterFactory.configure(config.adapter);
-  } else {
-    Logger.warn("[适配器] 未配置适配器,使用默认 SQLite");
-    OidcAdapterFactory.configure({ type: "sqlite" });
-  }
-
-  // 加载或生成 JWKS
-  Logger.info("[JWKS] 正在加载密钥...");
-  const jwksFilePath = config.jwks?.filePath || join(process.cwd(), "jwks.json");
-  const jwksKeyId = config.jwks?.keyId || "default-key";
-  const jwks = await getOrGenerateJWKS(jwksFilePath, jwksKeyId);
-  Logger.info(`[JWKS] 密钥加载完成 (文件: ${jwksFilePath}, keyId: ${jwksKeyId})`);
-
-  // 配置OIDC Provider
-  const configuration: Configuration = {
-    // 使用适配器工厂
-    adapter: OidcAdapterFactory.getAdapterFactory(),
-    // 使用持久化的 JWKS
-    jwks,
-    clients: config.clients as any,
-    interactions: {
-      url: async (ctx, interaction) => {
-        return `/interaction/${interaction.uid}`;
+    // 配置静态文件服务
+    await app.register(staticFiles, {
+      root: path.join(process.cwd(), "public"),
+      prefix: "/",
+      setHeaders: (res, filePath) => {
+        if (isAdminPublicFilePath(filePath)) {
+          setAdminSecurityHeaders(res);
+        }
       },
-    },
-    cookies: {
-      keys: config.oidc.cookieKeys,
-    },
-    claims: config.oidc.claims,
-    features: config.oidc.features,
-    findAccount: async (ctx, sub, token) => {
-      Logger.debug(
-        `[查找账户] sub: ${sub}, token类型: ${
-          token?.constructor?.name || "unknown"
-        } ctx: ${JSON.stringify(ctx)}`,
+    });
+
+    // 初始化认证系统
+    Logger.info("[认证系统] 正在初始化...");
+
+    const stateStore = createStateStore(config);
+    runtimeResources.stateStore = stateStore;
+    const userRepository = UserRepositoryFactory.create(config.auth.userRepository);
+    runtimeResources.userRepository = userRepository as { close?: () => Promise<void> | void };
+    if (config.providerApi.enabled) {
+      assertStrongProviderTokenKey(config.providerApi.tokenEncryptionKey);
+    }
+    const tokenRepository = config.providerApi.enabled
+      ? ProviderTokenRepositoryFactory.create(
+          config.auth.userRepository,
+          config.providerApi.tokenEncryptionKey,
+        )
+      : undefined;
+    runtimeResources.tokenRepository = tokenRepository;
+    const providerApiService =
+      config.providerApi.enabled && tokenRepository
+        ? new ProviderApiService({
+            adminGroups: config.admin.allowedGroups,
+            tokenRepository,
+          })
+        : undefined;
+    let providerTokenProbeScheduler: ProviderTokenProbeScheduler | undefined;
+
+    // 创建认证协调器
+    const authCoordinator = new AuthCoordinator({
+      app,
+      stateStore,
+      userRepository,
+      providersConfig: config.auth.providers,
+    });
+    runtimeResources.authCoordinator = authCoordinator;
+
+    // 注册认证插件
+    if (config.auth.providers.local?.enabled) {
+      const localProvider = new LocalAuthProvider(userRepository, stateStore);
+      authCoordinator.registerProvider(localProvider);
+      Logger.info("[认证系统] 已注册 LocalAuthProvider");
+    }
+
+    if (config.auth.providers.feishu?.enabled) {
+      const feishuProvider = new FeishuAuthProvider(
+        userRepository,
+        authCoordinator,
+        tokenRepository,
       );
+      authCoordinator.registerProvider(feishuProvider);
+      Logger.info("[认证系统] 已注册 FeishuAuthProvider");
+    }
 
-      // 使用 AuthCoordinator 查找用户
-      const user = await authCoordinator.findAccount(sub);
+    // 初始化所有插件
+    await authCoordinator.initialize();
+    Logger.info("[认证系统] 初始化完成");
 
-      if (!user) {
-        Logger.info(`[账户查找结果] ${sub}: 未找到`);
-        return undefined;
+    // 配置 OIDC 适配器
+    if (config.adapter) {
+      Logger.info(`[适配器] 配置类型: ${config.adapter.type}`);
+      OidcAdapterFactory.configure(config.adapter);
+    } else {
+      Logger.warn("[适配器] 未配置适配器,使用默认 SQLite");
+      OidcAdapterFactory.configure({ type: "sqlite" });
+    }
+
+    // 加载或生成 JWKS
+    Logger.info("[JWKS] 正在加载密钥...");
+    const jwksFilePath = config.jwks?.filePath || join(process.cwd(), "jwks.json");
+    const jwksKeyId = config.jwks?.keyId || "default-key";
+    const jwks = await getOrGenerateJWKS(jwksFilePath, jwksKeyId);
+    Logger.info(`[JWKS] 密钥加载完成 (文件: ${jwksFilePath}, keyId: ${jwksKeyId})`);
+
+    // 配置OIDC Provider
+    const adapterFactory = OidcAdapterFactory.getAdapterFactory();
+    const configuration: Configuration = {
+      ...(adapterFactory ? { adapter: adapterFactory } : {}),
+      // 使用持久化的 JWKS
+      jwks,
+      clients: config.clients as any,
+      interactions: {
+        url: async (ctx, interaction) => {
+          return `/interaction/${interaction.uid}`;
+        },
+      },
+      cookies: {
+        keys: config.oidc.cookieKeys,
+      },
+      claims: config.oidc.claims,
+      features: config.oidc.features,
+      findAccount: async (ctx, sub, token) => {
+        Logger.debug("[查找账户]", {
+          sub,
+          tokenType: token?.constructor?.name || "unknown",
+          context: sanitizeForLog({
+            method: (ctx as any)?.method,
+            path: (ctx as any)?.path,
+            query: (ctx as any)?.query,
+            headers: (ctx as any)?.headers,
+          }),
+        });
+
+        // 使用 AuthCoordinator 查找用户
+        const user = await authCoordinator.findAccount(sub);
+
+        if (!user) {
+          Logger.info(`[账户查找结果] ${sub}: 未找到`);
+          return undefined;
+        }
+
+        Logger.debug("[账户查找结果] 找到用户", summarizeUserForLog(user));
+
+        return {
+          accountId: user.sub,
+          async claims(use: string, scope: string, claims: any, rejected: any) {
+            Logger.debug(
+              "[声明生成]",
+              sanitizeForLog({
+                user: summarizeUserForLog(user),
+                scope,
+                claims,
+                rejected,
+                use,
+              }),
+            );
+
+            // 直接使用 UserInfo 的 OIDC 标准字段
+            const userClaims = {
+              sub: user.sub,
+              name: user.name,
+              email: user.email,
+              email_verified: user.emailVerified ?? false,
+              picture: user.picture,
+              phone: user.phone,
+              phone_verified: user.phoneVerified ?? false,
+              groups: user.groups ?? [],
+              roles: user.roles ?? [],
+              status: user.status ?? "active",
+              updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
+            };
+
+            Logger.debug("[返回声明]", summarizeClaimsForLog(userClaims));
+            return userClaims;
+          },
+        };
+      },
+      ttl: config.oidc.ttl,
+    };
+
+    const oidc = new Provider(config.oidc.issuer, configuration);
+
+    if (providerApiService && tokenRepository) {
+      const feishuProviderConfig = config.auth.providers.feishu?.config as any;
+      const feishuApiConfig = config.providerApi.providers.feishu;
+      if (
+        feishuApiConfig?.enabled &&
+        feishuProviderConfig?.appId &&
+        feishuProviderConfig?.appSecret
+      ) {
+        providerApiService.registerClient(
+          new FeishuProviderApiClient({
+            config: feishuProviderConfig,
+            tokenRepository,
+            baseUrl: feishuApiConfig.baseUrl ?? "https://open.feishu.cn/open-apis",
+            refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
+            requestTimeoutMs: config.providerApi.requestTimeoutMs,
+            responseBodyLimitBytes: config.providerApi.responseBodyLimitBytes,
+            allowedOperations: feishuApiConfig.allowedOperations,
+            defaultAppOwnerId: feishuApiConfig.defaultAppOwnerId,
+          }),
+        );
+        Logger.info("[Provider API] 已注册 FeishuProviderApiClient");
       }
 
-      Logger.debug(`[账户查找结果] ${sub}: 找到 (${user.username}) JSON: ${JSON.stringify(user)}`);
+      const dingtalkApiConfig = config.providerApi.providers.dingtalk;
+      if (dingtalkApiConfig?.enabled) {
+        providerApiService.registerClient(
+          new DingTalkProviderApiClient({
+            tokenRepository,
+            baseUrl: dingtalkApiConfig.baseUrl ?? "https://api.dingtalk.com",
+            refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
+            requestTimeoutMs: config.providerApi.requestTimeoutMs,
+            responseBodyLimitBytes: config.providerApi.responseBodyLimitBytes,
+            allowedOperations: dingtalkApiConfig.allowedOperations,
+            defaultAppOwnerId: dingtalkApiConfig.defaultAppOwnerId,
+          }),
+        );
+        Logger.info("[Provider API] 已注册 DingTalkProviderApiClient 骨架");
+      }
 
-      return {
-        accountId: user.sub,
-        async claims(use: string, scope: string, claims: any, rejected: any) {
-          Logger.debug(
-            `[声明生成] 用户: ${user.username}, scope: ${scope} claims: ${JSON.stringify(
-              claims,
-            )} rejected: ${JSON.stringify(rejected)} use: ${use}`,
-          );
-
-          // 直接使用 UserInfo 的 OIDC 标准字段
-          const userClaims = {
-            sub: user.sub,
-            name: user.name,
-            email: user.email,
-            email_verified: user.emailVerified ?? false,
-            picture: user.picture,
-            phone: user.phone,
-            phone_verified: user.phoneVerified ?? false,
-            groups: user.groups ?? [],
-            roles: user.roles ?? [],
-            status: user.status ?? "active",
-            updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
-          };
-
-          Logger.debug(`[返回声明]`, userClaims);
-          return userClaims;
-        },
-      };
-    },
-    ttl: config.oidc.ttl,
-  };
-
-  const oidc = new Provider(config.oidc.issuer, configuration);
-
-  if (providerApiService && tokenRepository) {
-    const feishuProviderConfig = config.auth.providers.feishu?.config as any;
-    const feishuApiConfig = config.providerApi.providers.feishu;
-    if (
-      feishuApiConfig?.enabled &&
-      feishuProviderConfig?.appId &&
-      feishuProviderConfig?.appSecret
-    ) {
-      providerApiService.registerClient(
-        new FeishuProviderApiClient({
-          config: feishuProviderConfig,
-          tokenRepository,
-          baseUrl: feishuApiConfig.baseUrl ?? "https://open.feishu.cn/open-apis",
-          refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
-          allowedOperations: feishuApiConfig.allowedOperations,
-          defaultAppOwnerId: feishuApiConfig.defaultAppOwnerId,
-        }),
-      );
-      Logger.info("[Provider API] 已注册 FeishuProviderApiClient");
+      providerTokenProbeScheduler = new ProviderTokenProbeScheduler({
+        providerApiService,
+        tokenRepository,
+        probeIntervalSeconds: config.providerApi.probeIntervalSeconds,
+        refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
+      });
+      runtimeResources.providerTokenProbeScheduler = providerTokenProbeScheduler;
+      providerTokenProbeScheduler.start();
     }
 
-    const dingtalkApiConfig = config.providerApi.providers.dingtalk;
-    if (dingtalkApiConfig?.enabled) {
-      providerApiService.registerClient(
-        new DingTalkProviderApiClient({
-          tokenRepository,
-          baseUrl: dingtalkApiConfig.baseUrl ?? "https://api.dingtalk.com",
-          refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
-          allowedOperations: dingtalkApiConfig.allowedOperations,
-          defaultAppOwnerId: dingtalkApiConfig.defaultAppOwnerId,
-        }),
+    // 配置 oidc-provider 信任反向代理（基于 Koa 的 proxy 设置）
+    // 在反向代理（Nginx/Traefik）后必须启用，才能正确识别 X-Forwarded-Proto 等头信息
+    if (config.server.trustProxy) {
+      oidc.proxy = true;
+      Logger.info(
+        "[代理配置] oidc-provider 已启用 proxy 模式，将信任反向代理传递的 X-Forwarded-* 头",
       );
-      Logger.info("[Provider API] 已注册 DingTalkProviderApiClient 骨架");
     }
 
-    providerTokenProbeScheduler = new ProviderTokenProbeScheduler({
-      providerApiService,
-      tokenRepository,
-      probeIntervalSeconds: config.providerApi.probeIntervalSeconds,
-      refreshSkewSeconds: config.providerApi.refreshSkewSeconds,
-    });
-    providerTokenProbeScheduler.start();
-  }
+    // 将 OIDC Provider 实例传递给 AuthCoordinator
+    authCoordinator.setOidcProvider(oidc);
 
-  // 配置 oidc-provider 信任反向代理（基于 Koa 的 proxy 设置）
-  // 在反向代理（Nginx/Traefik）后必须启用，才能正确识别 X-Forwarded-Proto 等头信息
-  if (config.server.trustProxy) {
-    oidc.proxy = true;
-    // 强制协议为 HTTPS 的中间件（在挂载 OIDC 之前）
-    app.use("/oidc", async (req, res, next) => {
-      // 强制设置 x-forwarded-proto 为 https，让 oidc-provider 生成 HTTPS URL
-      req.headers["x-forwarded-proto"] = "https";
-      next();
-    });
-    Logger.info("[代理配置] oidc-provider 已启用 proxy 模式，将信任 X-Forwarded-* 头");
-  }
+    if (providerApiService) {
+      registerProviderApiRoutes({
+        app,
+        oidcProvider: oidc,
+        userRepository,
+        providerApiService,
+        sdkProxy: config.providerApi.sdkProxy,
+        allowedClientIds: config.providerApi.allowedClientIds,
+      });
+    }
 
-  // 将 OIDC Provider 实例传递给 AuthCoordinator
-  authCoordinator.setOidcProvider(oidc);
-
-  if (providerApiService) {
-    registerProviderApiRoutes({
+    registerAdminRoutes({
       app,
+      config,
       oidcProvider: oidc,
+      authCoordinator,
       userRepository,
       providerApiService,
-      sdkProxy: config.providerApi.sdkProxy,
+      tokenRepository,
+      stateStore,
+      revokeOidcAccount: (accountId) => OidcAdapterFactory.revokeByAccountId(accountId),
     });
-  }
 
-  registerAdminRoutes({
-    app,
-    config,
-    oidcProvider: oidc,
-    authCoordinator,
-    userRepository,
-    providerApiService,
-    tokenRepository,
-  });
+    // 挂载OIDC到Fastify
+    app.use("/oidc", oidc.callback());
 
-  // 挂载OIDC到Fastify
-  app.use("/oidc", oidc.callback());
-
-  // 添加中间件打印所有OIDC请求
-  app.addHook("preHandler", (request, reply, done) => {
-    if (request.url.startsWith("/oidc")) {
-      Logger.info(`[OIDC请求] ${request.method} ${request.url}`);
-      if (request.query && Object.keys(request.query).length > 0) {
-        Logger.debug(`[查询参数]`, request.query);
+    // 添加中间件打印所有OIDC请求
+    app.addHook("preHandler", (request, reply, done) => {
+      if (request.url.startsWith("/oidc")) {
+        const pathname = new URL(request.url, "http://gitea-oidc.local").pathname;
+        Logger.info(`[OIDC请求] ${request.method} ${pathname}`);
+        if (request.query && Object.keys(request.query).length > 0) {
+          Logger.debug("[查询参数]", sanitizeForLog(request.query));
+        }
+        if (request.body && Object.keys(request.body).length > 0) {
+          Logger.debug("[请求体]", sanitizeForLog(request.body));
+        }
       }
-      if (request.body && Object.keys(request.body).length > 0) {
-        Logger.debug(`[请求体]`, request.body);
-      }
-    }
-    done();
-  });
+      done();
+    });
 
-  // 首页 - 项目介绍和GitHub链接
-  app.get("/", async (request, reply) => {
-    Logger.info("[首页] 用户访问首页");
-    return reply.redirect("/index.html");
-  });
+    // 首页 - 项目介绍和GitHub链接
+    app.get("/", async (request, reply) => {
+      Logger.info("[首页] 用户访问首页");
+      return reply.redirect("/index.html");
+    });
 
-  // 统一登录页面（使用认证插件系统）
-  app.get("/interaction/:uid", async (request, reply) => {
-    const { uid } = request.params as { uid: string };
-    Logger.info(`[交互页面] 用户访问交互页面, UID: ${uid}`);
+    // 统一登录页面（使用认证插件系统）
+    app.get("/interaction/:uid", async (request, reply) => {
+      const { uid } = request.params as { uid: string };
+      Logger.info(`[交互页面] 用户访问交互页面, UID: ${uid}`);
 
-    try {
-      const details = await oidc.interactionDetails(request.raw, reply.raw);
+      try {
+        const details = await oidc.interactionDetails(request.raw, reply.raw);
 
-      Logger.debug(
-        `[GET 交互详情]` +
-          JSON.stringify({
+        Logger.debug(
+          "[GET 交互详情]",
+          sanitizeForLog({
             uid: details.uid,
-            prompt: details.prompt,
+            prompt: details.prompt?.name,
             params: details.params,
-            grantId: details.grantId,
+            hasGrantId: Boolean(details.grantId),
           }),
-      );
-
-      // 如果是 consent prompt，说明用户已经登录，直接自动授予同意
-      if (details.prompt.name === "consent") {
-        Logger.info(`[自动授予同意] 用户已登录，自动处理 consent`);
-
-        // 获取或创建 grant
-        let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
-        if (!grant) {
-          grant = new oidc.Grant({
-            accountId: details.session?.accountId,
-            clientId: (details.params as any).client_id,
-          });
-        }
-
-        // 添加缺失的 scope/claims
-        const missingScope = (details.prompt as any)?.details?.missingOIDCScope as
-          | string[]
-          | undefined;
-        if (missingScope && missingScope.length > 0) {
-          grant.addOIDCScope(missingScope.join(" "));
-        }
-
-        const missingClaims = (details.prompt as any)?.details?.missingOIDCClaims as
-          | string[]
-          | undefined;
-        if (missingClaims && missingClaims.length > 0) {
-          grant.addOIDCClaims(missingClaims);
-        }
-
-        const missingResourceScopes = (details.prompt as any)?.details?.missingResourceScopes as
-          | Record<string, string[]>
-          | undefined;
-        if (missingResourceScopes) {
-          for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
-            if (scopes && scopes.length > 0) {
-              grant.addResourceScope(indicator, scopes.join(" "));
-            }
-          }
-        }
-
-        const grantId = await grant.save();
-
-        // 完成交互
-        await oidc.interactionFinished(
-          request.raw,
-          reply.raw,
-          {
-            consent: { grantId },
-          },
-          { mergeWithLastSubmission: true },
         );
 
-        Logger.info(`[自动授予完成] grantId: ${grantId}`);
-        return;
+        // 如果是 consent prompt，说明用户已经登录，直接自动授予同意
+        if (details.prompt.name === "consent") {
+          Logger.info(`[自动授予同意] 用户已登录，自动处理 consent`);
+
+          // 获取或创建 grant
+          let grant = details.grantId ? await oidc.Grant.find(details.grantId) : undefined;
+          if (!grant) {
+            grant = new oidc.Grant({
+              accountId: details.session?.accountId,
+              clientId: (details.params as any).client_id,
+            });
+          }
+
+          // 添加缺失的 scope/claims
+          const missingScope = (details.prompt as any)?.details?.missingOIDCScope as
+            | string[]
+            | undefined;
+          if (missingScope && missingScope.length > 0) {
+            grant.addOIDCScope(missingScope.join(" "));
+          }
+
+          const missingClaims = (details.prompt as any)?.details?.missingOIDCClaims as
+            | string[]
+            | undefined;
+          if (missingClaims && missingClaims.length > 0) {
+            grant.addOIDCClaims(missingClaims);
+          }
+
+          const missingResourceScopes = (details.prompt as any)?.details?.missingResourceScopes as
+            | Record<string, string[]>
+            | undefined;
+          if (missingResourceScopes) {
+            for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
+              if (scopes && scopes.length > 0) {
+                grant.addResourceScope(indicator, scopes.join(" "));
+              }
+            }
+          }
+
+          const grantId = await grant.save();
+
+          // 完成交互
+          await oidc.interactionFinished(
+            request.raw,
+            reply.raw,
+            {
+              consent: { grantId },
+            },
+            { mergeWithLastSubmission: true },
+          );
+
+          Logger.info(`[自动授予完成] grantId: ${grantId}`);
+          return;
+        }
+
+        // 如果是 login prompt，渲染登录页面
+        const context: AuthContext = {
+          interactionUid: uid,
+          request,
+          reply,
+          params: request.params as Record<string, any>,
+          body: {},
+          query: request.query as Record<string, any>,
+          interaction: details,
+        };
+
+        // 渲染统一登录页面
+        const html = await authCoordinator.renderUnifiedLoginPage(context);
+
+        setInteractionSecurityHeaders(reply);
+        return reply.type("text/html").send(html);
+      } catch (err) {
+        Logger.error("[交互页面] 渲染失败:", sanitizeForLog(err));
+
+        // 检查是否是会话相关的错误
+        if (
+          err instanceof Error &&
+          (err.name === "SessionNotFound" ||
+            err.message?.includes("interaction session id cookie not found"))
+        ) {
+          // 返回用户友好的错误页面
+          return reply.redirect("/error-session-expired.html");
+        }
+
+        // 其他错误保持原样
+        return reply.code(500).send("Internal Server Error");
       }
+    });
 
-      // 如果是 login prompt，渲染登录页面
-      const context: AuthContext = {
-        interactionUid: uid,
-        request,
-        reply,
-        params: request.params as Record<string, any>,
-        body: {},
-        query: request.query as Record<string, any>,
-        interaction: details,
-      };
+    // OAuth 回调完成路由（用于飞书等第三方登录）
+    app.get("/interaction/:uid/complete", async (request, reply) => {
+      const { uid } = request.params as { uid: string };
+      Logger.info(`[OAuth 完成] UID: ${uid}`);
 
-      // 渲染统一登录页面
-      const html = await authCoordinator.renderUnifiedLoginPage(context);
+      try {
+        const details = await oidc.interactionDetails(request.raw, reply.raw);
+        if (details.uid !== uid || details.prompt.name !== "login") {
+          return reply.code(400).send("Invalid or expired interaction");
+        }
 
-      return reply.type("text/html").send(html);
-    } catch (err) {
-      Logger.error("[交互页面] 渲染失败:", err);
+        // 从临时存储中获取认证结果
+        const userId = await authCoordinator.getAuthResult(uid);
 
-      // 检查是否是会话相关的错误
-      if (
-        err instanceof Error &&
-        (err.name === "SessionNotFound" ||
-          err.message?.includes("interaction session id cookie not found"))
-      ) {
-        // 返回用户友好的错误页面
-        return reply.redirect("/error-session-expired.html");
-      }
+        if (!userId) {
+          Logger.warn(`[OAuth 完成] 未找到认证结果: ${uid}`);
+          return reply.redirect(buildInteractionErrorRedirect(uid, "认证会话已过期"));
+        }
 
-      // 其他错误保持原样
-      return reply.code(500).send("Internal Server Error");
-    }
-  });
+        Logger.info(`[OAuth 完成] 用户 ${userId} 认证通过，完成 login 交互`);
 
-  // OAuth 回调完成路由（用于飞书等第三方登录）
-  app.get("/interaction/:uid/complete", async (request, reply) => {
-    const { uid } = request.params as { uid: string };
-    Logger.info(`[OAuth 完成] UID: ${uid}`);
-
-    try {
-      // 从临时存储中获取认证结果
-      const userId = await authCoordinator.getAuthResult(uid);
-
-      if (!userId) {
-        Logger.warn(`[OAuth 完成] 未找到认证结果: ${uid}`);
-        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent("认证会话已过期")}`);
-      }
-
-      Logger.info(`[OAuth 完成] 用户 ${userId} 认证通过，完成 login 交互`);
-
-      // 完成 OIDC 交互
-      await oidc.interactionFinished(
-        request.raw,
-        reply.raw,
-        {
-          login: { accountId: userId },
-        },
-        { mergeWithLastSubmission: false },
-      );
-
-      Logger.info(`[OAuth Login 完成] 用户 ${userId}`);
-    } catch (err) {
-      Logger.error("[OAuth 完成] 错误:", err);
-      return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent("登录失败")}`);
-    }
-  });
-
-  // 登录处理（使用认证插件系统）
-  app.post("/interaction/:uid/login", async (request, reply) => {
-    const { uid } = request.params as { uid: string };
-    const body = request.body as Record<string, any>;
-
-    Logger.info(`[登录尝试] UID: ${uid}, 认证方式: ${body.authMethod}`);
-
-    try {
-      // 创建认证上下文
-      const context: AuthContext = {
-        interactionUid: uid,
-        request,
-        reply,
-        authMethod: body.authMethod,
-        params: request.params as Record<string, any>,
-        body,
-        query: request.query as Record<string, any>,
-      };
-
-      // 执行认证
-      const result = await authCoordinator.handleAuthentication(context);
-
-      if (result.success && result.userId) {
-        Logger.info(`[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`);
-
-        // 只完成 login，consent 会在后续的 GET 请求中自动处理
+        // 完成 OIDC 交互
         await oidc.interactionFinished(
           request.raw,
           reply.raw,
           {
-            login: { accountId: result.userId },
+            login: { accountId: userId },
           },
           { mergeWithLastSubmission: false },
         );
 
-        Logger.info(`[Login 完成] 用户 ${result.userId}`);
-      } else {
-        // 记录详细错误日志
-        if (result.error) {
-          Logger.warn(`[登录失败] ${formatAuthError(result.error)}`);
-        } else {
-          Logger.warn("[登录失败] 未知错误");
+        Logger.info(`[OAuth Login 完成] 用户 ${userId}`);
+      } catch (err) {
+        Logger.error("[OAuth 完成] 错误:", sanitizeForLog(err));
+        return reply.redirect(buildInteractionErrorRedirect(uid, "登录失败"));
+      }
+    });
+
+    // 登录处理（使用认证插件系统）
+    app.post("/interaction/:uid/login", async (request, reply) => {
+      const { uid } = request.params as { uid: string };
+      const body = request.body as Record<string, any>;
+
+      Logger.info(`[登录尝试] UID: ${uid}, 认证方式: ${body.authMethod}`);
+
+      try {
+        // 必须先由 oidc-provider 校验 interaction cookie 与 uid，再调用本地认证。
+        // 否则任意 uid 都能触发密码比较并形成账户枚举接口。
+        const details = await oidc.interactionDetails(request.raw, reply.raw);
+        if (details.uid !== uid || details.prompt.name !== "login") {
+          return reply.code(400).send("Invalid or expired interaction");
         }
 
-        // 认证失败，重定向回登录页面并显示用户友好的错误消息
-        const errorMessage = result.error ? getUserErrorMessage(result.error) : "认证失败";
-        return reply.redirect(`/interaction/${uid}?error=${encodeURIComponent(errorMessage)}`);
-      }
-    } catch (err) {
-      Logger.error("[登录处理] 错误:", err);
-      return reply.redirect(
-        `/interaction/${uid}?error=${encodeURIComponent("系统错误，请稍后重试")}`,
-      );
-    }
-  });
+        // 创建认证上下文
+        const context: AuthContext = {
+          interactionUid: uid,
+          request,
+          reply,
+          authMethod: body.authMethod,
+          params: request.params as Record<string, any>,
+          body,
+          query: request.query as Record<string, any>,
+          interaction: details,
+        };
 
-  try {
+        // 执行认证
+        const result = await authCoordinator.handleAuthentication(context);
+
+        if (result.success && result.userId) {
+          Logger.info(`[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`);
+
+          // 只完成 login，consent 会在后续的 GET 请求中自动处理
+          await oidc.interactionFinished(
+            request.raw,
+            reply.raw,
+            {
+              login: { accountId: result.userId },
+            },
+            { mergeWithLastSubmission: false },
+          );
+
+          Logger.info(`[Login 完成] 用户 ${result.userId}`);
+        } else {
+          // 记录详细错误日志
+          if (result.error) {
+            Logger.warn(`[登录失败] ${formatAuthError(result.error)}`);
+          } else {
+            Logger.warn("[登录失败] 未知错误");
+          }
+
+          // 认证失败，重定向回登录页面并显示用户友好的错误消息
+          const errorMessage = result.error ? getUserErrorMessage(result.error) : "认证失败";
+          return reply.redirect(buildInteractionErrorRedirect(uid, errorMessage));
+        }
+      } catch (err) {
+        Logger.error("[登录处理] 错误:", sanitizeForLog(err));
+        return reply.redirect(buildInteractionErrorRedirect(uid, "系统错误，请稍后重试"));
+      }
+    });
+
     await app.listen({
       port: config.server.port,
       host: config.server.host,
@@ -497,34 +600,136 @@ export async function start(customConfig?: GiteaOidcConfig) {
         .join(", ")}`,
     );
   } catch (err) {
-    Logger.error("服务器启动失败:", err);
-    process.exit(1);
+    Logger.error("服务器启动失败:", sanitizeForLog(err));
+    try {
+      await app.close();
+    } catch (cleanupErr) {
+      Logger.error("[服务器] 启动失败后的资源清理失败:", sanitizeForLog(cleanupErr));
+    }
+    throw err;
   }
 
-  // 优雅关闭
-  const shutdown = async () => {
-    Logger.info("[服务器] 正在关闭...");
+  return app;
+}
 
-    // 销毁认证系统
-    await authCoordinator.destroy();
-    providerTokenProbeScheduler?.stop();
-    await tokenRepository?.close?.();
-    stateStore.destroy();
+/**
+ * 验证模块化启动时传入的运行时配置。
+ *
+ * `loadConfig()` 已经会验证配置文件；这里覆盖 `start(customConfig)` 路径，避免集成方
+ * 直接传配置时绕过生产环境安全校验。
+ */
+export function validateRuntimeConfig(config: GiteaOidcConfig): GiteaOidcConfig {
+  const validation = validateConfig(config);
+  printValidationResult(validation);
 
-    // 清理适配器资源
-    await OidcAdapterFactory.cleanup();
+  if (!validation.valid) {
+    throw new Error(`配置验证失败:\n${formatValidationErrors(validation.errors)}`);
+  }
 
-    // 关闭 Fastify
-    await app.close();
+  return validation.config!;
+}
 
-    Logger.info("[服务器] 关闭完成");
-    process.exit(0);
+function assertStrongProviderTokenKey(tokenEncryptionKey: string): void {
+  const defaultKeys = new Set([
+    "change-this-provider-token-key",
+    "replace-with-a-long-random-secret",
+    "replace-with-a-long-random-provider-token-key",
+  ]);
+
+  if (tokenEncryptionKey.length < 32 || defaultKeys.has(tokenEncryptionKey)) {
+    throw new Error(
+      "providerApi.tokenEncryptionKey must be a non-default value with at least 32 characters when Provider API is enabled",
+    );
+  }
+}
+
+function createStateStore(
+  config: GiteaOidcConfig,
+): StateStore & { destroy?: () => Promise<void> | void } {
+  const stateStoreConfig = config.auth.stateStore ?? { type: "memory" as const };
+  if (stateStoreConfig.type === "redis") {
+    if (!stateStoreConfig.redis) {
+      throw new Error("Redis stateStore requires redis configuration");
+    }
+    return new RedisStateStore(stateStoreConfig.redis);
+  }
+
+  return new MemoryStateStore({
+    maxSize: 10000,
+    cleanupIntervalMs: 30000,
+  });
+}
+
+function toLogLevel(level: GiteaOidcConfig["logging"]["level"]): LogLevel {
+  return {
+    debug: LogLevel.DEBUG,
+    info: LogLevel.INFO,
+    warn: LogLevel.WARN,
+    error: LogLevel.ERROR,
+  }[level];
+}
+
+export function resolveCorsOrigin(corsOrigins?: string[]): false | string[] {
+  return corsOrigins && corsOrigins.length > 0 ? corsOrigins : false;
+}
+
+export function isAdminPublicFilePath(filePath: string): boolean {
+  const normalizedPath = filePath.split(path.sep).join("/");
+  return normalizedPath.includes("/public/admin/");
+}
+
+export function setInteractionSecurityHeaders(target: HeaderTarget): void {
+  setHeader(target, "Content-Security-Policy", INTERACTION_CONTENT_SECURITY_POLICY);
+  setHeader(target, "X-Frame-Options", "DENY");
+  setHeader(target, "X-Content-Type-Options", "nosniff");
+  setHeader(target, "Referrer-Policy", "same-origin");
+}
+
+function setHeader(target: HeaderTarget, name: string, value: string): void {
+  if (target.header) {
+    target.header(name, value);
+    return;
+  }
+
+  target.setHeader?.(name, value);
+}
+
+function buildInteractionErrorRedirect(uid: string, errorMessage: string): string {
+  return `/interaction/${encodeURIComponent(uid)}?error=${encodeURIComponent(errorMessage)}`;
+}
+
+export async function cleanupServerResources(
+  resources: ServerRuntimeResources,
+  options: ServerCleanupOptions = {},
+): Promise<void> {
+  const errors: unknown[] = [];
+  const cleanupAdapters = options.cleanupAdapters ?? (() => OidcAdapterFactory.cleanup());
+
+  const runCleanupStep = async (label: string, cleanup: () => Promise<void> | void) => {
+    try {
+      await cleanup();
+    } catch (err) {
+      errors.push(err);
+      Logger.error(`[服务器] ${label} 清理失败:`, sanitizeForLog(err));
+    }
   };
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  await runCleanupStep("Provider token 探活调度器", () =>
+    resources.providerTokenProbeScheduler?.stop(),
+  );
+  await runCleanupStep("认证系统", () => resources.authCoordinator?.destroy());
+  await runCleanupStep("Provider token 仓储", () => resources.tokenRepository?.close?.());
+  await runCleanupStep("用户仓储", () => resources.userRepository?.close?.());
+  await runCleanupStep("State store", () => resources.stateStore?.destroy?.());
+  await runCleanupStep("OIDC 适配器", cleanupAdapters);
 
-  return app;
+  if (options.closeApp !== false) {
+    await runCleanupStep("Fastify", () => resources.app?.close());
+  }
+
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "Server resource cleanup failed");
+  }
 }
 
 // 仅在直接执行时启动服务器
@@ -532,8 +737,27 @@ export async function start(customConfig?: GiteaOidcConfig) {
 const isMainModule =
   process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"));
 if (isMainModule) {
-  start().catch((err) => {
-    Logger.error("服务器启动失败:", err);
-    process.exit(1);
-  });
+  start()
+    .then((app) => {
+      let shuttingDown = false;
+      const shutdown = async () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        Logger.info("[服务器] 正在关闭...");
+        try {
+          await app.close();
+          Logger.info("[服务器] 关闭完成");
+          process.exit(0);
+        } catch (err) {
+          Logger.error("[服务器] 关闭时资源清理失败:", sanitizeForLog(err));
+          process.exit(1);
+        }
+      };
+      process.once("SIGTERM", shutdown);
+      process.once("SIGINT", shutdown);
+    })
+    .catch((err) => {
+      Logger.error("服务器启动失败:", sanitizeForLog(err));
+      process.exit(1);
+    });
 }

@@ -3,7 +3,9 @@
     "host": "0.0.0.0",
     "port": 3000,
     "url": "http://localhost:3000",
-    "trustProxy": false
+    "trustProxy": false,
+    "trustedProxyIps": [],
+    "corsOrigins": []
   },
   "logging": {
     "enabled": true,
@@ -23,7 +25,8 @@
     },
     "claims": {
       "openid": ["sub"],
-      "profile": ["name", "email", "email_verified", "picture", "groups", "roles", "status"]
+      "profile": ["name", "email", "email_verified", "picture", "groups", "roles", "status"],
+      "provider_api": []
     },
     "features": {
       "devInteractions": { "enabled": false },
@@ -58,7 +61,12 @@
         "config": {
           "passwordFile": ".htpasswd",
           "passwordFormat": "bcrypt",
-          "adminUsers": ["admin"]
+          "adminUsers": ["admin"],
+          "lockoutPolicy": {
+            "enabled": true,
+            "maxAttempts": 5,
+            "lockoutDuration": 900
+          }
         }
       },
       "feishu": {
@@ -80,20 +88,26 @@
           "verificationToken": "your_verification_token_here"
         }
       }
+    },
+    "stateStore": {
+      "type": "memory"
     }
   },
   "admin": {
     "enabled": true,
     "basePath": "/admin",
-    "allowedGroups": ["Owners"],
+    "allowedGroups": ["gitea-oidc-admins"],
     "sessionTtlSeconds": 3600
   },
   "providerApi": {
-    "enabled": true,
-    "tokenEncryptionKey": "change-this-provider-token-key",
+    "enabled": false,
+    "tokenEncryptionKey": "replace-with-a-long-random-provider-token-key",
     "refreshSkewSeconds": 300,
     "probeIntervalSeconds": 300,
+    "requestTimeoutMs": 10000,
+    "responseBodyLimitBytes": 1048576,
     "sdkProxy": true,
+    "allowedClientIds": [],
     "providers": {
       "feishu": {
         "enabled": false,

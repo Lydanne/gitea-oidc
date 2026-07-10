@@ -522,6 +522,8 @@ export default {
 
 - `cookieKeys`：用于 Cookie 签名
 - `appSecret`：飞书应用密钥（需在飞书平台重新生成）
+- `encryptKey`：用于飞书事件订阅签名校验和加密回调解密
+- `verificationToken`：用于校验飞书 Webhook 和 URL 验证 payload 中的 token
 
 ### 5. 监控异常登录
 
@@ -549,16 +551,54 @@ export default {
 
 1. **配置 Webhook URL**（在飞书开放平台）：
 
-   ```
-   http://your-server:3000/auth/feishu/webhook
+   ```text
+   https://your-domain.com/auth/feishu/webhook
    ```
 
-2. **处理的事件类型**：
+2. **配置签名校验和 payload token 校验**：
+
+   在 `auth.providers.feishu.config.encryptKey` 中填写飞书开放平台事件订阅里的 Encrypt Key。
+   服务会使用 `X-Lark-Signature`、`X-Lark-Request-Timestamp`、
+   `X-Lark-Request-Nonce` 和原始 HTTP 请求体校验签名；未配置时会拒绝
+   `/auth/feishu/webhook` 请求。
+
+   在 `auth.providers.feishu.config.verificationToken` 中填写飞书开放平台事件订阅里的
+   Verification Token。服务会校验 webhook 或 URL 验证 payload 中的 token；未配置或不匹配时
+   会拒绝请求。
+
+   ```json
+   {
+     "auth": {
+       "providers": {
+         "feishu": {
+           "enabled": true,
+           "config": {
+             "appId": "cli_your_app_id",
+             "appSecret": "your_app_secret",
+             "redirectUri": "https://your-domain.com/auth/feishu/callback",
+             "encryptKey": "your_encrypt_key_here",
+             "verificationToken": "your_verification_token_here"
+           }
+         }
+       }
+     }
+   }
+   ```
+
+   Webhook 签名时间戳只接受短时间窗口内的请求，过期请求会被拒绝。反向代理不要改写
+   Webhook JSON 请求体，否则签名会无法匹配。
+   如果启用了飞书加密回调，`/auth/feishu/callback` 上的 URL 验证请求会按飞书官方
+   `random + msg_len + msg + app_id` 格式解析密文，并同时校验 `verificationToken` 和密文尾部
+   `app_id`。`app_id` 必须匹配 `auth.providers.feishu.config.appId`，否则请求会被拒绝。
+
+3. **处理的事件类型**：
+
    - 用户信息变更
    - 部门变更
    - 员工入职/离职
 
-3. **自定义事件处理**：
+4. **自定义事件处理**：
+
    可以修改 `FeishuAuthProvider.ts` 中的 `registerWebhooks()` 方法
 
 ### 私有化部署

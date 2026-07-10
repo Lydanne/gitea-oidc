@@ -97,6 +97,7 @@ const customConfig: GiteaOidcConfig = {
     port: 4000,
     url: 'http://localhost:4000',
     trustProxy: false,
+    corsOrigins: [],
   },
   // ... 其他配置
 };
@@ -107,7 +108,9 @@ const app = await start(customConfig);
 const app = await start();
 ```
 
-详细示例请参考 `example-import-usage.ts` 文件。
+传入 `customConfig` 时同样会执行配置校验；生产环境中的非 HTTPS URL、弱密钥、
+memory 存储和不完整 Provider API allowlist 会直接阻止启动。详细示例请参考
+`docs/SERVER_USAGE.md`。
 
 ### 4. 测试
 
@@ -219,7 +222,8 @@ gitea-oidc/
     },
     "claims": {
       "openid": ["sub"],
-      "profile": ["name", "email", "email_verified", "picture"]
+      "profile": ["name", "email", "email_verified", "picture"],
+      "provider_api": []
     },
     "features": {
       "devInteractions": { "enabled": false },
@@ -231,7 +235,10 @@ gitea-oidc/
     {
       "client_id": "gitea",
       "client_secret": "gitea-client-secret-change-in-production",
-      "redirect_uris": ["http://localhost:3001/user/oauth2/gitea/callback"],
+      "redirect_uris": [
+        "http://localhost:3001/user/oauth2/gitea/callback",
+        "http://localhost:3000/admin/callback"
+      ],
       "post_logout_redirect_uris": ["http://localhost:3001/"],
       "response_types": ["code"],
       "grant_types": ["authorization_code", "refresh_token"],
@@ -299,7 +306,8 @@ gitea-oidc/
 
 #### oidc
 
-- `issuer`: OIDC 发行者 URL，必须与对外访问的 OIDC 根路径一致（例如 `https://auth.example.com/oidc`），应与实际挂载路径 `/oidc` 对应
+- `issuer`: OIDC 发行者 URL，必须等于 `${server.url}/oidc`，应与实际挂载路径 `/oidc`
+  对应，不能包含 query 或 fragment
 - `cookieKeys`: Cookie 签名密钥数组，支持密钥轮换
 - `ttl`: 各种令牌的生存时间（秒）
 - `claims`: OIDC 声明配置
@@ -500,6 +508,7 @@ docker run -d -p 3000:3000 \
 2. **更换客户端密钥**：修改 `clients[].client_secret`
 3. **使用 HTTPS**：配置 SSL 证书，更新 `server.url` 为 https
 4. **启用反向代理支持**：设置 `server.trustProxy: true`
+   并用 `server.trustedProxyIps` 限定实际代理的 IP/CIDR
 5. **强密码策略**：使用 bcrypt 生成强密码（`passwordFormat: "bcrypt"`）
 6. **持久化存储**：
    - 用户数据：使用 PostgreSQL 或 SQLite（`auth.userRepository.type`）
@@ -515,7 +524,8 @@ docker run -d -p 3000:3000 \
     "host": "0.0.0.0",
     "port": 3000,
     "url": "https://auth.example.com",
-    "trustProxy": true
+    "trustProxy": true,
+    "trustedProxyIps": ["127.0.0.1"]
   },
   "logging": {
     "enabled": true,

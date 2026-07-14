@@ -11,6 +11,10 @@
     "enabled": true,
     "level": "info"
   },
+  "audit": {
+    "enabled": true,
+    "retentionDays": 30
+  },
   "oidc": {
     "issuer": "http://localhost:3000/oidc",
     "cookieKeys": [
@@ -49,6 +53,7 @@
     }
   ],
   "auth": {
+    "autoRedirectSingleProvider": false,
     "userRepository": {
       "type": "memory",
       "memory": {}

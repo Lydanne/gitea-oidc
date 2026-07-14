@@ -40,6 +40,7 @@
 - ✅ 单机生产可用的加密 SQLite 客户端 Session Store
 - ✅ OAuth State 管理（防 CSRF）
 - ✅ 用户仓储抽象层
+- ✅ 用户登录、退出、管理后台和资料变更结构化审计
 - ✅ 动态路由和静态资源
 - ✅ Webhook 支持
 - ✅ TypeScript 类型安全
@@ -62,13 +63,15 @@ pnpm install
 ### 2. 配置
 
 ```bash
-# 复制示例配置（支持 .json 或 .js 格式，.js 优先级更高）
+# 复制本地开发示例配置
 cp example.gitea-oidc.config.json gitea-oidc.config.json
-# 或使用 .js 格式以支持动态配置
-# cp example.gitea-oidc.config.json gitea-oidc.config.js
 
-# 创建密码文件（本地认证）
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync('admin123', 10));" > .htpasswd
+# 交互输入本地管理员密码并创建 bcrypt 密码文件
+read -r -s ADMIN_PASSWORD
+export ADMIN_PASSWORD
+node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
+unset ADMIN_PASSWORD
+chmod 0600 .htpasswd
 ```
 
 ### 3. 启动服务器
@@ -79,11 +82,14 @@ node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSyn
 # 开发模式（热重载）
 pnpm dev
 
-# 生产模式
-pnpm build && pnpm start
+# 验证生产构建
+pnpm build:prod
 ```
 
 服务器将在 `http://localhost:3000` 启动
+
+`pnpm start` 会进入生产模式，本地 HTTP/memory 示例会被安全校验拒绝。正式启动方式见
+[生产部署指南](./docs/PRODUCTION_SETUP.md)。
 
 #### 方式 2: 作为模块导入使用
 
@@ -129,11 +135,13 @@ pnpm test:coverage
 
 - **[文档目录](./docs/README.md)** - 使用者与开发者文档入口
 - **[快速开始](./docs/QUICK_START.md)** - 本地启动和 Gitea OIDC 配置
-- **[生产环境配置](./docs/PRODUCTION_SETUP.md)** - 生产环境部署指南
+- **[Gitea 接入](./docs/GITEA_INTEGRATION.md)** - Client、登录退出和用户组映射
+- **[生产部署](./docs/PRODUCTION_SETUP.md)** - 拓扑、密钥、Docker Compose 和上线验收
+- **[生产运维](./docs/OPERATIONS.md)** - 健康检查、备份恢复、升级回滚和监控
 - **[反向代理 HTTPS](./docs/REVERSE_PROXY_HTTPS.md)** - 代理和 HTTPS URL 配置
 - **[OIDC 适配器配置](./docs/ADAPTER_CONFIGURATION.md)** - SQLite、Redis、memory 适配器选择
 - **[飞书认证插件](./docs/FEISHU_PLUGIN_GUIDE.md)** - 飞书 OAuth 登录配置
-- **[管理后台与 Provider API](./docs/ADMIN_AND_PROVIDER_API.md)** - 后台、token 探活和 SDK 代理
+- **[管理后台与 Provider API](./docs/ADMIN_AND_PROVIDER_API.md)** - 后台、审计、token 探活和 SDK 代理
 - **[应用管理接入](./docs/APPLICATION_MANAGEMENT.md)** - 模板、自定义应用、SDK 与 SQLite 部署约束
 - **[开发者文档](./docs/dev/README.md)** - 插件开发、架构和发布维护
 
@@ -213,6 +221,10 @@ gitea-oidc/
   "logging": {
     "enabled": true,
     "level": "info"
+  },
+  "audit": {
+    "enabled": true,
+    "retentionDays": 30
   },
   "oidc": {
     "issuer": "http://localhost:3000/oidc",
@@ -321,6 +333,12 @@ gitea-oidc/
 
 - `enabled`: 是否启用日志
 - `level`: 日志级别（`info` | `warn` | `error` | `debug`）
+
+#### audit
+
+- `enabled`: 是否记录用户登录、退出、管理后台和用户资料变更事件，默认 `true`
+- `retentionDays`: 审计记录保留天数，默认 `30`，范围 `1` 到 `3650`；超过期限的记录自动删除
+- 存储后端与 `auth.userRepository` 相同；生产环境不要使用 `memory`
 
 #### oidc
 
@@ -442,169 +460,59 @@ SQLite。完整配置和备份要求见[应用管理接入指南](./docs/APPLICA
    - **发现 URL**: `http://localhost:3000/oidc/.well-known/openid-configuration`
    - **客户端 ID**: `gitea`
    - **客户端密钥**: `gitea-client-secret-change-in-production`
+   - **认证源名称**: `gitea`，对应 Callback URL
+     `http://localhost:3001/user/oauth2/gitea/callback`
 4. 保存配置
 
 ### 测试登录
 
 1. 访问 Gitea 登录页面
 2. 点击 OIDC 登录按钮
-3. 使用测试账户登录（admin/admin123）
+3. 使用刚才创建的 `admin` 账号和交互输入的密码登录
 4. 成功后自动返回 Gitea
+
+退出回跳 URI 必须精确注册为 `http://localhost:3001/`。生产环境的 Callback、退出回跳和排障步骤
+见 **[Gitea 接入指南](./docs/GITEA_INTEGRATION.md)**。
 
 ## 🐳 Docker 使用
 
-项目提供官方 Docker 镜像，可用于快速部署。
+项目提供 `linux/amd64` 和 `linux/arm64` Docker 镜像。镜像以 `NODE_ENV=production` 启动，必须
+挂载通过生产校验的配置文件；无配置直接运行会拒绝启动。
 
 ### 拉取镜像
 
 ```bash
-# 拉取最新版本
-docker pull lydamirror/gitea-oidc:latest
-
-# 拉取指定版本
-docker pull lydamirror/gitea-oidc:<version>  # 例如 1.0.22，具体以实际发布的 tag 为准
+docker pull lydamirror/gitea-oidc:<version>
 ```
 
-### 运行容器
+生产环境固定版本号，不使用 `latest`。最小运行结构：
 
 ```bash
-# 基本运行
-docker run -d -p 3000:3000 lydamirror/gitea-oidc
-
-# 使用自定义配置（JSON 格式）
-docker run -p 3000:3000 \
+docker run -d --name gitea-oidc \
+  -p 127.0.0.1:3000:3000 \
   -e NODE_ENV=production \
-  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
+  --env-file /srv/gitea-oidc/.env.production \
+  -v /srv/gitea-oidc/gitea-oidc.config.js:/app/gitea-oidc.config.js:ro \
+  -v /srv/gitea-oidc/data:/app/data \
+  -v /srv/gitea-oidc/secrets:/app/secrets:ro \
+  --restart unless-stopped \
   --log-opt max-size=10m \
-  --log-opt max-file=3 \
-  lydamirror/gitea-oidc
-
-# 使用自定义配置（JS 格式）
-docker run -p 3000:3000 \
-  -e NODE_ENV=production \
-  -v ./gitea-oidc.config.js:/app/gitea-oidc.config.js \
-  --log-opt max-size=10m \
-  --log-opt max-file=3 \
-  lydamirror/gitea-oidc
+  --log-opt max-file=5 \
+  lydamirror/gitea-oidc:<version>
 ```
 
-### 环境变量
-
-- `NODE_ENV`: 运行环境（默认 development）
-- `PORT`: 当前服务不会自动读取该变量，请通过配置文件 `server.port` 和容器端口映射控制实际监听端口
-
-### 数据持久化
-
-```bash
-# 使用 SQLite 持久化（OIDC 会话和应用管理数据）
-docker run -d -p 3000:3000 \
-  -v /host/data:/app/data \
-  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
-  lydamirror/gitea-oidc
-
-# 配置文件中设置：
-# "adapter": {
-#   "type": "sqlite",
-#   "sqlite": {
-#     "dbPath": "/app/data/oidc.db"
-#   }
-# }
-# "applications": {
-#   "enabled": true,
-#   "clientSource": "database",
-#   "repository": {
-#     "type": "sqlite",
-#     "sqlite": { "dbPath": "/app/data/applications.db" }
-#   }
-# }
-
-# 使用 Redis 持久化（分布式部署）
-docker run -d -p 3000:3000 \
-  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
-  lydamirror/gitea-oidc
-
-# 配置文件中设置：
-# "adapter": {
-#   "type": "redis",
-#   "redis": {
-#     "host": "redis",
-#     "port": 6379
-#   }
-# }
-```
+完整的配置、Compose、持久化目录、HTTPS 代理和验收命令见
+**[生产部署指南](./docs/PRODUCTION_SETUP.md)**。
 
 ## 🔐 生产环境
 
-### 安全建议
+生产部署至少需要：HTTPS 公开地址、受限反向代理信任、强且分域的密钥、持久化用户/OIDC/JWKS
+存储、已验证备份，以及真实 Gitea 登录和退出测试。单实例应用管理与多实例 Redis 是两种不同
+拓扑，不能混用。
 
-1. **更换 Cookie 密钥**：修改配置中的 `oidc.cookieKeys`
-2. **更换客户端密钥**：修改 `clients[].client_secret`
-3. **使用 HTTPS**：配置 SSL 证书，更新 `server.url` 为 https
-4. **启用反向代理支持**：设置 `server.trustProxy: true`
-   并用 `server.trustedProxyIps` 限定实际代理的 IP/CIDR
-5. **强密码策略**：使用 bcrypt 生成强密码（`passwordFormat: "bcrypt"`）
-6. **持久化存储**：
-   - 用户数据：使用 PostgreSQL 或 SQLite（`auth.userRepository.type`）
-   - OIDC 会话：使用 Redis 或 SQLite（`adapter.type`）
-   - 应用管理：当前只支持单实例 SQLite，并持久化 `applications.db`
-7. **保护应用主密钥**：启用应用管理时使用独立 32 字节主密钥并从 Secret Manager 注入
-8. **日志管理**：配置适当的日志级别（`logging.level`）
-9. **限制访问**：配置防火墙规则，仅允许必要的端口访问
-
-### 生产环境配置示例
-
-```json
-{
-  "server": {
-    "host": "0.0.0.0",
-    "port": 3000,
-    "url": "https://auth.example.com",
-    "trustProxy": true,
-    "trustedProxyIps": ["127.0.0.1"]
-  },
-  "logging": {
-    "enabled": true,
-    "level": "warn"
-  },
-  "oidc": {
-    "issuer": "https://auth.example.com/oidc",
-    "cookieKeys": ["your-secure-random-key-1", "your-secure-random-key-2"]
-  },
-  "auth": {
-    "userRepository": {
-      "type": "pgsql",
-      "pgsql": {
-        "connectionString": "postgresql://user:pass@db:5432/auth"
-      }
-    }
-  },
-  "adapter": {
-    "type": "redis",
-    "redis": {
-      "host": "redis",
-      "port": 6379
-    }
-  }
-}
-```
-
-### 扩展功能
-
-已实现功能：
-
-- ✅ 数据库用户仓储（PostgreSQL、SQLite）
-- ✅ Redis 适配器（分布式部署）
-- ✅ 插件化认证架构
-- ✅ Webhook 支持
-- ✅ 模板与自定义应用管理、一次性凭据和 Client Secret 轮换
-- ✅ Node SDK、Express、Fastify、NestJS 和 CLI 私有预览实现
-
-计划中的功能：
-
-- ⏳ 添加更多认证插件（企业微信、钉钉、LDAP）
-- ⏳ 发布 SDK、框架连接器和 CLI，并完成 Gitea 真实版本矩阵认证
-- ⏳ 实现 MFA 支持
-- ⏳ 用户自助服务（密码重置、账号管理）
+- **[生产部署指南](./docs/PRODUCTION_SETUP.md)**：从零部署和上线检查清单
+- **[Gitea 接入指南](./docs/GITEA_INTEGRATION.md)**：Client、Callback 与退出回跳
+- **[生产运维手册](./docs/OPERATIONS.md)**：备份、恢复、升级、回滚、监控和密钥轮换
 
 ## 🚀 发布流程
 

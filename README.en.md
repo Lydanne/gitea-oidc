@@ -59,6 +59,7 @@ user repositories, and pluggable OIDC persistence adapters.
   - In-memory
   - SQLite
   - PostgreSQL
+- **Structured identity auditing** for user/admin login, logout, and user profile changes
 - **OIDC persistence adapters** via `OidcAdapterFactory`:
   - SQLite
   - Redis
@@ -119,7 +120,7 @@ For a more detailed design, see (Chinese):
 ### Prerequisites
 
 - Node.js **22.13.x** for workspace development and builds
-- `pnpm` (recommended; `npm`/`yarn` also work with minor changes)
+- pnpm **10+**
 
 ### 1. Install dependencies
 
@@ -173,7 +174,11 @@ Important fields (development example):
 ### 3. Create `.htpasswd` (local auth)
 
 ```bash
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync('admin123', 10));" > .htpasswd
+read -r -s ADMIN_PASSWORD
+export ADMIN_PASSWORD
+node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
+unset ADMIN_PASSWORD
+chmod 0600 .htpasswd
 ```
 
 ### 4. Run the server
@@ -182,11 +187,14 @@ node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSyn
 # Development (with watch)
 pnpm dev
 
-# Production build
-pnpm build && pnpm start
+# Validate the production build
+pnpm build:prod
 ```
 
 The default dev URL is: `http://localhost:3000`.
+
+`pnpm start` runs in production mode and rejects the local HTTP/memory example. Follow
+`docs/PRODUCTION_SETUP.md` before starting a production deployment.
 
 You can verify the OIDC discovery document at:
 
@@ -204,6 +212,7 @@ Key sections in `gitea-oidc.config.*`:
 
 - `server`: host/port/public URL, reverse proxy trust
 - `logging`: enable/disable and log level
+- `audit`: structured identity audit switch and retention period; uses the user repository backend
 - `oidc`: issuer, cookie keys, TTLs, claims & features
 - `clients`: OIDC clients (e.g. Gitea)
 - `applications`: optional application control plane and its single Client source
@@ -248,30 +257,25 @@ For more detailed, step-by-step instructions (Chinese), see `docs/QUICK_START.md
 
 ## Docker & Deployment
 
-A simple way to run the IdP in production is via Docker:
+The image starts with `NODE_ENV=production` and refuses to run without a valid production config.
+Pin an explicit release version instead of `latest`:
 
 ```bash
-# Pull latest image
-docker pull lydamirror/gitea-oidc:latest
-
-# Run with default ports
-docker run -d -p 3000:3000 lydamirror/gitea-oidc
-```
-
-With a custom JSON config:
-
-```bash
-docker run -p 3000:3000 \
+docker run -d --name gitea-oidc \
+  -p 127.0.0.1:3000:3000 \
   -e NODE_ENV=production \
-  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
-  lydamirror/gitea-oidc
+  --env-file /srv/gitea-oidc/.env.production \
+  -v /srv/gitea-oidc/gitea-oidc.config.js:/app/gitea-oidc.config.js:ro \
+  -v /srv/gitea-oidc/data:/app/data \
+  -v /srv/gitea-oidc/secrets:/app/secrets:ro \
+  lydamirror/gitea-oidc:<version>
 ```
 
-See `README.md` (Chinese) for more detailed production recommendations:
+See the Chinese deployment documentation for the complete, validated workflow:
 
-- HTTPS & reverse proxy
-- SQLite / Redis adapters for persistence
-- PostgreSQL/SQLite user repositories
+- `docs/PRODUCTION_SETUP.md` – topology, configuration, Compose, HTTPS, and go-live checks
+- `docs/GITEA_INTEGRATION.md` – Gitea login, logout, and claims integration
+- `docs/OPERATIONS.md` – health checks, backup, restore, upgrade, and rollback
 
 ---
 
@@ -300,6 +304,8 @@ Main documentation lives under `docs/` and is currently in Chinese:
 - `docs/README.md` – documentation index
 - `docs/QUICK_START.md` – quick start guide
 - `docs/PRODUCTION_SETUP.md` – production setup
+- `docs/GITEA_INTEGRATION.md` – Gitea login, logout, and claims integration
+- `docs/OPERATIONS.md` – health checks, backup, restore, upgrade, and rollback
 - `docs/APPLICATION_MANAGEMENT.md` – application management, key handling, and SQLite operations
 - `docs/ADAPTER_CONFIGURATION.md`, `docs/REDIS_ADAPTER_GUIDE.md` – adapter details
 - `docs/REVERSE_PROXY_HTTPS.md` – reverse proxy & HTTPS

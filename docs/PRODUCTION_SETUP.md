@@ -1,380 +1,542 @@
-# 生产环境配置指南
+# 生产部署指南
 
-本文档说明如何配置 gitea-oidc 以适用于生产环境,解决开发环境警告。
+本文是 gitea-oidc 的生产部署主入口，面向部署者和运维人员。推荐先按本文完成单实例
+SQLite 部署，再根据容量和可用性要求评估多实例 Redis 方案。
 
-## 问题说明
+生产进程会执行严格配置校验。缺少配置文件、使用 HTTP 公网地址、使用默认密钥、使用
+`memory` 持久化或错误配置反向代理时，服务会拒绝启动。
 
-在开发环境中,你可能会看到以下警告:
+## 选择部署拓扑
 
+| 场景 | 用户仓储 | OIDC 数据 | 短期状态 | 应用管理 | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| 单实例 | SQLite 或 PostgreSQL | SQLite | memory | 可启用 SQLite | 当前推荐 |
+| 多实例 | PostgreSQL | Redis | Redis | 必须关闭 | 需要额外基础设施 |
+| 开发测试 | memory 或 SQLite | memory 或 SQLite | memory | 可选 | 禁止用于生产 |
+
+单实例模式支持内置应用管理、Gitea 模板、Client Secret 轮换和完整后台能力。SQLite 文件必须
+位于本地持久化磁盘，不能由多个实例并发访问，也不要放在 NFS 上。
+
+多实例模式必须同时使用 Redis OIDC Adapter 和 Redis `auth.stateStore`。当前
+`applications.clientSource: "database"` 只支持单实例 SQLite，因此多实例部署必须使用静态
+`clients`，并关闭应用管理。
+
+## 上线前准备
+
+至少准备以下资源：
+
+- 一个只用于身份服务的 HTTPS 域名，例如 `https://id.example.com`。
+- 一个反向代理，由它终止 TLS，并把流量转发到服务的 `3000` 端口。
+- Docker 及 Docker Compose，或者 Node.js `22.13+` 与 pnpm `10+`。
+- 单实例部署所需的持久化数据目录和备份目录。
+- 可安全保存环境变量和密钥的 Secret Manager；没有时使用权限为 `0600` 的独立文件。
+- 稳定的时间同步。OIDC 授权码和令牌依赖各节点时钟基本一致。
+
+生产环境固定使用以下 URL 关系：
+
+```text
+服务根地址: https://id.example.com
+Issuer:      https://id.example.com/oidc
+发现文档:   https://id.example.com/oidc/.well-known/openid-configuration
+管理后台:   https://id.example.com/admin
 ```
-oidc-provider WARNING: a quick start development-only in-memory adapter is used
-oidc-provider WARNING: a quick start development-only signing keys are used
+
+`server.url` 不能包含末尾业务路径、query 或 fragment；`oidc.issuer` 必须等于
+`${server.url}/oidc`。
+
+## 准备目录和密钥
+
+以下目录结构适用于 Docker 部署：
+
+```text
+/srv/gitea-oidc/
+├── compose.yaml
+├── gitea-oidc.config.js
+├── .env.production
+├── data/
+├── secrets/
+│   └── .htpasswd
+└── backup/
 ```
 
-这些警告表明:
-
-1. **内存适配器**: 所有 OIDC 状态数据存储在内存中,服务重启后会丢失
-2. **临时签名密钥**: 使用临时生成的密钥,服务重启后所有已签发的 token 会失效
-
-## 解决方案
-
-### 1. 持久化存储适配器 ✅
-
-项目已自动配置使用 SQLite 持久化适配器,无需额外配置。
-
-**特性:**
-
-- ✅ 数据持久化到 `oidc.db` 文件
-- ✅ 服务重启后数据不丢失
-- ✅ 自动清理过期数据
-- ✅ 支持所有 OIDC 操作
-
-**数据库文件位置:**
-
-```
-./oidc.db          # 主数据库文件
-./oidc.db-shm      # 共享内存文件
-./oidc.db-wal      # 预写日志文件
-```
-
-**备份建议:**
+创建目录并限制访问权限：
 
 ```bash
-# 先停止唯一实例，再归档完整数据目录
-docker stop gitea-oidc
-tar -C /srv/gitea-oidc/data -czf /srv/backup/gitea-oidc-data-YYYYMMDD.tar.gz .
-docker start gitea-oidc
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/data
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/secrets
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/backup
 ```
 
-运行中直接复制 `oidc.db` 可能遗漏 WAL 中尚未 checkpoint 的事务。不能停机时，使用 SQLite
-Online Backup API 或 `sqlite3 .backup`；不要只复制主数据库而忽略 `-wal`、`-shm` 文件。
-
-### 2. 持久化 JWKS 签名密钥 ✅
-
-项目已自动配置 JWKS 密钥管理,首次启动时会自动生成密钥。
-
-#### 配置 JWKS
-
-在配置文件中可以自定义 JWKS 设置:
-
-```json
-{
-  "jwks": {
-    "filePath": "./jwks.json",  // JWKS 文件路径
-    "keyId": "default-key"       // 密钥 ID (kid)
-  }
-}
-```
-
-配置说明:
-
-- `filePath`: JWKS 文件保存路径,默认 `./jwks.json`
-- `keyId`: 密钥标识符,用于密钥轮换,默认 `default-key`
-
-#### 自动生成(推荐)
-
-首次启动服务时,系统会自动生成 `jwks.json` 文件:
+每类密钥必须独立生成，不能互相复用：
 
 ```bash
-pnpm start
-```
-
-在 Linux/Unix 系统上，自动生成和手动生成的 JWKS 文件会被写成 `0600` 权限；加载已有
-JWKS 文件时，如果发现 group/other 访问位，也会在读取前收紧到 `0600`。
-
-输出示例:
-
-```
-🆕 JWKS 文件不存在,正在生成新密钥...
-🔐 正在生成 RSA 密钥对...
-✅ JWKS 已保存到: /path/to/jwks.json
-⚠️  请妥善保管此文件,不要提交到版本控制系统!
-```
-
-#### 手动生成
-
-如果需要手动生成密钥:
-
-```bash
-# 使用默认配置生成
-pnpm tsx scripts/generate-jwks.ts
-
-# 指定输出路径和密钥 ID
-pnpm tsx scripts/generate-jwks.ts ./my-jwks.json my-key-id
-```
-
-#### JWKS 文件格式
-
-生成的 `jwks.json` 文件包含 RSA 密钥对:
-
-```json
-{
-  "keys": [
-    {
-      "kty": "RSA",
-      "n": "...",
-      "e": "AQAB",
-      "d": "...",
-      "p": "...",
-      "q": "...",
-      "dp": "...",
-      "dq": "...",
-      "qi": "...",
-      "kid": "key-1234567890",
-      "alg": "RS256",
-      "use": "sig"
-    }
-  ]
-}
-```
-
-## 安全最佳实践
-
-### 1. 保护敏感文件
-
-确保以下文件已添加到 `.gitignore`:
-
-```gitignore
-# OIDC 持久化文件 (包含敏感数据)
-jwks.json
-oidc.db
-oidc.db-shm
-oidc.db-wal
-applications.db
-applications.db-shm
-applications.db-wal
-users.db
-users.db-shm
-users.db-wal
-```
-
-### 2. 文件权限
-
-在 Linux/Unix 系统上,限制文件访问权限:
-
-```bash
-chmod 600 jwks.json
-chmod 600 oidc.db
-chmod 600 applications.db
-chmod 600 users.db
-```
-
-`jwks.json` 包含签名私钥。服务会自动收紧该文件权限，但部署时仍应确认它没有被提交到镜像、
-仓库或共享给非服务运行用户。
-
-### 3. 密钥轮换
-
-定期轮换 JWKS 密钥以提高安全性:
-
-```bash
-# 1. 备份旧密钥
-mv jwks.json jwks.json.old
-
-# 2. 生成新密钥
-pnpm tsx scripts/generate-jwks.ts
-
-# 3. 重启服务
-pnpm start
-```
-
-**注意:** 密钥轮换后,使用旧密钥签发的 token 将无法验证,用户需要重新登录。
-
-### 4. 生产环境配置
-
-生产环境启动时必须提供 `gitea-oidc.config.js` 或 `gitea-oidc.config.json`。
-当 `NODE_ENV=production` 且两个配置文件都不存在时，服务会拒绝启动，避免误用开发默认
-Cookie key、客户端密钥和本地 URL。
-生产环境配置验证还会阻止以下高风险配置继续启动：
-
-- `server.url` 不是 HTTPS 公网地址、包含 query/fragment，或 `oidc.issuer` 没有等于
-  `${server.url}/oidc`、包含 query/fragment。
-- 客户端 `redirect_uris` 或 `post_logout_redirect_uris` 使用非 HTTPS 地址。
-- `oidc.cookieKeys` 使用示例默认值，或客户端 `client_secret` 太短、仍是示例默认值。
-- 启用内置后台但没有任何 OIDC client 的 `redirect_uris` 包含
-  `${server.url}${admin.basePath}/callback`，或该 client 不支持授权码流程和
-  `client_secret_basic`。
-- `server.corsOrigins` 中配置了非 HTTPS Origin，或包含 path、query、fragment。
-- 用户仓储或 OIDC 适配器使用 `memory`。
-- 启用应用管理但没有同时使用 `applications.clientSource: "database"`，应用仓储使用
-  `memory` 或 `:memory:`，或者 OIDC Adapter 不是 SQLite。
-- `oidc.features.devInteractions.enabled` 为 `true`，或启用了 `trustProxy` 但没有将其限制为
-  实际反向代理的 IP/CIDR。
-- 启用本地认证但未配置 `passwordFile`，或 `passwordFormat` 不是 `bcrypt`。
-- 启用的 Provider API provider 配置了非 HTTPS `baseUrl`，或 `baseUrl` 带用户名、密码、
-  query、fragment 等不稳定边界。
-
-在 `gitea-oidc.config.json` 中配置生产环境参数:
-
-```json
-{
-  "server": {
-    "host": "0.0.0.0",
-    "port": 3000,
-    "url": "https://idp.example.com",
-    "trustProxy": true,
-    "trustedProxyIps": ["127.0.0.1"],
-    "corsOrigins": ["https://app.example.com"]
-  },
-  "oidc": {
-    "issuer": "https://idp.example.com/oidc",
-    "cookieKeys": [
-      "your-strong-random-key-1",
-      "your-strong-random-key-2"
-    ]
-  }
-}
-```
-
-**重要配置项:**
-
-- `server.url`: 使用 HTTPS 和实际域名，不能包含 query 或 fragment
-- `server.trustProxy`: 在反向代理后必须设为 `true`
-- `server.trustedProxyIps`: 仅列出实际反向代理的 IP 或 CIDR；不要对公网客户端无条件信任
-  `X-Forwarded-*` 请求头
-- `server.corsOrigins`: 默认空数组；只有浏览器端跨域调用 SDK 或 Provider API 时才列出精确
-  HTTPS Origin，不能包含 path、query 或 fragment
-- `oidc.issuer`: 必须等于 `${server.url}/oidc`，和服务端固定 `/oidc` 挂载路径一致，不能包含
-  query 或 fragment
-- `oidc.cookieKeys`: 使用强随机密钥，不能保留示例默认值
-- `clients[].client_secret`: 生产环境至少 16 字符，不能保留示例默认值
-- `auth.providers.local.config.passwordFormat`: 生产环境启用本地认证时必须显式设置为
-  `bcrypt`，不要使用 `auto`、`md5` 或 `sha`
-- 本地认证默认连续失败 5 次后锁定账号 15 分钟，可通过
-  `auth.providers.local.config.lockoutPolicy` 调整；认证失败始终返回统一的“用户名或密码错误”
-  信息，避免枚举账号。不存在的用户名不会创建失败状态，已存在账号的失败计数保存到
-  `auth.stateStore`
-- `oidc.features.devInteractions.enabled`: 必须保持 `false`；它仅用于本地调试，生产环境会被
-  配置校验直接拒绝
-- `applications.secretEncryption.masterKey`: 启用应用管理时必须是 Base64/Base64URL 编码的
-  32 字节独立主密钥，不能复用 Cookie 或 Provider token 加密密钥
-
-### 5. 管理后台与 Provider API 安全配置
-
-启用内置管理后台或 Provider API 前，确认以下配置：
-
-- `admin.allowedGroups` 使用专用后台组名，例如 `gitea-oidc-admins`，不要复用普通团队名。
-- `providerApi.enabled` 默认关闭；只有确实需要代理飞书、钉钉等平台 API 时才开启。
-- 开启 `providerApi.enabled` 时，`providerApi.tokenEncryptionKey` 必须是至少 32 字符的随机值。
-- 开启 Provider API SDK 代理时，`providerApi.allowedClientIds` 必须列出允许调用代理的
-  OIDC `client_id`，避免任意 OIDC 客户端复用用户 access token 调用 Provider API。
-- `providerApi.requestTimeoutMs` 控制第三方 Provider 出站请求超时时间，默认 `10000` 毫秒；
-  生产环境不要配置得过大，避免慢连接或无响应 Provider 长时间占用请求处理资源。
-- `providerApi.responseBodyLimitBytes` 控制读取第三方响应体的最大字节数，默认 `1048576`
-  字节；生产环境不要配置得过大，避免异常大响应占用服务端内存。
-- 后台 HTTPS 部署会给 session cookie 追加 `Secure`，同时要求 `server.url` 使用公网 HTTPS
-  地址且 `oidc.issuer` 等于 `${server.url}/oidc`。
-- 统一登录页 `/interaction/:uid` 会设置 CSP、frame、nosniff 和 referrer 安全头；如果扩展
-  自定义认证 Provider，`renderLoginUI()` 返回的 raw HTML 片段应视为可信代码并自行保持转义。
-- Provider API 的 `allowedOperations` 只开放必要操作，实际 `method` 和 `path` 由服务端定义。
-- 启用的 Provider API provider 的 `baseUrl` 必须是 HTTPS，且不能包含用户名、密码、query 或
-  fragment，避免第三方 token 通过明文或混淆 URL 出站。
-- Provider API 不会默认对任意 Origin 开放 CORS；如需浏览器 SDK 跨域访问，只在
-  `server.corsOrigins` 中配置可信前端 Origin。
-
-更多用法见 [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)。
-
-应用控制面配置、一次性凭据、SQLite volume 和备份要求见
-[应用管理接入指南](./APPLICATION_MANAGEMENT.md)。
-
-### 6. 生成强随机密钥
-
-Cookie 密钥生成示例:
-
-```bash
-# 使用 OpenSSL 生成随机密钥
+openssl rand -base64 48
+openssl rand -base64 48
+openssl rand -base64 48
 openssl rand -base64 32
 ```
 
-## 部署检查清单
+前三个结果可分别作为两个 Cookie Key 和后台 Client Secret。最后一个结果是恰好 32 字节随机值
+的 Base64 表示，可作为 `applications.secretEncryption.masterKey`。
 
-在部署到生产环境前,请确认:
+如果使用本地密码认证，在已安装项目依赖的源码目录中生成 bcrypt 密码文件：
 
-- [ ] ✅ 已生成 `jwks.json` 文件
-- [ ] ✅ 已提供 `gitea-oidc.config.js` 或 `gitea-oidc.config.json`
-- [ ] ✅ `jwks.json` 已添加到 `.gitignore`
-- [ ] ✅ `oidc.db` 已添加到 `.gitignore`
-- [ ] ✅ 启用应用管理时，`applications.db` 已放入持久化 volume 并加入 `.gitignore`
-- [ ] ✅ 应用主密钥已放入外部 Secret Manager，并与数据库一起纳入恢复演练
-- [ ] ✅ 文件权限已正确设置 (600)
-- [ ] ✅ 配置文件使用 HTTPS URL
-- [ ] ✅ 配置文件使用强随机 Cookie 密钥
-- [ ] ✅ 反向代理配置正确 (`trustProxy: true`)
-- [ ] ✅ 已设置数据库备份策略
-- [ ] ✅ 已设置密钥轮换计划
+```bash
+read -r -s ADMIN_PASSWORD
+export ADMIN_PASSWORD
+node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 12));" > /srv/gitea-oidc/secrets/.htpasswd
+unset ADMIN_PASSWORD
+chmod 0600 /srv/gitea-oidc/secrets/.htpasswd
+```
 
-## 多实例部署
+不要把明文密码直接写进命令历史。本地认证适合作为首次上线的后台入口；外部认证管理员完成
+验收后，可以再评估是否关闭本地认证。
 
-如果需要部署多个实例(负载均衡):
+## 创建生产配置
 
-多实例必须使用 Redis OIDC 适配器和 Redis `auth.stateStore`；后者同时保存 OAuth state、
-一次性回调结果、后台会话和本地登录失败计数。SQLite 文件（包括 NFS）只支持单实例，不能
-作为并发多节点的 OIDC 存储。
+生产环境推荐使用 `gitea-oidc.config.js`，由配置文件显式读取环境变量。这里使用单实例 SQLite、
+本地管理员和数据库应用管理作为完整基线：
 
-当前应用管理的 `clientSource=database` 模式强制使用 SQLite OIDC Adapter 和 SQLite
-ApplicationRepository，因此不能多实例部署。需要多实例时必须保持
-`applications.enabled: false`、`applications.clientSource: "config"`，直到共享
-ApplicationRepository 落地。
+```javascript
+const requiredEnv = (name) => {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`缺少环境变量: ${name}`);
+  }
+  return value;
+};
+
+const publicUrl = requiredEnv("GITEA_OIDC_PUBLIC_URL").replace(/\/+$/, "");
+const trustedProxyIps = requiredEnv("GITEA_OIDC_TRUSTED_PROXY_IPS")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+export default {
+  server: {
+    host: "0.0.0.0",
+    port: 3000,
+    url: publicUrl,
+    trustProxy: true,
+    trustedProxyIps,
+    corsOrigins: []
+  },
+  logging: {
+    enabled: true,
+    level: "info"
+  },
+  audit: {
+    enabled: true,
+    retentionDays: 30
+  },
+  oidc: {
+    issuer: `${publicUrl}/oidc`,
+    cookieKeys: [
+      requiredEnv("GITEA_OIDC_COOKIE_KEY_CURRENT"),
+      requiredEnv("GITEA_OIDC_COOKIE_KEY_PREVIOUS")
+    ],
+    ttl: {
+      AccessToken: 3600,
+      AuthorizationCode: 600,
+      IdToken: 3600,
+      RefreshToken: 86400
+    },
+    claims: {
+      openid: ["sub"],
+      profile: [
+        "name",
+        "preferred_username",
+        "email",
+        "email_verified",
+        "picture",
+        "groups",
+        "groups_tree",
+        "roles",
+        "status"
+      ],
+      email: ["email", "email_verified"],
+      provider_api: []
+    },
+    features: {
+      devInteractions: { enabled: false },
+      registration: { enabled: false },
+      revocation: { enabled: true }
+    }
+  },
+  clients: [
+    {
+      client_id: "gitea-oidc-admin",
+      client_secret: requiredEnv("GITEA_OIDC_ADMIN_CLIENT_SECRET"),
+      redirect_uris: [`${publicUrl}/admin/callback`],
+      response_types: ["code"],
+      grant_types: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_method: "client_secret_basic"
+    }
+  ],
+  auth: {
+    userRepository: {
+      type: "sqlite",
+      sqlite: { dbPath: "/app/data/users.db" }
+    },
+    providers: {
+      local: {
+        enabled: true,
+        displayName: "本地密码",
+        priority: 1,
+        config: {
+          passwordFile: "/app/secrets/.htpasswd",
+          passwordFormat: "bcrypt",
+          adminUsers: ["admin"],
+          lockoutPolicy: {
+            enabled: true,
+            maxAttempts: 5,
+            lockoutDuration: 900
+          }
+        }
+      }
+    },
+    stateStore: { type: "memory" }
+  },
+  admin: {
+    enabled: true,
+    basePath: "/admin",
+    allowedGroups: ["gitea-oidc-admins"],
+    sessionTtlSeconds: 3600
+  },
+  providerApi: {
+    enabled: false
+  },
+  applications: {
+    enabled: true,
+    clientSource: "database",
+    repository: {
+      type: "sqlite",
+      sqlite: { dbPath: "/app/data/applications.db" }
+    },
+    secretEncryption: {
+      keyId: "applications-v1",
+      masterKey: requiredEnv("GITEA_OIDC_APPLICATION_MASTER_KEY")
+    }
+  },
+  adapter: {
+    type: "sqlite",
+    sqlite: { dbPath: "/app/data/oidc.db" }
+  },
+  jwks: {
+    filePath: "/app/data/jwks.json",
+    keyId: "production-signing-key"
+  }
+};
+```
+
+配置文件只读取环境变量，不应包含真实密钥。`auth.providers` 是认证安全边界：配置文件一旦声明
+它，就只启用明确列出的 Provider，不会隐式带入默认本地认证。
+
+身份审计复用 `auth.userRepository` 后端。上述 SQLite 配置会把 `audit_logs` 表写入
+`/app/data/users.db`；`retentionDays: 30` 表示自动删除超过 30 天的记录。生产环境不要关闭审计，
+也不要使用 `memory` 用户仓储，否则重启后无法追溯登录、退出和用户资料变更。
+
+创建 `/srv/gitea-oidc/.env.production`：
+
+```dotenv
+GITEA_OIDC_VERSION=x.y.z
+GITEA_OIDC_PUBLIC_URL=https://id.example.com
+GITEA_OIDC_TRUSTED_PROXY_IPS=replace-with-proxy-ip-or-cidr
+GITEA_OIDC_COOKIE_KEY_CURRENT=replace-with-first-random-value
+GITEA_OIDC_COOKIE_KEY_PREVIOUS=replace-with-second-random-value
+GITEA_OIDC_ADMIN_CLIENT_SECRET=replace-with-independent-random-value
+GITEA_OIDC_APPLICATION_MASTER_KEY=replace-with-base64-encoded-32-byte-key
+```
+
+将 `x.y.z` 替换为准备上线的已发布版本，不要在生产环境使用 `latest`。将代理地址替换为服务实际
+看到的反向代理来源 IP 或最小 CIDR，而不是任意公网地址范围。
+
+```bash
+chmod 0600 /srv/gitea-oidc/.env.production
+chmod 0600 /srv/gitea-oidc/gitea-oidc.config.js
+```
+
+## 使用 Docker Compose 启动
+
+创建 `/srv/gitea-oidc/compose.yaml`：
+
+```yaml
+services:
+  idp:
+    image: lydamirror/gitea-oidc:${GITEA_OIDC_VERSION:?set GITEA_OIDC_VERSION}
+    container_name: gitea-oidc
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    env_file:
+      - ./.env.production
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./gitea-oidc.config.js:/app/gitea-oidc.config.js:ro
+      - ./data:/app/data
+      - ./secrets:/app/secrets:ro
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/oidc/.well-known/openid-configuration')
+          .then((response) => process.exit(response.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+```
+
+只把端口发布到 `127.0.0.1`，避免客户端绕过 HTTPS 反向代理直接访问服务。如果反向代理运行在
+另一个容器或节点，需要改用受控的内部网络，并将 `trustedProxyIps` 设置为实际代理地址。
+
+先验证 Compose 展开结果，再启动：
+
+```bash
+cd /srv/gitea-oidc
+docker compose --env-file .env.production config
+docker compose --env-file .env.production pull
+docker compose --env-file .env.production up -d
+docker compose --env-file .env.production ps
+docker compose --env-file .env.production logs --tail=200 idp
+```
+
+首次启动会在持久化目录中创建 SQLite 数据库和 `jwks.json`。`jwks.json` 包含签名私钥，服务会
+在 Linux/Unix 上将其权限收紧为 `0600`。该文件必须和数据库一起持久化并备份。
+
+## 使用源码和 systemd 启动
+
+不使用 Docker 时，在固定发布目录安装并构建：
+
+```bash
+cd /opt/gitea-oidc/current
+corepack enable
+corepack prepare pnpm@10.0.0 --activate
+pnpm install --frozen-lockfile
+pnpm build:prod
+```
+
+把前面的生产配置保存在 `/srv/gitea-oidc/gitea-oidc.config.js`，并将所有 `/app/data` 和
+`/app/secrets` 路径替换为宿主机上的 `/srv/gitea-oidc/data` 和
+`/srv/gitea-oidc/secrets`。进程工作目录必须包含配置文件。
+
+创建 `/etc/systemd/system/gitea-oidc.service`：
+
+```ini
+[Unit]
+Description=Gitea OIDC Identity Provider
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gitea-oidc
+Group=gitea-oidc
+WorkingDirectory=/srv/gitea-oidc
+Environment=NODE_ENV=production
+EnvironmentFile=/srv/gitea-oidc/.env.production
+ExecStart=/usr/bin/node /opt/gitea-oidc/current/apps/idp-server/dist/main.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/gitea-oidc/data
+
+[Install]
+WantedBy=multi-user.target
+```
+
+确认 `/usr/bin/node` 是 Node.js 22，并让 `gitea-oidc` 用户拥有数据和配置：
+
+```bash
+sudo chown -R gitea-oidc:gitea-oidc /srv/gitea-oidc/data
+sudo chown -R root:gitea-oidc /srv/gitea-oidc/secrets
+sudo chown root:gitea-oidc \
+  /srv/gitea-oidc/gitea-oidc.config.js \
+  /srv/gitea-oidc/.env.production
+sudo chmod 0750 /srv/gitea-oidc/secrets
+sudo chmod 0640 \
+  /srv/gitea-oidc/secrets/.htpasswd \
+  /srv/gitea-oidc/gitea-oidc.config.js \
+  /srv/gitea-oidc/.env.production
+```
+
+然后启动：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now gitea-oidc
+sudo systemctl status gitea-oidc
+sudo journalctl -u gitea-oidc -n 200 --no-pager
+```
+
+systemd 和 Docker 只能选择一种运行方式，不能让两个实例同时访问同一组 SQLite 文件。
+
+## 配置 HTTPS 反向代理
+
+反向代理至少需要传递 `Host`、`X-Forwarded-For`、`X-Forwarded-Proto` 和
+`X-Forwarded-Host`。Nginx 示例：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name id.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/id.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/id.example.com/privkey.pem;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+    }
+}
+```
+
+完整说明和容器网络注意事项见[反向代理 HTTPS 配置指南](./REVERSE_PROXY_HTTPS.md)。
+
+## 首次启动验收
+
+先检查发现文档和 JWKS：
+
+```bash
+curl --fail --silent --show-error \
+  https://id.example.com/oidc/.well-known/openid-configuration | jq '{issuer, authorization_endpoint, token_endpoint, end_session_endpoint, jwks_uri}'
+
+curl --fail --silent --show-error \
+  https://id.example.com/oidc/jwks | jq '.keys | length'
+```
+
+验收结果必须满足：
+
+- `issuer` 精确等于 `https://id.example.com/oidc`。
+- 所有公开端点均为 HTTPS，且域名正确。
+- JWKS 至少包含一个签名公钥。
+- `https://id.example.com/admin` 可以打开，并能使用初始化管理员登录。
+- 容器健康状态为 `healthy`，日志没有配置校验错误或持续重启。
+
+登录后台后，使用 Gitea 模板创建业务 Client。完整步骤见
+[Gitea 接入指南](./GITEA_INTEGRATION.md)。
+
+## 多实例 Redis 部署
+
+只有在确实需要多实例时才使用该模式。配置至少需要满足：
 
 ```json
 {
-  "adapter": {
-    "type": "redis",
-    "redis": { "url": "redis://redis:6379", "keyPrefix": "oidc:" }
-  },
   "auth": {
+    "userRepository": {
+      "type": "pgsql",
+      "pgsql": {
+        "connectionString": "postgresql://gitea_oidc:your-password@postgres:5432/gitea_oidc"
+      }
+    },
     "stateStore": {
       "type": "redis",
-      "redis": { "url": "redis://redis:6379", "keyPrefix": "gitea-oidc:state:" }
+      "redis": {
+        "url": "redis://:your-password@redis:6379/0",
+        "keyPrefix": "gitea-oidc:state:"
+      }
+    }
+  },
+  "applications": {
+    "enabled": false,
+    "clientSource": "config"
+  },
+  "adapter": {
+    "type": "redis",
+    "redis": {
+      "url": "redis://:your-password@redis:6379/0",
+      "keyPrefix": "gitea-oidc:oidc:"
     }
   }
 }
 ```
 
-所有实例仍必须共享同一个持久化 `jwks.filePath`；首次创建采用文件锁和原子重命名，避免并发
-启动时写入不同签名密钥。
+同时遵守以下约束：
 
-## 故障排除
+- 所有实例必须使用完全相同的 `clients`、Cookie Keys、Provider 配置和签名 JWKS。
+- 不要让每个实例首次启动时各自生成 JWKS；通过安全分发预置同一份 `jwks.json`。
+- Redis 应使用独立实例或独立受控数据库，并启用认证、持久化和 `noeviction`。OIDC 键被逐出会
+  造成会话、授权码或撤销状态不一致。
+- Redis OIDC 数据和短期状态使用不同 `keyPrefix`。
+- 滚动升级前先验证新旧版本是否允许并行；不确定时采用维护窗口整体替换。
+- 当前模式不能使用数据库应用管理，业务 Client 必须来自静态 `clients` 配置。
 
-### 问题 1: 服务重启后用户需要重新登录
+详细参数见[OIDC 适配器配置指南](./ADAPTER_CONFIGURATION.md)和
+[Redis OIDC 适配器使用指南](./REDIS_ADAPTER_GUIDE.md)。
 
-**原因:** JWKS 密钥在每次启动时重新生成
+## 生产安全基线
 
-**解决:** 确保 `jwks.json` 文件存在且持久化
+上线前确认以下项目：
 
-### 问题 2: 数据库文件损坏
+- [ ] `NODE_ENV=production`，并且配置文件已只读挂载。
+- [ ] `server.url` 和 `oidc.issuer` 使用正确的 HTTPS 公网域名。
+- [ ] `trustProxy` 已开启，`trustedProxyIps` 只包含真实代理来源。
+- [ ] 服务端口不能被公网绕过反向代理直接访问。
+- [ ] Cookie Key、Client Secret、应用主密钥和 Provider 密钥分别生成、分别保存。
+- [ ] `devInteractions` 和动态注册保持关闭。
+- [ ] 用户、OIDC、应用数据和 JWKS 都位于持久化存储。
+- [ ] 本地认证只使用 bcrypt，密码文件权限为 `0600`。
+- [ ] `admin.allowedGroups` 使用专用管理员组。
+- [ ] `server.corsOrigins` 默认为空；确需跨域时只添加精确 HTTPS Origin。
+- [ ] Provider API 默认关闭；开启时配置 Client allowlist 和最小操作集。
+- [ ] 已完成备份恢复演练和明确的版本回滚步骤。
+- [ ] 已使用真实 Gitea 完成登录、退出和权限映射验收。
 
-**原因:** 服务异常终止或磁盘空间不足
+备份、升级、回滚、监控和密钥轮换见[生产运维手册](./OPERATIONS.md)。
 
-**解决:**
+## 常见启动失败
 
-```bash
-# 停止服务后恢复到空的数据目录，再使用备份时对应的密钥启动
-docker stop gitea-oidc
-tar -C /srv/gitea-oidc/data -xzf /srv/backup/gitea-oidc-data-YYYYMMDD.tar.gz
-docker start gitea-oidc
+### 提示生产环境必须提供配置文件
 
-# 只在确认可以丢弃全部 OIDC 状态时，才删除数据库重新开始
-# rm oidc.db*
-```
+配置文件必须位于进程工作目录，文件名只能是 `gitea-oidc.config.js` 或
+`gitea-oidc.config.json`。两个文件同时存在时，JS 文件优先。
 
-### 问题 3: 警告仍然出现
+### 提示 `oidc.issuer` 不匹配
 
-**检查:**
+将 `oidc.issuer` 设置为 `${server.url}/oidc`。不要把发现文档路径或管理后台路径写入
+Issuer。
 
-1. 确认代码已更新到最新版本
-2. 确认 `jwks.json` 文件存在
-3. 查看服务启动日志
+### 提示后台 Client 缺失
 
-## 监控建议
+启用后台时，至少一个 Client 的 `redirect_uris` 必须包含
+`${server.url}${admin.basePath}/callback`，并使用授权码流程和 `client_secret_basic`。
 
-建议监控以下指标:
+### 提示 Redis 部署缺少共享 stateStore
 
-1. **数据库大小**: 定期检查 `oidc.db` 文件大小
-2. **过期数据清理**: 确认自动清理任务正常运行
-3. **密钥有效期**: 记录密钥生成时间,定期轮换
+Redis OIDC Adapter 用于多实例时，`auth.stateStore` 也必须配置为 Redis。它保存 OAuth state、
+一次性回调结果、后台会话和登录失败计数。
+
+### 提示应用管理配置不兼容
+
+应用管理必须同时设置 `applications.enabled: true`、`clientSource: "database"` 和 SQLite
+OIDC Adapter。它当前不能和多实例 Redis 模式组合。
 
 ## 相关文档
 
-- [OIDC Provider 配置](https://github.com/panva/node-oidc-provider/blob/main/docs/README.md)
-- [SQLite 最佳实践](https://www.sqlite.org/bestpractice.html)
-- [JWKS 规范](https://datatracker.ietf.org/doc/html/rfc7517)
+- [Gitea 接入指南](./GITEA_INTEGRATION.md)
+- [生产运维手册](./OPERATIONS.md)
+- [反向代理 HTTPS 配置指南](./REVERSE_PROXY_HTTPS.md)
+- [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)
+- [应用管理接入指南](./APPLICATION_MANAGEMENT.md)
+- [飞书认证插件使用指南](./FEISHU_PLUGIN_GUIDE.md)

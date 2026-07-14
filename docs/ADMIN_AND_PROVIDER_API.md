@@ -86,6 +86,10 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
     "basePath": "/admin",
     "allowedGroups": ["gitea-oidc-admins"],
     "sessionTtlSeconds": 3600
+  },
+  "audit": {
+    "enabled": true,
+    "retentionDays": 30
   }
 }
 ```
@@ -118,6 +122,7 @@ Provider API 代理。
 - `/admin/users`：账号管理
 - `/admin/providers`：Provider 状态
 - `/admin/tokens`：Token 状态
+- `/admin/audit-logs`：登录、退出和用户资料变更审计
 
 后台安全边界：
 
@@ -138,6 +143,8 @@ Provider API 代理。
   `Content-Type` 和 `X-Gitea-OIDC-Admin-Action: 1` 请求头。
 - 后台用户 API 只返回管理台需要的账号字段，不返回 `metadata` 或 `providerProfile.raw`
   等 Provider 原始档案。
+- 审计日志只保存事件摘要。用户更新只记录发生变化的字段名和状态迁移，不保存字段新旧值、密码、
+  Token、Cookie、Client Secret 或 Provider 原始档案。
 - 后台用户创建和编辑只接受下方列出的字段；编辑时还会拒绝修改
   `authProvider` 和 `externalId`。身份改绑需要独立的事务与凭据撤销流程，当前后台不提供。
 - `GET /admin/api/tokens` 只返回 token 状态摘要，不会返回 `accessToken` 或
@@ -156,6 +163,7 @@ Provider API 代理。
 - Provider 状态：`GET /admin/api/providers`
 - Token 列表：`GET /admin/api/tokens`
 - 手动探活：`POST /admin/api/tokens/probe`
+- 审计日志：`GET /admin/api/audit-logs`
 
 禁用或删除用户时，服务端会先撤销 OIDC 与 Provider 凭据；撤销失败则不改变用户状态，
 避免出现“后台显示已禁用，但旧 refresh token 仍可用”的不一致状态。
@@ -166,6 +174,29 @@ Provider API 代理。
 `externalId` 只能绑定一个用户；重复绑定会被拒绝。管理员权限仍以 `groups` 命中
 `admin.allowedGroups` 判定。
 
+`groups` 使用树形对象数组，每个节点包含稳定的 `id`、显示用的 `name` 和可选的 `children`：
+
+```json
+[
+  {
+    "id": "engineering",
+    "name": "研发中心",
+    "children": [
+      {
+        "id": "backend",
+        "name": "后端组"
+      }
+    ]
+  }
+]
+```
+
+管理 API 只接受对象树，传入旧版 `string[]` 会返回 `400`。响应中的 `groups` 也始终为
+对象树；权限匹配同时识别节点的 `id` 和 `name`。
+
+用户表还会保存一个自动生成的 UUID `id`。该字段目前仅用于内部持久化，不替代 OIDC
+`sub`，也不会出现在管理 API 响应或 OIDC Claim 中。
+
 `GET /admin/api/users` 支持以下查询参数：
 
 - 过滤字段：`username`、`name`、`email`、`authProvider`、`status`。
@@ -175,6 +206,75 @@ Provider API 代理。
   时默认返回前 100 条。
 
 其它查询字段会返回 `400`。后台不会把任意 `sortBy` 或过滤字段透传给数据库。
+
+## 审计日志
+
+`audit.enabled` 默认是 `true`。审计日志复用 `auth.userRepository` 的存储后端：开发环境的
+`memory` 仅保存在当前进程，SQLite 写入用户数据库文件，PostgreSQL 写入同一数据库的
+`audit_logs` 表。生产环境应使用 SQLite 或 PostgreSQL，不能依赖 `memory` 保存审计证据。
+
+当前记录以下事件：
+
+| 事件 | 触发条件 | 关键摘要 |
+| --- | --- | --- |
+| `user.login` | OIDC 授权最终成功，或有效登录流程中的 Provider 认证失败 | 结果、用户、Provider、OIDC `client_id`、IP、User-Agent |
+| `user.logout` | OIDC Session 成功结束 | 用户、OIDC `client_id`、IP、User-Agent |
+| `admin.login` | 管理后台登录成功或失败 | 结果、管理员、后台 Client、IP、User-Agent、失败原因码 |
+| `admin.logout` | 管理后台 Session 主动退出 | 管理员、后台 Client、IP、User-Agent |
+| `user.created` | Provider 同步或管理员创建用户 | 目标用户、Provider、来源、操作管理员 |
+| `user.updated` | Provider 同步或管理员修改用户资料 | 目标用户、操作管理员、变更字段名、状态迁移 |
+| `user.deleted` | 管理员删除用户 | 目标用户和操作管理员 |
+
+`clientId` 表示发起本次用户登录或退出的业务系统。管理台“来源 / 客户端”列会同时显示
+Provider 或事件来源以及该 `client_id`，用于区分同一用户登录了哪个系统。
+
+成功的 `user.login` 只在 OIDC Provider 完成授权响应后写入，包括复用已有 SSO Session 登录新
+Client 的场景。密码错误、账号禁用等失败仍在 Provider 认证阶段记录；已能安全解析到本地用户的失败
+记录会带 `userId`，因此可按用户筛选。没有命中本服务签发 state 的匿名 callback 请求不会写入结构化
+审计，避免公开回调被滥用为无界数据库写入；这类协议噪声应通过入口限流和普通进程日志监控。
+
+`GET /admin/api/audit-logs` 只允许后台 Session 访问，支持以下查询参数：
+
+- `userId`：匹配事件目标用户或操作管理员，可筛选已删除用户的历史记录。
+- `eventType`：上表中的事件值。
+- `outcome`：`success` 或 `failure`。
+- `from`、`to`：ISO 8601 时间，包含边界；`from` 不能晚于 `to`。
+- `offset`：非负整数。
+- `limit`：`1` 到 `500` 的整数，默认 `100`。
+
+示例：
+
+```bash
+curl --cookie "gitea_oidc_admin_session=<admin-session>" \
+  "https://id.example.com/admin/api/audit-logs?userId=user-1&eventType=user.login&limit=20"
+```
+
+返回分页对象：
+
+```json
+{
+  "items": [
+    {
+      "id": "00000000-0000-4000-8000-000000000000",
+      "eventType": "user.login",
+      "outcome": "success",
+      "source": "oidc",
+      "userId": "user-1",
+      "provider": "local",
+      "clientId": "gitea",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+示例中的后台 Session 只用于说明请求格式；实际运维不要把 Cookie 写入脚本、命令历史或日志。
+优先从 `/admin/audit-logs` 页面查询。
+
+`audit.retentionDays` 控制自动删除期限，默认 `30`，允许 `1` 到 `3650`。服务在写入审计事件时
+至多每小时清理一次超过保留期的记录。缩短保留期后，需要产生一条新审计事件才会触发下一次清理；
+数据库备份中的旧记录仍按备份生命周期管理。
 
 `GET /admin/api/tokens` 支持以下查询参数：
 
@@ -207,7 +307,15 @@ HTTPS，避免第三方 access token 通过明文链路发送。
   "oidc": {
     "claims": {
       "openid": ["sub"],
-      "profile": ["name", "email", "groups", "roles", "status"],
+      "profile": [
+        "name",
+        "preferred_username",
+        "email",
+        "groups",
+        "groups_tree",
+        "roles",
+        "status"
+      ],
       "provider_api": []
     }
   },

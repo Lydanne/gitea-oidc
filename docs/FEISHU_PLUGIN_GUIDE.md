@@ -51,7 +51,8 @@
   "scopes": {
     "tenant": [
       "contact:user.base:readonly",
-      "contact:user.email:readonly"
+      "contact:user.email:readonly",
+      "tenant:tenant:readonly"
     ],
     "user": [
       "contact:contact.base:readonly",
@@ -221,6 +222,33 @@ export default {
 | `config.autoCreateUser` | boolean | `true` | 是否自动创建用户 |
 | `config.userMapping` | object | 见下文 | 用户字段映射配置 |
 | `config.apiEndpoint` | string | 飞书公有云 | 私有化部署的 API 端点 |
+
+### 用户组和 Claims
+
+飞书登录成功后，用户组包含一个固定的 `Default` 分组。它替代旧版自动添加的 `Owners`，但不会
+自动获得管理后台权限；后台权限仍由独立的 `admin.allowedGroups` 控制。
+
+未配置 `groupMapping` 时，Provider 会读取飞书企业和部门路径，形成以企业为根节点的
+`groups_tree`。OIDC `groups` 同时输出从根节点到每个节点的名称路径和 ID 路径，例如：
+
+```json
+[
+  "Default",
+  "示例组织",
+  "tenant_example",
+  "示例组织/研发中心",
+  "tenant_example/od_engineering",
+  "示例组织/研发中心/后端组",
+  "tenant_example/od_engineering/od_backend"
+]
+```
+
+飞书应用必须开通 `tenant:tenant:readonly`（获取企业信息），才能保存真实企业名称和
+`tenant_key`。如果该权限缺失，登录不会失败，但组织根节点无法写入，服务端会记录不含敏感数据的
+警告。部门名称和层级还需要 `contact:user.department:readonly` 与
+`contact:user.department_path:readonly`。
+
+配置 `groupMapping` 后，Claim 保留 `Default`，并使用映射后的自定义分组值，不再输出原始企业部门树。
 
 ### redirectUri 配置规则
 
@@ -539,6 +567,9 @@ export default {
 
 - 基础信息：`contact:contact.base:readonly`
 - 邮箱（如需要）：`contact:user.email:readonly`
+- 企业名称：`tenant:tenant:readonly`
+- 部门路径（用于用户组）：`contact:user.department:readonly`、
+  `contact:user.department_path:readonly`
 - 避免申请不必要的权限
 
 ---

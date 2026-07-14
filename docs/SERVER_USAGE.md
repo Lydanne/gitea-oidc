@@ -70,7 +70,16 @@ const customConfig: GiteaOidcConfig = {
     },
     claims: {
       openid: ['sub'],
-      profile: ['name', 'email', 'picture', 'groups', 'roles', 'status'],
+      profile: [
+        'name',
+        'preferred_username',
+        'email',
+        'picture',
+        'groups',
+        'groups_tree',
+        'roles',
+        'status',
+      ],
       provider_api: [],
     },
     features: {
@@ -91,6 +100,7 @@ const customConfig: GiteaOidcConfig = {
     token_endpoint_auth_method: 'client_secret_basic',
   }],
   auth: {
+    autoRedirectSingleProvider: false,
     userRepository: {
       type: 'memory',
       memory: {},
@@ -113,6 +123,10 @@ const customConfig: GiteaOidcConfig = {
     basePath: '/admin',
     allowedGroups: ['gitea-oidc-admins'],
     sessionTtlSeconds: 3600,
+  },
+  audit: {
+    enabled: true,
+    retentionDays: 30,
   },
   providerApi: {
     enabled: false,
@@ -209,6 +223,25 @@ setupOIDC();
 - **oidc.cookieKeys**: 生产环境必须使用强密钥，建议使用多个密钥支持密钥轮换
 - **clients**: 配置允许使用此 IdP 的客户端应用
 - **auth.providers**: 配置启用的认证方式
+- **auth.autoRedirectSingleProvider**: 只有一个可跳转登录方式时是否直接进入，默认关闭
+- **audit.enabled**: 是否记录登录、退出和用户资料变更审计，默认启用
+- **audit.retentionDays**: 审计记录保留天数，默认 `30`，范围 `1` 到 `3650`；超过期限的记录自动删除
+
+### 单一登录方式自动跳转
+
+只有一个 OAuth 登录入口时，可以跳过统一登录页：
+
+```javascript
+export default {
+  auth: {
+    autoRedirectSingleProvider: true,
+    // userRepository、providers 和 stateStore 保持原配置
+  },
+};
+```
+
+服务端仅在最终可用的登录方式恰好为一个，且该方式提供安全的 HTTP(S) 或站内跳转地址时返回
+`302`。本地用户名密码表单、多个登录入口、不可用入口和非法跳转地址仍会显示统一登录页。
 
 ## 返回值
 
@@ -232,6 +265,62 @@ process.on('SIGTERM', async () => {
   await app.close();
 });
 ```
+
+## 用户到 Claim 的转换
+
+`userToClaims()` 是统一的用户 Claim 投影入口。内部用户的 `groups` 保存对象树；转换结果中的
+`groups` 是兼容 Gitea 的完整名称路径和 ID 路径字符串数组，`groups_tree` 保留完整层级。
+
+```typescript
+import { userToClaims } from 'gitea-oidc';
+import type { UserInfo } from 'gitea-oidc';
+
+const user: UserInfo = {
+  id: '6a8706b9-c93d-4f4e-a5ad-6d5f0808df47',
+  sub: 'user-1',
+  username: 'alice',
+  name: 'Alice',
+  email: 'alice@example.com',
+  authProvider: 'feishu',
+  externalId: 'ou_example',
+  groups: [
+    { id: 'Default', name: 'Default' },
+    {
+      id: 'tenant_example',
+      name: '示例组织',
+      children: [
+        {
+          id: 'engineering',
+          name: '研发中心',
+          children: [{ id: 'backend', name: '后端组' }],
+        },
+      ],
+    },
+  ],
+};
+
+const claims = userToClaims(user);
+// claims.groups:
+// [
+//   'Default',
+//   '示例组织',
+//   'tenant_example',
+//   '示例组织/研发中心',
+//   'tenant_example/engineering',
+//   '示例组织/研发中心/后端组',
+//   'tenant_example/engineering/backend',
+// ]
+// claims.groups_tree:
+// user.groups 的完整树形结构
+```
+
+每个树节点都会生成从根节点到该节点的名称路径和 ID 路径。权限配置 `admin.allowedGroups` 可以
+使用完整路径，也可以继续填写任一节点的 `id` 或 `name`。旧数据库里的
+`groups: string[]` 不再转换，读取时按空分组处理；用户下次成功登录时，Provider 会用对象树
+重新写入 `groups`。
+
+`id` 是用户表内部保存的随机 UUID。新用户在创建时生成，SQLite 和 PostgreSQL 会在启动时
+为缺失该字段的现有用户回填。当前查询主键、OIDC `sub`、管理 API 和 `userToClaims()` 都不使用它。
 
 ## 注意事项
 

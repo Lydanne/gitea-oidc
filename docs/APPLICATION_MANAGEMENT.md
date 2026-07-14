@@ -103,16 +103,19 @@ export default {
 1. 使用 `admin.allowedGroups` 允许的管理员登录 `${server.url}${admin.basePath}`。
 2. 打开“应用”页面，默认路径为 `/admin/applications`。
 3. 选择“使用模板”或“自定义 OIDC”。模板表单和预览均由服务端的精确模板版本驱动；自定义模式
-   需要选择环境、Client 类型、Redirect URI、scopes 和是否启用 Refresh Token。
-4. 提交前检查模板预览中的 Issuer、Redirect URI、scopes、PKCE 和结构化接入步骤。
+   需要选择环境、Client 类型、Redirect URI、可选的 Post Logout Redirect URI、scopes 和是否启用
+   Refresh Token。
+4. 提交前检查模板预览中的 Issuer、Redirect URI、Post Logout Redirect URI、scopes、PKCE 和
+   结构化接入步骤。
 5. 下载 `*.gitea-oidc.connection.json`；它是可重复获取的公开接入描述，不包含任何 Secret。
 6. confidential Client 还要立即下载 `*.gitea-oidc.credential.json`，并把文件内容转存到业务应用的
    Secret Manager。
 7. 使用公开 connection 和一次性 credential 配置业务应用的 OIDC 客户端。
 
-生产和预发布 Redirect URI 必须使用 HTTPS。开发环境只允许 loopback 地址使用 HTTP，URI 不能
-包含 query、通配符、fragment 或用户凭据。所有应用必须包含 `openid` scope；公共 Client 不生成
-Client Secret，并强制使用 PKCE S256。
+生产和预发布 Redirect URI 与 Post Logout Redirect URI 必须使用 HTTPS。开发环境只允许 loopback
+地址使用 HTTP，URI 不能包含 query、通配符、fragment 或用户凭据。所有应用必须包含 `openid`
+scope；公共 Client 不生成 Client Secret，并强制使用 PKCE S256。登出回跳地址执行精确匹配，路径和
+末尾 `/` 必须与业务系统实际发送的 `post_logout_redirect_uri` 一致。
 
 第三方自定义应用默认使用显式 consent。只有受信任的 first-party 应用才能配置
 `skip_for_trusted`，当前后台表单不会把普通自定义应用提升为 first-party。
@@ -123,21 +126,28 @@ Client Secret，并强制使用 PKCE S256。
 
 ## 使用 Gitea 模板
 
-内置目录当前提供精确引用 `gitea@1`，声明目标版本 `1.24`、`1.25` 和 `1.26`。管理员填写 Gitea
-Base URL、认证源名称、目标版本、部署环境和可选的 group claim 后，服务端会派生并校验：
+内置目录保留 `gitea@1`，新建应用默认使用 `gitea@2`；两个模板版本都声明目标版本 `1.24`、`1.25`
+和 `1.26`。管理员填写 Gitea Base URL、认证源名称、目标版本、部署环境和认证源选项后，服务端会
+派生并校验：
 
 - Gitea 固定回调地址；
+- Gitea 站点根地址对应的 Post Logout Redirect URI；
 - 与当前部署 claim 配置一致的 OIDC scopes；
 - Gitea 的 PKCE 兼容策略；
-- 管理后台字段、discovery URL 和 `gitea admin auth add-oauth` 命令说明。
+- 图标、2FA、全名/SSH/Required Claim、管理员/受限组和组织团队映射；
+- 管理后台字段、discovery URL 和目标版本支持的 `gitea admin auth add-oauth` 命令说明。
+
+Gitea 1.24 不支持全名与 SSH 公钥 Claim，模板会拒绝这种组合；1.25 和 1.26 支持。`add-oauth`
+没有用户同步参数且总是创建启用状态的认证源，因此模板会要求在后台确认用户同步；选择不启用认证源
+时不会生成 CLI 命令，避免认证源在调整前短暂启用。
 
 创建时会把模板解析结果保存为不可变版本快照。即使模板目录以后升级或移除，应用的公开 connection
 和接入说明仍从创建时快照重复生成，不会静默漂移。模板只生成结构化纯文本说明，不保存或拼接真实
 Client Secret。
 
-`supportedVersions` 是代码中的兼容目标，不等同于真实实例认证。当前自动测试覆盖输入约束、回调
-派生、scope/claim 映射、快照稳定性和命令参数合同；在生产采用某个 Gitea 版本前，仍应使用该版本
-实例完成一次真实登录、退出和组映射验收。
+`supportedVersions` 是代码中的兼容目标，不等同于真实实例认证。当前自动测试覆盖输入约束、登录与
+登出回跳派生、scope/claim 映射、快照稳定性和命令参数合同；在生产采用某个 Gitea 版本前，仍应
+使用该版本实例完成一次真实登录、退出和组映射验收。
 
 ## 一次性凭据语义
 
@@ -197,8 +207,11 @@ docker run -d --name gitea-oidc -p 3000:3000 \
   --env-file /srv/gitea-oidc/gitea-oidc.env \
   -v /srv/gitea-oidc/data:/app/data \
   -v /srv/gitea-oidc/gitea-oidc.config.js:/app/gitea-oidc.config.js:ro \
-  lydamirror/gitea-oidc:latest
+  lydamirror/gitea-oidc:<version>
 ```
+
+生产环境使用已发布的固定版本号，不要使用 `latest`。完整 Compose 和上线流程见
+[生产部署指南](./PRODUCTION_SETUP.md)。
 
 如果部署平台没有 Secret Manager，至少把 env 文件权限设为 `0600`，并排除在镜像、备份日志和
 版本控制之外。不要把主密钥直接写进 shell 命令历史。

@@ -90,7 +90,7 @@ const assertPublicResolution = async (
   signal: AbortSignal,
   deadline: number,
   timeoutMs: number,
-) => {
+): Promise<readonly string[]> => {
   assertDeadline(signal, deadline, timeoutMs);
   let addresses: readonly string[];
   try {
@@ -107,6 +107,7 @@ const assertPublicResolution = async (
       "issuer 解析到私有、loopback 或保留地址；仅在可信内网开发环境中使用 --allow-private-network",
     );
   }
+  return addresses;
 };
 
 const validateEndpoint = (
@@ -174,8 +175,9 @@ export const runDoctor = async (
   });
 
   const operation = (async (): Promise<DoctorResult> => {
+    let pinnedAddresses: readonly string[] | undefined;
     if (!allowPrivateNetwork) {
-      await assertPublicResolution(
+      pinnedAddresses = await assertPublicResolution(
         issuerHostname,
         dependencies.dnsResolver,
         controller.signal,
@@ -187,6 +189,7 @@ export const runDoctor = async (
     try {
       response = await dependencies.httpClient.fetch(discoveryUrl, {
         headers: { accept: "application/json" },
+        ...(pinnedAddresses === undefined ? {} : { pinnedAddresses }),
         redirect: "manual",
         signal: controller.signal,
       });

@@ -73,6 +73,7 @@ describe("doctor", () => {
       "https://id.example.com/.well-known/openid-configuration",
       expect.objectContaining({
         headers: { accept: "application/json" },
+        pinnedAddresses: ["93.184.216.34"],
         redirect: "manual",
         signal: expect.any(AbortSignal),
       }),

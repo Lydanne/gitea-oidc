@@ -38,6 +38,8 @@ export interface HttpClient {
     url: string,
     init: {
       headers: Record<string, string>;
+      /** 仅允许这些已解析 IP 作为实际连接目标；省略时使用系统 DNS。 */
+      pinnedAddresses?: readonly string[];
       redirect: "manual";
       signal: AbortSignal;
     },

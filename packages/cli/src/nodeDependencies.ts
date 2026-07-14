@@ -2,11 +2,20 @@ import { execFile } from "node:child_process";
 import { lookup } from "node:dns/promises";
 import { constants } from "node:fs";
 import { open, unlink } from "node:fs/promises";
+import { request as httpRequest, type IncomingMessage, type RequestOptions } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
 import { relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { promisify } from "node:util";
-import type { CliDependencies, CliFileSystem, CliTerminal } from "./dependencies.js";
+import type {
+  CliDependencies,
+  CliFileSystem,
+  CliTerminal,
+  HttpClient,
+  HttpResponse,
+} from "./dependencies.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -119,6 +128,114 @@ const createResponseBodyReader = (response: Response) => {
   return { cancel, readText };
 };
 
+const createPinnedLookup = (addresses: readonly string[]): LookupFunction => {
+  const records = addresses.map((address) => {
+    const family = isIP(address);
+    if (family !== 4 && family !== 6) {
+      throw Object.assign(new Error(`invalid pinned IP address: ${address}`), { code: "EINVAL" });
+    }
+    return { address, family };
+  });
+  if (records.length === 0) {
+    throw Object.assign(new Error("at least one pinned IP address is required"), {
+      code: "EINVAL",
+    });
+  }
+
+  return (hostname, options, callback) => {
+    const requestedFamily =
+      options.family === "IPv4" ? 4 : options.family === "IPv6" ? 6 : options.family;
+    const candidates =
+      requestedFamily === 4 || requestedFamily === 6
+        ? records.filter(({ family }) => family === requestedFamily)
+        : records;
+    if (candidates.length === 0) {
+      callback(
+        Object.assign(new Error(`no pinned address matches ${hostname}`), { code: "ENOTFOUND" }),
+        "",
+        0,
+      );
+      return;
+    }
+    if (options.all) {
+      callback(null, candidates);
+      return;
+    }
+    callback(null, candidates[0].address, candidates[0].family);
+  };
+};
+
+const createIncomingResponseBodyReader = (response: IncomingMessage) => ({
+  async cancel() {
+    response.destroy();
+  },
+  async readText(maximumBytes: number): Promise<string> {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    for await (const chunk of response) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.byteLength;
+      if (totalBytes > maximumBytes) {
+        response.destroy();
+        throw Object.assign(new Error("response exceeds size limit"), { code: "EFBIG" });
+      }
+      chunks.push(buffer);
+    }
+    return Buffer.concat(chunks, totalBytes).toString("utf8");
+  },
+});
+
+const fetchWithPinnedAddresses = async (
+  url: string,
+  init: Parameters<HttpClient["fetch"]>[1],
+): Promise<HttpResponse> => {
+  const pinnedAddresses = init.pinnedAddresses;
+  if (pinnedAddresses === undefined) {
+    throw new Error("pinned addresses are required");
+  }
+
+  const target = new URL(url);
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw Object.assign(new Error(`unsupported URL protocol: ${target.protocol}`), {
+      code: "EPROTONOSUPPORT",
+    });
+  }
+
+  const requestOptions: RequestOptions = {
+    agent: false,
+    headers: init.headers,
+    lookup: createPinnedLookup(pinnedAddresses),
+    method: "GET",
+    signal: init.signal,
+  };
+
+  return await new Promise<HttpResponse>((resolve, reject) => {
+    const handleResponse = (response: IncomingMessage) => {
+      const bodyReader = createIncomingResponseBodyReader(response);
+      const status = response.statusCode ?? 0;
+      resolve({
+        cancel: bodyReader.cancel,
+        headers: {
+          get(name) {
+            const value = response.headers[name.toLowerCase()];
+            return Array.isArray(value) ? value.join(", ") : (value ?? null);
+          },
+        },
+        ok: status >= 200 && status < 300,
+        readText: bodyReader.readText,
+        status,
+        url,
+      });
+    };
+    const request =
+      target.protocol === "https:"
+        ? httpsRequest(target, requestOptions, handleResponse)
+        : httpRequest(target, requestOptions, handleResponse);
+    request.once("error", reject);
+    request.end();
+  });
+};
+
 const createNodeTerminal = (): CliTerminal => {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   return {
@@ -196,7 +313,12 @@ export const createNodeDependencies = (): CliDependencies => ({
   },
   httpClient: {
     async fetch(url, init) {
-      const response = await globalThis.fetch(url, init);
+      const { pinnedAddresses, ...fetchInit } = init;
+      if (pinnedAddresses !== undefined) {
+        return fetchWithPinnedAddresses(url, init);
+      }
+
+      const response = await globalThis.fetch(url, fetchInit);
       const bodyReader = createResponseBodyReader(response);
       return {
         cancel: bodyReader.cancel,

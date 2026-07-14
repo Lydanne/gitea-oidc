@@ -14,6 +14,8 @@ import type {
   AdminSession,
   AdminUser,
   AdminUserPayload,
+  AuditLogFilters,
+  AuditLogPage,
   CreateCustomApplicationRequestV1,
   CreateTemplateApplicationRequestV1,
   PreviewApplicationTemplateRequestV1,
@@ -65,6 +67,16 @@ export const fetchAdminSession = () => adminApiRequest<AdminSession>("/me");
 
 /** 获取后台用户列表。 */
 export const fetchAdminUsers = () => adminApiRequest<AdminUser[]>("/users");
+
+/** 按用户、事件、结果和时间范围查询审计日志。 */
+export const fetchAuditLogs = (filters: AuditLogFilters = {}) => {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return adminApiRequest<AuditLogPage>(`/audit-logs${suffix}`);
+};
 
 /** 获取 Provider 与 Provider API 状态。 */
 export const fetchProviderState = () => adminApiRequest<ProviderState>("/providers");

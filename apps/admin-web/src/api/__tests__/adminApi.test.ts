@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchAdminApplications,
   fetchAdminApplicationTemplates,
+  fetchAuditLogs,
   rotateAdminApplicationSecret,
 } from "../adminApi";
 
@@ -163,5 +164,36 @@ describe("admin application API contracts", () => {
         expectedVersion: 1,
       }),
     ).rejects.toMatchObject({ name: "ZodError" });
+  });
+});
+
+describe("admin audit API", () => {
+  it("serializes audit filters into the management endpoint query", async () => {
+    const fetchMock = mockJsonResponse({ items: [], total: 0 });
+
+    await expect(
+      fetchAuditLogs({
+        userId: "user-1",
+        eventType: "user.login",
+        outcome: "success",
+        from: "2026-03-01T00:00:00.000Z",
+        to: "2026-03-31T23:59:59.000Z",
+        offset: 20,
+        limit: 20,
+      }),
+    ).resolves.toEqual({ items: [], total: 0 });
+
+    const [requestUrl] = fetchMock.mock.calls[0];
+    const url = new URL(requestUrl, "http://admin.local");
+    expect(url.pathname).toBe("/admin/api/audit-logs");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      userId: "user-1",
+      eventType: "user.login",
+      outcome: "success",
+      from: "2026-03-01T00:00:00.000Z",
+      to: "2026-03-31T23:59:59.000Z",
+      offset: "20",
+      limit: "20",
+    });
   });
 });

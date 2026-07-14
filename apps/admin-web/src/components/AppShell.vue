@@ -23,6 +23,7 @@ const navItems = computed(() => [
   ...(props.applicationsEnabled ? [{ label: "应用", to: "/applications", icon: "pi pi-box" }] : []),
   { label: "Provider", to: "/providers", icon: "pi pi-sitemap" },
   { label: "Token", to: "/tokens", icon: "pi pi-key" },
+  { label: "审计", to: "/audit-logs", icon: "pi pi-history" },
 ]);
 </script>
 

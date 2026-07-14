@@ -19,6 +19,7 @@ import type { AdminUser, UserForm, UserStatus } from "../types/admin";
 import { userStatusOptions } from "../types/admin";
 import { formatDate, getUserDisplayName, getUserStatusSeverity } from "../utils/format";
 import { createBlankUserForm, formToPayload, userToForm } from "../utils/userForm";
+import { flattenUserGroupNames } from "../utils/userGroups";
 
 const confirm = useConfirm();
 const toast = useToast();
@@ -89,14 +90,14 @@ const openEdit = (user: AdminUser) => {
 
 /** 保存创建或编辑后的用户。 */
 const saveUser = async () => {
-  const payload = formToPayload(userForm.value, { includeIdentity: dialogMode.value !== "edit" });
-  if (!payload.username) {
-    handleError(new Error("用户名不能为空"));
-    return;
-  }
-
   saving.value = true;
   try {
+    const payload = formToPayload(userForm.value, {
+      includeIdentity: dialogMode.value !== "edit",
+    });
+    if (!payload.username) {
+      throw new Error("用户名不能为空");
+    }
     if (dialogMode.value === "edit" && selectedUser.value) {
       await updateUser(selectedUser.value.sub, payload);
     } else {
@@ -196,7 +197,7 @@ const setStatus = async (user: AdminUser, status: UserStatus) => {
       <Column field="email" header="邮箱" sortable style="min-width: 15rem" />
       <Column field="authProvider" header="Provider" sortable style="min-width: 8rem" />
       <Column header="组" style="min-width: 12rem">
-        <template #body="{ data }">{{ (data.groups || []).join(", ") || "-" }}</template>
+        <template #body="{ data }">{{ flattenUserGroupNames(data.groups).join(", ") || "-" }}</template>
       </Column>
       <Column header="角色" style="min-width: 10rem">
         <template #body="{ data }">{{ (data.roles || []).join(", ") || "-" }}</template>

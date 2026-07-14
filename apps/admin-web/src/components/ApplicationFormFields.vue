@@ -93,6 +93,20 @@ const clientTypeOptions = [
       </small>
     </label>
 
+    <label class="field field-full" for="application-post-logout-redirect-uris">
+      <span>Post Logout Redirect URI（可选）</span>
+      <Textarea
+        id="application-post-logout-redirect-uris"
+        v-model="model.postLogoutRedirectUris"
+        rows="3"
+        aria-describedby="application-post-logout-redirect-help"
+        placeholder="每行一个登出完成后的回跳地址"
+      />
+      <small id="application-post-logout-redirect-help" class="field-help">
+        必须与客户端发送的地址完全一致；生产与预发布环境必须使用 HTTPS
+      </small>
+    </label>
+
     <label class="field field-full" for="application-scopes">
       <span>Scopes</span>
       <InputText

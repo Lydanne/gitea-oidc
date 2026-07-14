@@ -59,6 +59,15 @@ export const adminRoutes: RouteRecordRaw[] = [
     } satisfies AdminRouteMeta,
   },
   {
+    path: "/audit-logs",
+    name: "audit-logs",
+    component: () => import("./views/AuditLogsView.vue"),
+    meta: {
+      title: "审计日志",
+      description: "查看用户登录、退出和资料变更记录。",
+    } satisfies AdminRouteMeta,
+  },
+  {
     path: "/:pathMatch(.*)*",
     redirect: "/users",
   },

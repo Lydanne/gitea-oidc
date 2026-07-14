@@ -343,6 +343,20 @@ select {
   min-width: 160px;
 }
 
+.audit-toolbar .p-toolbar-start {
+  flex-wrap: wrap;
+}
+
+.audit-filter {
+  min-width: 180px;
+}
+
+.audit-status-change {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
 .identity-cell {
   display: flex;
   align-items: center;

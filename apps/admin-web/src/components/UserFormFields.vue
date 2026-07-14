@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
+import Textarea from "primevue/textarea";
 import { type UserForm, userStatusOptions } from "../types/admin";
 
 /** 用户表单双向模型。 */
@@ -41,11 +42,13 @@ defineProps<{ identityReadOnly?: boolean }>();
       />
     </label>
     <label class="field">
-      <span>用户组</span>
-      <InputText
+      <span>用户组树（JSON）</span>
+      <Textarea
         v-model="model.groups"
-        placeholder="gitea-oidc-admins, Developers"
+        placeholder='[{ "id": "developers", "name": "研发组", "children": [] }]'
         autocomplete="off"
+        rows="8"
+        auto-resize
         fluid
       />
     </label>

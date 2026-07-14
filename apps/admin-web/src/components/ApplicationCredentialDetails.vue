@@ -97,6 +97,11 @@ defineEmits<{
       <dt>Redirect URI</dt>
       <dd><code>{{ result.connection.redirectUris.join("\n") }}</code></dd>
 
+      <template v-if="result.connection.postLogoutRedirectUris.length > 0">
+        <dt>Post Logout Redirect URI</dt>
+        <dd><code>{{ result.connection.postLogoutRedirectUris.join("\n") }}</code></dd>
+      </template>
+
       <dt>Scopes</dt>
       <dd><code>{{ result.connection.scopes.join(" ") }}</code></dd>
     </dl>

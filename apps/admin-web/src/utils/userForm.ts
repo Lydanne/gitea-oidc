@@ -1,4 +1,5 @@
 import type { AdminUser, AdminUserPayload, UserForm } from "../types/admin";
+import { parseUserGroupsJson, userGroupsToJson } from "./userGroups";
 
 /** 创建空用户表单。 */
 export const createBlankUserForm = (): UserForm => ({
@@ -7,7 +8,7 @@ export const createBlankUserForm = (): UserForm => ({
   email: "",
   authProvider: "local",
   externalId: "",
-  groups: "",
+  groups: "[]",
   roles: "",
   status: "active",
   picture: "",
@@ -31,7 +32,7 @@ export const userToForm = (user: AdminUser): UserForm => ({
   email: user.email ?? "",
   authProvider: user.authProvider ?? "local",
   externalId: user.externalId ?? user.username ?? "",
-  groups: listToText(user.groups),
+  groups: userGroupsToJson(user.groups),
   roles: listToText(user.roles),
   status: user.status ?? "active",
   picture: user.picture ?? "",
@@ -57,7 +58,7 @@ export const formToPayload = (
           externalId,
         }
       : {}),
-    groups: textToList(form.groups),
+    groups: parseUserGroupsJson(form.groups),
     roles: textToList(form.roles),
     status: form.status,
     ...(form.picture.trim() ? { picture: form.picture.trim() } : {}),

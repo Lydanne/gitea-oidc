@@ -18,10 +18,62 @@ import type {
 } from "@gitea-oidc/contracts";
 
 /** 管理台主导航视图。 */
-export type AdminView = "users" | "applications" | "providers" | "tokens";
+export type AdminView = "users" | "applications" | "providers" | "tokens" | "audit-logs";
+
+export type AuditEventType =
+  | "user.login"
+  | "user.logout"
+  | "admin.login"
+  | "admin.logout"
+  | "user.created"
+  | "user.updated"
+  | "user.deleted";
+
+export type AuditOutcome = "success" | "failure";
+
+export interface AuditLogRecord {
+  id: string;
+  eventType: AuditEventType;
+  outcome: AuditOutcome;
+  source: "admin" | "provider" | "oidc" | "system";
+  userId?: string;
+  actorUserId?: string;
+  username?: string;
+  provider?: string;
+  clientId?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  changedFields?: string[];
+  statusFrom?: UserStatus;
+  statusTo?: UserStatus;
+  reason?: string;
+  createdAt: string;
+}
+
+export interface AuditLogPage {
+  items: AuditLogRecord[];
+  total: number;
+}
+
+export interface AuditLogFilters {
+  userId?: string;
+  eventType?: AuditEventType;
+  outcome?: AuditOutcome;
+  from?: string;
+  to?: string;
+  offset?: number;
+  limit?: number;
+}
 
 /** 规范化用户状态。 */
 export type UserStatus = "active" | "disabled" | "locked" | "pending";
+
+/** 用户分组树节点。 */
+export interface UserGroup {
+  id: string;
+  name: string;
+  children?: UserGroup[];
+}
 
 /** PrimeVue Tag 支持的语义色。 */
 export type TagSeverity = "success" | "info" | "warn" | "danger" | "secondary" | "contrast";
@@ -34,7 +86,7 @@ export interface AdminUser {
   email?: string;
   authProvider?: string;
   externalId?: string;
-  groups?: string[];
+  groups?: UserGroup[];
   roles?: string[];
   status?: UserStatus;
   picture?: string;
@@ -64,7 +116,7 @@ export interface AdminUserPayload {
   email: string;
   authProvider?: string;
   externalId?: string;
-  groups: string[];
+  groups: UserGroup[];
   roles: string[];
   status: UserStatus;
   picture?: string;
@@ -127,6 +179,7 @@ export interface ApplicationForm {
   environment: "development" | "staging" | "production";
   clientType: "confidential" | "public";
   redirectUris: string;
+  postLogoutRedirectUris: string;
   scopes: string;
   refreshToken: boolean;
 }
@@ -136,7 +189,7 @@ export interface TemplateApplicationForm {
   name: string;
   slug: string;
   templateKey: string;
-  templateInput: Record<string, string>;
+  templateInput: Record<string, string | boolean>;
 }
 
 export type CreateApplicationOutcomeResponse =

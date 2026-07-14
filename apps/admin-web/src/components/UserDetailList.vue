@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AdminUser } from "../types/admin";
 import { formatDate, getUserStatusSeverity } from "../utils/format";
+import { flattenUserGroupNames } from "../utils/userGroups";
 import StatusTag from "./StatusTag.vue";
 
 /** 用户详情属性。 */
@@ -24,7 +25,7 @@ defineProps<{
     <dt>外部 ID</dt>
     <dd>{{ user?.externalId || "-" }}</dd>
     <dt>组</dt>
-    <dd>{{ (user?.groups || []).join(", ") || "-" }}</dd>
+    <dd>{{ flattenUserGroupNames(user?.groups).join(", ") || "-" }}</dd>
     <dt>角色</dt>
     <dd>{{ (user?.roles || []).join(", ") || "-" }}</dd>
     <dt>状态</dt>
@@ -37,4 +38,3 @@ defineProps<{
     <dd>{{ formatDate(user?.lastSyncedAt) }}</dd>
   </dl>
 </template>
-

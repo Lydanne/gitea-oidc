@@ -41,6 +41,7 @@ import type {
   TagSeverity,
   TemplateApplicationForm,
 } from "../types/admin";
+import { buildCustomApplicationRequest } from "../utils/applicationForm";
 
 type ApplicationEnvironment = "development" | "staging" | "production";
 type ApplicationCreateMode = "template" | "custom";
@@ -57,6 +58,7 @@ const createBlankForm = (): ApplicationForm => ({
   environment: "development",
   clientType: "confidential",
   redirectUris: "http://localhost:3000/oidc/callback",
+  postLogoutRedirectUris: "",
   scopes: "openid profile email",
   refreshToken: false,
 });
@@ -132,16 +134,6 @@ const visibleApplications = computed(() => {
   );
 });
 
-/** 将空格、逗号或换行分隔的输入规范化为去重列表。 */
-const parseList = (value: string) => [
-  ...new Set(
-    value
-      .split(/[\s,]+/u)
-      .map((item) => item.trim())
-      .filter(Boolean),
-  ),
-];
-
 /** 使用 Web Crypto 生成 UUID v4，不依赖安全上下文中的 randomUUID。 */
 const createIdempotencyKey = () => {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
@@ -159,72 +151,7 @@ const createIdempotencyKey = () => {
 
 /** 校验并创建后台 API 使用的自定义应用请求。 */
 const buildCreatePayload = (): CreateCustomApplicationRequestV1 => {
-  const name = applicationForm.value.name.trim();
-  const slug = applicationForm.value.slug.trim();
-  const redirectUris = parseList(applicationForm.value.redirectUris);
-  const scopes = parseList(applicationForm.value.scopes);
-
-  if (!name) throw new Error("应用名称不能为空");
-  if (name.length > 120) throw new Error("应用名称不能超过 120 个字符");
-  if (slug && (slug.length > 80 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(slug))) {
-    throw new Error("slug 只能包含小写字母、数字和单个连字符");
-  }
-  if (redirectUris.length === 0) throw new Error("至少需要一个 Redirect URI");
-  if (!scopes.includes("openid")) throw new Error("Scopes 必须包含 openid");
-
-  for (const redirectUri of redirectUris) {
-    let parsed: URL;
-    try {
-      parsed = new URL(redirectUri);
-    } catch {
-      throw new Error(`Redirect URI 不是有效的绝对地址：${redirectUri}`);
-    }
-
-    const isLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
-    const allowsDevelopmentHttp =
-      applicationForm.value.environment === "development" &&
-      parsed.protocol === "http:" &&
-      isLoopback;
-    if (parsed.protocol !== "https:" && !allowsDevelopmentHttp) {
-      throw new Error("Redirect URI 必须使用 HTTPS，开发环境仅允许 HTTP loopback 地址");
-    }
-    if (
-      parsed.search ||
-      parsed.hash ||
-      parsed.username ||
-      parsed.password ||
-      redirectUri.includes("*")
-    ) {
-      throw new Error("Redirect URI 不能包含 query、通配符、fragment 或用户凭据");
-    }
-  }
-
-  if (applicationForm.value.refreshToken && !scopes.includes("offline_access")) {
-    scopes.push("offline_access");
-  }
-
-  return {
-    schemaVersion: 1,
-    application: {
-      name,
-      ...(slug ? { slug } : {}),
-      environment: applicationForm.value.environment,
-      trustLevel: "third_party",
-      consentPolicy: "explicit",
-    },
-    client: {
-      clientType: applicationForm.value.clientType,
-      redirectUris,
-      postLogoutRedirectUris: [],
-      scopes,
-      resources: [],
-      refreshToken: applicationForm.value.refreshToken,
-      providerApi: false,
-      resourceServer: false,
-      pkcePolicy: "required",
-    },
-    credentialDelivery: "direct",
-  };
+  return buildCustomApplicationRequest(applicationForm.value);
 };
 
 /** 根据服务端 form descriptor 构建只引用精确模板版本的创建请求。 */
@@ -240,9 +167,15 @@ const buildTemplateCreatePayload = (): CreateTemplateApplicationRequestV1 => {
     throw new Error("slug 只能包含小写字母、数字和单个连字符");
   }
 
-  const templateInput: Record<string, string> = {};
+  const templateInput: Record<string, string | boolean> = {};
   for (const field of template.form.fields) {
-    const value = (templateForm.value.templateInput[field.name] ?? "").trim();
+    if (field.kind === "checkbox") {
+      templateInput[field.name] = templateForm.value.templateInput[field.name] === true;
+      continue;
+    }
+
+    const rawValue = templateForm.value.templateInput[field.name];
+    const value = typeof rawValue === "string" ? rawValue.trim() : "";
     if (field.required && !value) {
       throw new Error(`${field.label}不能为空`);
     }
@@ -834,6 +767,12 @@ onMounted(() => {
       <dd><code>{{ templatePreview.issuer }}</code></dd>
       <dt>Redirect URI</dt>
       <dd><code>{{ templatePreview.client.redirectUris.join("\n") }}</code></dd>
+      <template v-if="templatePreview.client.postLogoutRedirectUris.length > 0">
+        <dt>Post Logout Redirect URI</dt>
+        <dd>
+          <code>{{ templatePreview.client.postLogoutRedirectUris.join("\n") }}</code>
+        </dd>
+      </template>
       <dt>Scopes</dt>
       <dd><code>{{ templatePreview.client.scopes.join(" ") }}</code></dd>
       <dt>PKCE</dt>

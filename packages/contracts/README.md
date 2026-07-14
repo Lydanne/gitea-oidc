@@ -124,6 +124,12 @@ HTML/raw 节点。渲染端仍须把所有文本和代码内容当作不可信�
 接入说明只能由可信模板生成器根据公开 `ApplicationConnectionV1` 构建。代码块必须使用
 Secret 占位符；真实 `client_secret`、setup code、Token 和 Cookie 不得进入任何说明节点。
 
+## 模板表单描述
+
+`ApplicationTemplateFormV1` 使用纯 JSON descriptor 驱动管理台模板表单，支持 `text`、`url`、
+`select`、`textarea` 和 `checkbox`。字符串字段的 `defaultValue` 必须是字符串，checkbox 的默认值
+必须是布尔值；提交后的 `templateInput` 仍由所选模板的精确版本做第二次严格校验。
+
 ## 运行时校验
 
 每类公开 DTO 都同时提供 `parse*` 和 `safeParse*` 函数：

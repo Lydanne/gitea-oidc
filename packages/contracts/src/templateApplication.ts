@@ -30,19 +30,22 @@ const TemplateFormFieldBaseV1Schema = z.object({
   label: z.string().trim().min(1).max(200),
   required: z.boolean(),
   description: descriptionSchema.optional(),
-  defaultValue: z.string().max(2048).optional(),
+});
+
+const StringTemplateFormFieldBaseV1Schema = TemplateFormFieldBaseV1Schema.extend({
+  defaultValue: z.string().max(10_000).optional(),
 });
 
 export const ApplicationTemplateFormFieldV1Schema = z.discriminatedUnion("kind", [
-  TemplateFormFieldBaseV1Schema.extend({
+  StringTemplateFormFieldBaseV1Schema.extend({
     kind: z.literal("text"),
     placeholder: z.string().max(2048).optional(),
   }).strict(),
-  TemplateFormFieldBaseV1Schema.extend({
+  StringTemplateFormFieldBaseV1Schema.extend({
     kind: z.literal("url"),
     placeholder: z.string().max(2048).optional(),
   }).strict(),
-  TemplateFormFieldBaseV1Schema.extend({
+  StringTemplateFormFieldBaseV1Schema.extend({
     kind: z.literal("select"),
     options: z
       .array(
@@ -60,6 +63,15 @@ export const ApplicationTemplateFormFieldV1Schema = z.discriminatedUnion("kind",
           context.addIssue({ code: "custom", message: "模板选项值不能重复" });
         }
       }),
+  }).strict(),
+  StringTemplateFormFieldBaseV1Schema.extend({
+    kind: z.literal("textarea"),
+    placeholder: z.string().max(2048).optional(),
+    rows: z.number().int().min(2).max(20).optional(),
+  }).strict(),
+  TemplateFormFieldBaseV1Schema.extend({
+    kind: z.literal("checkbox"),
+    defaultValue: z.boolean().optional(),
   }).strict(),
 ]);
 

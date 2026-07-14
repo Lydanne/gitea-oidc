@@ -125,6 +125,7 @@ const createValidRuntimeConfig = (): GiteaOidcConfig => ({
 });
 
 const DYNAMIC_REDIRECT_URI = "https://app.example.com/callback";
+const DYNAMIC_POST_LOGOUT_REDIRECT_URI = "https://app.example.com/";
 
 function createTestMasterKey(): Buffer {
   return Buffer.from(Array.from({ length: 32 }, (_, index) => index + 1));
@@ -158,6 +159,7 @@ async function seedDynamicApplication(tempDir: string) {
         client: {
           clientType: "confidential",
           redirectUris: [DYNAMIC_REDIRECT_URI],
+          postLogoutRedirectUris: [DYNAMIC_POST_LOGOUT_REDIRECT_URI],
           scopes: ["openid", "profile", "email"],
           pkcePolicy: "required",
         },
@@ -474,6 +476,45 @@ describe("server dynamic applications", () => {
       });
       expect(missingPkce.statusCode).toBe(303);
       expect(missingPkce.headers.location).toContain("error=invalid_request");
+
+      const logoutCookies: CookieJar = new Map();
+      const logout = await injectWithCookies(app, logoutCookies, {
+        method: "GET",
+        url: `/oidc/session/end?${new URLSearchParams({
+          client_id: fixture.created.response.client.clientId,
+          post_logout_redirect_uri: DYNAMIC_POST_LOGOUT_REDIRECT_URI,
+          state: "logout-state",
+        })}`,
+      });
+      expect(logout.statusCode).toBe(200);
+      const xsrf = /name="xsrf" value="([^"]+)"/u.exec(logout.body)?.[1];
+      expect(xsrf).toBeTruthy();
+
+      const confirmedLogout = await injectWithCookies(app, logoutCookies, {
+        method: "POST",
+        url: "/oidc/session/end/confirm",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        payload: new URLSearchParams({ xsrf: xsrf!, logout: "yes" }).toString(),
+      });
+      expect(confirmedLogout.statusCode).toBe(303);
+      const postLogoutLocation = new URL(requireLocation(confirmedLogout));
+      expect(`${postLogoutLocation.origin}${postLogoutLocation.pathname}`).toBe(
+        DYNAMIC_POST_LOGOUT_REDIRECT_URI,
+      );
+      expect(postLogoutLocation.searchParams.get("state")).toBe("logout-state");
+
+      const unregisteredLogout = await app.inject({
+        method: "GET",
+        url: `/oidc/session/end?${new URLSearchParams({
+          client_id: fixture.created.response.client.clientId,
+          post_logout_redirect_uri: "https://unregistered.example.com/",
+        })}`,
+      });
+      expect(unregisteredLogout.statusCode).toBe(400);
+      expect(unregisteredLogout.json()).toMatchObject({
+        error: "invalid_request",
+        error_description: "post_logout_redirect_uri not registered",
+      });
     } finally {
       await app.close();
       await rm(tempDir, { force: true, recursive: true });

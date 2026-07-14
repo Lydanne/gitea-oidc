@@ -3,7 +3,7 @@
  */
 
 import type { ProviderTokenOwnerType, ProviderTokenStatus } from "./providerApi.js";
-import type { UserStatus } from "./user.js";
+import type { UserGroup, UserStatus } from "./user.js";
 
 /**
  * 后台管理配置
@@ -83,7 +83,7 @@ export interface AdminUser {
   externalId?: string;
 
   /** 用户组 */
-  groups?: string[];
+  groups?: UserGroup[];
 
   /** 用户角色 */
   roles?: string[];

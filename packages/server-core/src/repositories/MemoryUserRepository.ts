@@ -4,7 +4,14 @@
  */
 
 import { randomUUID } from "crypto";
-import type { ListOptions, UserInfo, UserRepository } from "../types/auth.js";
+import type {
+  ListOptions,
+  UserDeleteResult,
+  UserFindOrCreateResult,
+  UserInfo,
+  UserRepository,
+  UserUpdateResult,
+} from "../types/auth.js";
 import { withUserDefaults } from "../utils/userDefaults.js";
 import { generateUserId } from "../utils/userIdGenerator.js";
 import { normalizeUserListOptions } from "./userListOptions.js";
@@ -56,8 +63,22 @@ export class MemoryUserRepository implements UserRepository {
   async findOrCreate(
     provider: string,
     externalId: string,
-    userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider">,
+    userData: Omit<
+      UserInfo,
+      "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"
+    >,
   ): Promise<UserInfo> {
+    return (await this.findOrCreateWithResult(provider, externalId, userData)).user;
+  }
+
+  async findOrCreateWithResult(
+    provider: string,
+    externalId: string,
+    userData: Omit<
+      UserInfo,
+      "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"
+    >,
+  ): Promise<UserFindOrCreateResult> {
     const key = `${provider}:${externalId}`;
 
     // 先尝试查找
@@ -66,11 +87,12 @@ export class MemoryUserRepository implements UserRepository {
       const existingUser = this.users.get(existingUserId);
       if (existingUser) {
         // 用户已存在，更新用户信息（保持 sub 和 createdAt 不变）
-        return await this.update(existingUserId, {
+        const result = await this.updateWithResult(existingUserId, {
           ...userData,
           authProvider: provider,
           externalId,
         });
+        return { ...result, created: false };
       }
     }
 
@@ -78,6 +100,7 @@ export class MemoryUserRepository implements UserRepository {
     const now = new Date();
     const user: UserInfo = {
       ...userData,
+      id: randomUUID(),
       sub: generateUserId(provider, externalId),
       createdAt: now,
       updatedAt: now,
@@ -93,10 +116,10 @@ export class MemoryUserRepository implements UserRepository {
       normalizedUser.sub,
     );
 
-    return normalizedUser;
+    return { user: normalizedUser, before: null, created: true };
   }
 
-  async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
+  async create(userData: Omit<UserInfo, "id" | "sub">): Promise<UserInfo> {
     const now = new Date();
 
     // 如果提供了 authProvider 和 externalId，使用哈希生成确定性的 sub
@@ -107,6 +130,7 @@ export class MemoryUserRepository implements UserRepository {
 
     const user: UserInfo = {
       ...userData,
+      id: randomUUID(),
       sub,
       createdAt: userData.createdAt || now,
       updatedAt: userData.updatedAt || now,
@@ -133,6 +157,10 @@ export class MemoryUserRepository implements UserRepository {
   }
 
   async update(userId: string, updates: Partial<UserInfo>): Promise<UserInfo> {
+    return (await this.updateWithResult(userId, updates)).user;
+  }
+
+  async updateWithResult(userId: string, updates: Partial<UserInfo>): Promise<UserUpdateResult> {
     const user = this.users.get(userId);
 
     if (!user) {
@@ -142,6 +170,7 @@ export class MemoryUserRepository implements UserRepository {
     const merged: UserInfo = {
       ...user,
       ...updates,
+      id: user.id, // 内部 ID 不允许修改
       sub: user.sub, // 不允许修改 sub
       updatedAt: new Date(Date.now() + 1),
     };
@@ -163,10 +192,14 @@ export class MemoryUserRepository implements UserRepository {
       this.providerIndex.set(newKey, userId);
     }
 
-    return updatedUser;
+    return { user: updatedUser, before: user };
   }
 
   async delete(userId: string): Promise<void> {
+    await this.deleteWithResult(userId);
+  }
+
+  async deleteWithResult(userId: string): Promise<UserDeleteResult> {
     const user = this.users.get(userId);
 
     if (user) {
@@ -178,6 +211,8 @@ export class MemoryUserRepository implements UserRepository {
 
       this.users.delete(userId);
     }
+
+    return { deleted: user ?? null };
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {

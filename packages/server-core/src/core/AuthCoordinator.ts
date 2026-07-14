@@ -6,12 +6,20 @@
 import { randomBytes } from "crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Provider } from "oidc-provider";
+import { NoopAuditLogRepository } from "../repositories/NoopAuditLogRepository.js";
+import type {
+  AuditLogInput,
+  AuditLogRepository,
+  AuthenticationAuditContext,
+  AuthenticationAuditEvent,
+} from "../types/audit.js";
 import type {
   AuthContext,
   AuthProvider,
   AuthProviderConfig,
   AuthResult,
   IAuthCoordinator,
+  LoginUIResult,
   OAuthStateData,
   PluginHookName,
   PluginMiddlewareContext,
@@ -20,7 +28,7 @@ import type {
   UserRepository,
 } from "../types/auth.js";
 import { PluginPermission } from "../types/auth.js";
-import { renderLoginPageHTML } from "../ui/loginPageRenderer.js";
+import { renderLoginPageHTML, sanitizeLoginUrl } from "../ui/loginPageRenderer.js";
 import { AuthErrors } from "../utils/authErrors.js";
 import { sanitizeForLog } from "../utils/logSanitizer.js";
 import { PermissionChecker } from "./PermissionChecker.js";
@@ -35,18 +43,32 @@ export interface AuthCoordinatorConfig {
   /** 用户仓储 */
   userRepository: UserRepository;
 
+  /** 结构化审计日志仓储 */
+  auditLogRepository?: AuditLogRepository;
+
   /** 插件配置 */
   providersConfig: Record<string, AuthProviderConfig>;
+
+  /** 仅有一个可跳转登录方式时由服务端直接进入。 */
+  autoRedirectSingleProvider?: boolean;
 
   /** OIDC Provider 实例（可选，用于插件完成交互） */
   oidcProvider?: Provider;
 }
 
+type UnifiedLoginOption = { provider: AuthProvider; ui: LoginUIResult };
+
+export type UnifiedLoginResult =
+  | { type: "html"; html: string }
+  | { type: "redirect"; redirectUrl: string };
+
 export class AuthCoordinator implements IAuthCoordinator {
   private app: FastifyInstance;
   private stateStore: StateStore;
   private userRepository: UserRepository;
+  private auditLogRepository: AuditLogRepository;
   private providersConfig: Record<string, AuthProviderConfig>;
+  private autoRedirectSingleProvider: boolean;
   private providers = new Map<string, AuthProvider>();
   private permissionChecker = new PermissionChecker();
   private initialized = false;
@@ -56,7 +78,9 @@ export class AuthCoordinator implements IAuthCoordinator {
     this.app = config.app;
     this.stateStore = config.stateStore;
     this.userRepository = config.userRepository;
+    this.auditLogRepository = config.auditLogRepository ?? new NoopAuditLogRepository();
     this.providersConfig = config.providersConfig;
+    this.autoRedirectSingleProvider = config.autoRedirectSingleProvider ?? false;
     this.oidcProvider = config.oidcProvider;
   }
 
@@ -266,11 +290,31 @@ export class AuthCoordinator implements IAuthCoordinator {
   }
 
   /**
-   * 渲染统一登录页面
+   * 解析统一登录入口；运行时路由使用此结果决定直接跳转或渲染页面。
+   */
+  async resolveUnifiedLogin(context: AuthContext): Promise<UnifiedLoginResult> {
+    const loginOptions = await this.collectLoginOptions(context);
+    if (this.autoRedirectSingleProvider) {
+      const redirectUrl = findSingleRedirectLoginUrl(loginOptions);
+      if (redirectUrl) {
+        return { type: "redirect", redirectUrl };
+      }
+    }
+
+    return { type: "html", html: this.generateLoginPageHTML(context, loginOptions) };
+  }
+
+  /**
+   * 渲染统一登录页面；保留现有协调器接口，不触发自动跳转。
    */
   async renderUnifiedLoginPage(context: AuthContext): Promise<string> {
+    const loginOptions = await this.collectLoginOptions(context);
+    return this.generateLoginPageHTML(context, loginOptions);
+  }
+
+  private async collectLoginOptions(context: AuthContext): Promise<UnifiedLoginOption[]> {
     const providers = this.getProviders();
-    const loginOptions: Array<{ provider: AuthProvider; ui: any }> = [];
+    const loginOptions: UnifiedLoginOption[] = [];
 
     // 收集所有插件的登录 UI
     for (const provider of providers) {
@@ -292,17 +336,13 @@ export class AuthCoordinator implements IAuthCoordinator {
       return priorityA - priorityB;
     });
 
-    // 生成 HTML
-    return this.generateLoginPageHTML(context, loginOptions);
+    return loginOptions;
   }
 
   /**
    * 生成登录页面 HTML
    */
-  private generateLoginPageHTML(
-    context: AuthContext,
-    loginOptions: Array<{ provider: AuthProvider; ui: any }>,
-  ): string {
+  private generateLoginPageHTML(context: AuthContext, loginOptions: UnifiedLoginOption[]): string {
     return renderLoginPageHTML(context, loginOptions);
   }
 
@@ -340,10 +380,23 @@ export class AuthCoordinator implements IAuthCoordinator {
       // 执行认证
       const result = await provider.authenticate(context);
 
-      // 如果认证成功，记录日志
+      // Provider 这里只确认凭据；OIDC 登录成功由 authorization.success 统一记录。
       if (result.success && result.userId) {
-        await this.touchLastLogin(result.userId);
         this.app.log.info(`User ${result.userId} authenticated successfully via ${authMethod}`);
+      } else {
+        const attemptedUsername = readAttemptedUsername(context);
+        const subject = await this.resolveFailedAuthenticationSubject(
+          authMethod,
+          attemptedUsername,
+        );
+        await this.recordLoginAudit({
+          context,
+          provider: authMethod,
+          outcome: "failure",
+          userId: subject?.sub,
+          username: subject?.username ?? attemptedUsername,
+          reason: result.error?.code,
+        });
       }
 
       return result;
@@ -352,6 +405,17 @@ export class AuthCoordinator implements IAuthCoordinator {
         { err: sanitizeForLog(err), provider: authMethod },
         "Authentication error",
       );
+
+      const attemptedUsername = readAttemptedUsername(context);
+      const subject = await this.resolveFailedAuthenticationSubject(authMethod, attemptedUsername);
+      await this.recordLoginAudit({
+        context,
+        provider: authMethod,
+        outcome: "failure",
+        userId: subject?.sub,
+        username: subject?.username ?? attemptedUsername,
+        reason: "internal_error",
+      });
 
       return {
         success: false,
@@ -446,9 +510,11 @@ export class AuthCoordinator implements IAuthCoordinator {
   /**
    * 存储认证结果（用于 OAuth 回调后的重定向）
    */
-  async storeAuthResult(interactionUid: string, userId: string): Promise<void> {
-    await this.touchLastLogin(userId);
-
+  async storeAuthResult(
+    interactionUid: string,
+    userId: string,
+    _auditContext?: AuthenticationAuditContext,
+  ): Promise<void> {
     const authResult = {
       userId,
       timestamp: Date.now(),
@@ -458,6 +524,14 @@ export class AuthCoordinator implements IAuthCoordinator {
     await this.stateStore.set(`auth_result_${interactionUid}`, authResult, 300); // 5分钟过期
 
     this.app.log.info(`Stored auth result for interaction: ${interactionUid}, user: ${userId}`);
+  }
+
+  async recordAuthenticationEvent(event: AuthenticationAuditEvent): Promise<void> {
+    await this.appendAuditSafely({
+      eventType: "user.login",
+      source: "provider",
+      ...event,
+    });
   }
 
   async getAuthResult(interactionUid: string): Promise<string | null> {
@@ -581,16 +655,93 @@ export class AuthCoordinator implements IAuthCoordinator {
     this.initialized = false;
   }
 
-  /**
-   * 记录用户最近登录时间
-   */
-  private async touchLastLogin(userId: string): Promise<void> {
+  private async resolveFailedAuthenticationSubject(
+    provider: string,
+    attemptedUsername?: string,
+  ): Promise<UserInfo | null> {
+    if (!attemptedUsername) return null;
     try {
-      await this.userRepository.update(userId, { lastLoginAt: new Date() });
+      return await this.userRepository.findByProviderAndExternalId(provider, attemptedUsername);
     } catch (err) {
-      this.app.log.warn({ err: sanitizeForLog(err), userId }, "Failed to update last login time");
+      this.app.log.warn(
+        { err: sanitizeForLog(err), provider },
+        "Failed to resolve authentication audit subject",
+      );
+      return null;
     }
   }
+
+  private async recordLoginAudit(input: {
+    context: AuthContext;
+    provider: string;
+    outcome: "failure";
+    userId?: string;
+    username?: string;
+    reason?: string;
+  }): Promise<void> {
+    await this.recordAuthenticationEvent({
+      outcome: input.outcome,
+      userId: input.userId,
+      username: input.username,
+      provider: input.provider,
+      clientId: readInteractionClientId(input.context.interaction),
+      ipAddress: input.context.request.ip,
+      userAgent: readHeader(input.context.request.headers["user-agent"]),
+      reason: input.reason,
+    });
+  }
+
+  private async appendAuditSafely(input: AuditLogInput): Promise<void> {
+    try {
+      await this.auditLogRepository.append(input);
+    } catch (error) {
+      this.app.log.error({ err: sanitizeForLog(error) }, "Failed to persist audit log");
+    }
+  }
+}
+
+function findSingleRedirectLoginUrl(loginOptions: UnifiedLoginOption[]): string | null {
+  let availableOptionCount = 0;
+  let redirectUrl: string | null = null;
+
+  for (const { ui } of loginOptions) {
+    if (ui.showInUnifiedPage === false) {
+      continue;
+    }
+
+    if (ui.type === "html" && ui.html) {
+      availableOptionCount += 1;
+      redirectUrl = null;
+    } else if (ui.type === "redirect" && ui.button && ui.redirectUrl) {
+      const safeUrl = sanitizeLoginUrl(ui.redirectUrl);
+      if (safeUrl) {
+        availableOptionCount += 1;
+        redirectUrl = safeUrl;
+      }
+    }
+
+    if (availableOptionCount > 1) {
+      return null;
+    }
+  }
+
+  return availableOptionCount === 1 ? redirectUrl : null;
+}
+
+function readAttemptedUsername(context: AuthContext): string | undefined {
+  return typeof context.body.username === "string" ? context.body.username : undefined;
+}
+
+function readInteractionClientId(interaction: unknown): string | undefined {
+  if (!interaction || typeof interaction !== "object") return undefined;
+  const params = (interaction as { params?: unknown }).params;
+  if (!params || typeof params !== "object") return undefined;
+  const clientId = (params as Record<string, unknown>).client_id;
+  return typeof clientId === "string" ? clientId : undefined;
+}
+
+function readHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function assertSafePluginName(name: string): void {

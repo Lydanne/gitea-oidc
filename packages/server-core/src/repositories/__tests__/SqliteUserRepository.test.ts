@@ -2,23 +2,32 @@
  * SqliteUserRepository 单元测试
  */
 
+import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { UserInfo } from "../../types/auth.js";
 import { SqliteUserRepository } from "../SqliteUserRepository.js";
 
 describe("SqliteUserRepository", () => {
   let repository: SqliteUserRepository;
+  let temporaryDirectories: string[];
 
   beforeEach(() => {
     // 使用内存数据库进行测试
     repository = new SqliteUserRepository(":memory:");
+    temporaryDirectories = [];
   });
 
   afterEach(async () => {
     await repository.clear();
     await repository.close();
+    for (const directory of temporaryDirectories) {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
-  const mockUserData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt"> = {
+  const mockUserData: Omit<UserInfo, "id" | "sub" | "createdAt" | "updatedAt"> = {
     username: "testuser",
     name: "Test User",
     email: "test@example.com",
@@ -27,7 +36,10 @@ describe("SqliteUserRepository", () => {
     authProvider: "local",
     emailVerified: true,
     phoneVerified: false,
-    groups: ["users", "admins"],
+    groups: [
+      { id: "users", name: "users" },
+      { id: "admins", name: "admins" },
+    ],
     externalId: "ext123",
     metadata: { role: "user" },
   };
@@ -37,6 +49,8 @@ describe("SqliteUserRepository", () => {
       const user = await repository.create(mockUserData);
 
       expect(user).toMatchObject(mockUserData);
+      expect(user.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(user.id).not.toBe(user.sub);
       expect(user.sub).toBeDefined();
       expect(user.createdAt).toBeInstanceOf(Date);
       expect(user.updatedAt).toBeInstanceOf(Date);
@@ -51,8 +65,74 @@ describe("SqliteUserRepository", () => {
             name: "idx_users_provider_external_unique",
             unique: 1,
           }),
+          expect.objectContaining({
+            name: "idx_users_id",
+            unique: 1,
+          }),
         ]),
       );
+    });
+
+    it("读取旧版字符串分组时忽略该字段", async () => {
+      const created = await repository.create(mockUserData);
+      (repository as any).db
+        .prepare("UPDATE users SET groups = ? WHERE sub = ?")
+        .run(JSON.stringify(["developers", "admins"]), created.sub);
+
+      const user = await repository.findById(created.sub);
+
+      expect(user?.groups).toEqual([]);
+    });
+
+    it("应该为旧表中的用户回填随机内部 ID", async () => {
+      await repository.close();
+      const directory = mkdtempSync(join(tmpdir(), "gitea-oidc-users-"));
+      temporaryDirectories.push(directory);
+      const databasePath = join(directory, "users.db");
+      const legacyDatabase = new Database(databasePath);
+      legacyDatabase.exec(`
+        CREATE TABLE users (
+          sub TEXT PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          email TEXT UNIQUE NOT NULL,
+          picture TEXT,
+          phone TEXT,
+          "authProvider" TEXT NOT NULL,
+          "externalId" TEXT,
+          "emailVerified" INTEGER,
+          "phoneVerified" INTEGER,
+          groups TEXT,
+          "createdAt" INTEGER NOT NULL,
+          "updatedAt" INTEGER NOT NULL,
+          metadata TEXT
+        );
+      `);
+      legacyDatabase
+        .prepare(
+          `INSERT INTO users (
+            sub, username, name, email, "authProvider", "externalId", "createdAt", "updatedAt"
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "legacy-user",
+          "legacy",
+          "Legacy User",
+          "legacy@example.com",
+          "local",
+          "legacy-external",
+          Date.now(),
+          Date.now(),
+        );
+      legacyDatabase.close();
+
+      repository = new SqliteUserRepository(databasePath);
+      const user = await repository.findById("legacy-user");
+
+      expect(user?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(
+        (repository as any).db.prepare("SELECT id FROM users WHERE sub = ?").get("legacy-user"),
+      ).toEqual({ id: user?.id });
     });
 
     it("应该使用提供的创建和更新时间", async () => {
@@ -147,8 +227,8 @@ describe("SqliteUserRepository", () => {
   });
 
   const stripUserData = (
-    user: Omit<UserInfo, "sub" | "createdAt" | "updatedAt">,
-  ): Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"> => {
+    user: Omit<UserInfo, "id" | "sub" | "createdAt" | "updatedAt">,
+  ): Omit<UserInfo, "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"> => {
     const { authProvider: _provider, externalId: _externalId, ...rest } = user;
     return rest;
   };
@@ -160,6 +240,7 @@ describe("SqliteUserRepository", () => {
 
       // 现在 findOrCreate 会更新用户，所以 updatedAt 会不同
       expect(found.sub).toEqual(created.sub);
+      expect(found.id).toEqual(created.id);
       expect(found.username).toEqual(created.username);
       expect(found.email).toEqual(created.email);
       expect(found.createdAt).toEqual(created.createdAt);
@@ -191,16 +272,18 @@ describe("SqliteUserRepository", () => {
     it("应该成功更新用户", async () => {
       const created = await repository.create(mockUserData);
       const updates = {
+        id: "replacement-id",
         name: "Updated Name",
         emailVerified: false,
-        groups: ["users"],
+        groups: [{ id: "users", name: "users" }],
       };
 
       const updated = await repository.update(created.sub, updates);
 
       expect(updated.name).toBe("Updated Name");
       expect(updated.emailVerified).toBe(false);
-      expect(updated.groups).toEqual(["users"]);
+      expect(updated.groups).toEqual([{ id: "users", name: "users" }]);
+      expect(updated.id).toBe(created.id);
       expect(updated.sub).toBe(created.sub);
       expect(updated.updatedAt).toBeInstanceOf(Date);
     });

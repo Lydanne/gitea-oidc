@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  acquireOidcAccountBlock,
   acquireOidcClientBlock,
+  allowOidcAccount,
   allowOidcClient,
+  assertOidcAccountWriteAllowed,
   assertOidcClientWriteAllowed,
   clearOidcClientRevocationBarriers,
 } from "../oidcClientRevocationBarrier.js";
@@ -47,5 +50,41 @@ describe("OIDC Client 撤销栅栏", () => {
 
     pendingDisable.release();
     expect(() => assertOidcClientWriteAllowed({ params: { client_id: "client-1" } })).not.toThrow();
+  });
+
+  it("账户租约会阻止已通过用户校验的请求继续写入", () => {
+    const lease = acquireOidcAccountBlock("user-1");
+
+    expect(() => assertOidcAccountWriteAllowed({ accountId: "user-1" })).toThrowError(
+      expect.objectContaining({ code: "OIDC_ACCOUNT_REVOKED" }),
+    );
+
+    lease.release();
+    expect(() => assertOidcAccountWriteAllowed({ accountId: "user-1" })).not.toThrow();
+  });
+
+  it("账户状态提交后保持持久封锁直到显式重新启用", () => {
+    acquireOidcAccountBlock("user-1").commit();
+
+    expect(() => assertOidcAccountWriteAllowed({ accountId: "user-1" })).toThrowError(
+      expect.objectContaining({ code: "OIDC_ACCOUNT_REVOKED" }),
+    );
+
+    allowOidcAccount("user-1");
+    expect(() => assertOidcAccountWriteAllowed({ accountId: "user-1" })).not.toThrow();
+  });
+
+  it("释放一个账户租约不会越过其他并发停用操作", () => {
+    const first = acquireOidcAccountBlock("user-1");
+    const second = acquireOidcAccountBlock("user-1");
+
+    first.release();
+    expect(() => assertOidcAccountWriteAllowed({ accountId: "user-1" })).toThrowError(
+      expect.objectContaining({ code: "OIDC_ACCOUNT_REVOKED" }),
+    );
+
+    second.commit();
+    allowOidcAccount("user-1");
+    expect(() => assertOidcAccountWriteAllowed({ accountId: "user-1" })).not.toThrow();
   });
 });

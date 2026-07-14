@@ -26,6 +26,14 @@ export const LoggingConfigSchema = z.object({
 });
 
 /**
+ * 审计日志配置 Schema
+ */
+export const AuditConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  retentionDays: z.number().int().min(1).max(3650).default(30),
+});
+
+/**
  * OIDC TTL 配置 Schema
  */
 export const OidcTTLSchema = z.object({
@@ -149,6 +157,7 @@ export const UserRepositoryConfigSchema = z
  * 认证配置 Schema
  */
 export const AuthConfigSchema = z.object({
+  autoRedirectSingleProvider: z.boolean().default(false),
   userRepository: UserRepositoryConfigSchema,
   providers: z.record(z.string(), AuthProviderConfigSchema),
   stateStore: z
@@ -352,6 +361,7 @@ export const GiteaOidcConfigSchema = z
   .object({
     server: ServerConfigSchema,
     logging: LoggingConfigSchema,
+    audit: AuditConfigSchema.default({ enabled: true, retentionDays: 30 }),
     oidc: OidcConfigSchema,
     clients: z.array(ClientConfigSchema).min(1, "至少需要配置一个客户端"),
     auth: AuthConfigSchema,

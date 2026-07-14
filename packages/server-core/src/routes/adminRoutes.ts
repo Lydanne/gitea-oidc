@@ -3,13 +3,19 @@
  */
 
 import { safeParseRotateApplicationCredentialRequestV1 } from "@gitea-oidc/contracts";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { readFileSync } from "fs";
 import type { Provider } from "oidc-provider";
 import { join } from "path";
 import { OidcAdapterFactory } from "../adapters/OidcAdapterFactory.js";
-import type { OidcClientBlockLease } from "../adapters/oidcClientRevocationBarrier.js";
 import {
+  type OidcAccountBlockLease,
+  type OidcClientBlockLease,
+} from "../adapters/oidcClientRevocationBarrier.js";
+import {
+  ADMIN_LOGIN_STATE_TTL_SECONDS,
+  AdminLoginStateLimitError,
   AdminSessionStore,
   type AdminSessionStoreLike,
   DistributedAdminSessionStore,
@@ -17,6 +23,7 @@ import {
 import type { GiteaOidcConfig } from "../config.js";
 import { AuthCoordinator } from "../core/AuthCoordinator.js";
 import { ProviderApiService } from "../provider-api/ProviderApiService.js";
+import { NoopAuditLogRepository } from "../repositories/NoopAuditLogRepository.js";
 import {
   isProviderTokenOwnerType,
   isProviderTokenStatus,
@@ -24,7 +31,19 @@ import {
 } from "../repositories/providerTokenListOptions.js";
 import { isUserListSortField, USER_LIST_FILTER_FIELDS } from "../repositories/userListOptions.js";
 import type { AdminTokenSummary, AdminUser } from "../types/admin.js";
-import type { ListOptions, StateStore, UserInfo, UserRepository } from "../types/auth.js";
+import {
+  AUDIT_EVENT_TYPES,
+  type AuditLogInput,
+  type AuditLogListOptions,
+  type AuditLogRepository,
+} from "../types/audit.js";
+import type {
+  ListOptions,
+  StateStore,
+  UserGroup,
+  UserInfo,
+  UserRepository,
+} from "../types/auth.js";
 import type {
   ProviderTokenListOptions,
   ProviderTokenOwnerType,
@@ -39,8 +58,10 @@ import {
 } from "../utils/adminClient.js";
 import { Logger } from "../utils/Logger.js";
 import { sanitizeForLog } from "../utils/logSanitizer.js";
+import { normalizeUserGroups, userHasAnyGroup } from "../utils/userGroups.js";
 
 const ADMIN_COOKIE_NAME = "gitea_oidc_admin_session";
+const ADMIN_LOGIN_COOKIE_NAME = "gitea_oidc_admin_login";
 const ADMIN_ACTION_HEADER = "x-gitea-oidc-admin-action";
 const ADMIN_CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -56,10 +77,12 @@ const ADMIN_CONTENT_SECURITY_POLICY = [
 ].join("; ");
 const ADMIN_USER_STRING_FIELDS = ["username", "name", "email", "picture", "phone"] as const;
 const ADMIN_USER_IDENTITY_FIELDS = ["authProvider", "externalId"] as const;
-const ADMIN_USER_LIST_FIELDS = ["groups", "roles"] as const;
+const ADMIN_USER_LIST_FIELDS = ["roles"] as const;
 const ADMIN_USER_STATUS_VALUES = new Set(["active", "disabled", "locked", "pending"]);
 const ADMIN_USER_LIST_DEFAULT_LIMIT = 100;
 const ADMIN_USER_LIST_MAX_LIMIT = 500;
+const ADMIN_AUDIT_LOG_DEFAULT_LIMIT = 100;
+const ADMIN_AUDIT_LOG_MAX_LIMIT = 500;
 const ADMIN_TOKEN_LIST_DEFAULT_LIMIT = 100;
 const ADMIN_TOKEN_LIST_MAX_LIMIT = 500;
 
@@ -124,6 +147,12 @@ interface OidcClientLifecycleCoordinator {
   allow(clientId: string): Promise<void> | void;
 }
 
+interface OidcAccountLifecycleCoordinator {
+  acquireBlock(accountId: string): Promise<OidcAccountBlockLease> | OidcAccountBlockLease;
+  revoke(accountId: string): Promise<void>;
+  allow(accountId: string): Promise<void> | void;
+}
+
 /**
  * 后台管理路由配置
  */
@@ -143,6 +172,9 @@ export interface AdminRoutesOptions {
   /** 用户仓储 */
   userRepository: UserRepository;
 
+  /** 结构化审计日志仓储 */
+  auditLogRepository?: AuditLogRepository;
+
   /** Provider API 服务 */
   providerApiService?: ProviderApiService;
 
@@ -157,6 +189,9 @@ export interface AdminRoutesOptions {
 
   /** 删除用户或更换外部身份时撤销该账户的 OIDC 记录。 */
   revokeOidcAccount?: (accountId: string) => Promise<void>;
+
+  /** 用户状态与 OIDC Artifact 之间的安全生命周期协调器。 */
+  oidcAccountLifecycle?: OidcAccountLifecycleCoordinator;
 
   /** 可选的应用控制面；未启用时 API 返回 503，而不是静默使用临时内存状态。 */
   applicationService?: ApplicationManagementService;
@@ -181,12 +216,14 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
   }
 
   const basePath = normalizeAdminBasePath(adminConfig.basePath);
+  const auditLogRepository = options.auditLogRepository ?? new NoopAuditLogRepository();
   const applicationsEnabled = options.applicationService !== undefined;
   const applicationMutationTails = new Map<string, Promise<void>>();
   const sessionStore: AdminSessionStoreLike =
     config.auth?.stateStore?.type === "redis" && options.stateStore
       ? new DistributedAdminSessionStore(options.stateStore, adminConfig.sessionTtlSeconds)
       : new AdminSessionStore(adminConfig.sessionTtlSeconds);
+  const oidcAccountLifecycle = resolveOidcAccountLifecycle(options);
   const adminClient = resolveAdminClient(config, basePath);
   const adminIndexHtml = injectAdminRuntimeConfig(
     readFileSync(join(options.publicDir, "admin", "index.html"), "utf8"),
@@ -221,6 +258,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     `${basePath}/providers`,
     `${basePath}/tokens`,
     `${basePath}/applications`,
+    `${basePath}/audit-logs`,
   ]) {
     app.get(routePath, sendAdminIndex);
   }
@@ -228,7 +266,21 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
   app.get(`${basePath}/login/start`, async (request, reply) => {
     const query = request.query as { returnTo?: string };
     const returnTo = normalizeAdminReturnPath(basePath, query.returnTo);
-    const state = await sessionStore.createLoginState(returnTo);
+    const browserBinding = readValidAdminLoginBinding(request) ?? randomBytes(32).toString("hex");
+    const bindingHash = hashAdminLoginValue(browserBinding);
+    let state: string;
+    try {
+      await sessionStore.checkLoginRateLimit([
+        `source:${hashAdminLoginValue(readAdminLoginSource(request))}`,
+        `browser:${bindingHash}`,
+      ]);
+      state = await sessionStore.createLoginState(returnTo, bindingHash);
+    } catch (error) {
+      if (error instanceof AdminLoginStateLimitError) {
+        return reply.code(429).send("Too many admin login attempts");
+      }
+      throw error;
+    }
     const redirectUri = getAdminRedirectUri(config, basePath);
     const url = new URL(`${config.oidc.issuer}/auth`);
     url.searchParams.set("client_id", adminClient.client_id);
@@ -236,34 +288,94 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", "openid profile email");
     url.searchParams.set("state", state);
+    reply.header(
+      "Set-Cookie",
+      buildAdminLoginCookie(config, basePath, browserBinding, ADMIN_LOGIN_STATE_TTL_SECONDS),
+    );
     return reply.redirect(url.toString());
   });
 
   app.get(`${basePath}/callback`, async (request, reply) => {
     const query = request.query as { code?: string; state?: string };
-    const returnTo = query.state ? await sessionStore.consumeLoginState(query.state) : null;
-    if (!query.code || !returnTo) {
+    const loginState = query.state ? await sessionStore.consumeLoginState(query.state) : null;
+    const browserBinding = readValidAdminLoginBinding(request);
+    const clearedLoginCookie = buildAdminLoginCookie(config, basePath, "", 0);
+    reply.header("Set-Cookie", clearedLoginCookie);
+    if (
+      !query.code ||
+      !loginState ||
+      !browserBinding ||
+      !matchesAdminLoginBinding(loginState.bindingHash, browserBinding)
+    ) {
+      // 未命中本服务签发 state 的匿名请求只返回错误，不转换成无界审计写入。
+      // 有效 state 已受创建频率和容量限制，仍保留绑定失败等安全事件。
+      if (loginState) {
+        await appendAuditSafely(auditLogRepository, {
+          eventType: "admin.login",
+          outcome: "failure",
+          source: "admin",
+          clientId: adminClient.client_id,
+          ipAddress: readAdminLoginSource(request),
+          userAgent: readHeaderValue(request.headers?.["user-agent"]),
+          reason: "invalid_state",
+        });
+      }
       return reply.code(400).send("Invalid admin login state");
     }
 
-    const tokenResponse = await exchangeAdminCode(config, basePath, adminClient, query.code);
-    const userId = await resolveAdminCallbackUserId(
-      oidcProvider,
-      tokenResponse.access_token,
-      adminClient.client_id,
-    );
+    let userId: string | null;
+    try {
+      const tokenResponse = await exchangeAdminCode(config, basePath, adminClient, query.code);
+      userId = await resolveAdminCallbackUserId(
+        oidcProvider,
+        tokenResponse.access_token,
+        adminClient.client_id,
+      );
+    } catch (error) {
+      await appendAuditSafely(auditLogRepository, {
+        eventType: "admin.login",
+        outcome: "failure",
+        source: "admin",
+        clientId: adminClient.client_id,
+        ipAddress: readAdminLoginSource(request),
+        userAgent: readHeaderValue(request.headers?.["user-agent"]),
+        reason: "callback_failed",
+      });
+      throw error;
+    }
     const user = userId ? await userRepository.findById(userId) : null;
 
     if (!user || !isActiveUser(user) || !isAdminUser(user, adminConfig.allowedGroups)) {
+      await appendAuditSafely(auditLogRepository, {
+        eventType: "admin.login",
+        outcome: "failure",
+        source: "admin",
+        userId: user?.sub,
+        username: user?.username,
+        clientId: adminClient.client_id,
+        ipAddress: readAdminLoginSource(request),
+        userAgent: readHeaderValue(request.headers?.["user-agent"]),
+        reason: "forbidden",
+      });
       return reply.code(403).send("Forbidden");
     }
 
     const session = await sessionStore.createSession(user.sub);
-    reply.header(
-      "Set-Cookie",
+    await appendAuditSafely(auditLogRepository, {
+      eventType: "admin.login",
+      outcome: "success",
+      source: "admin",
+      userId: user.sub,
+      username: user.username,
+      clientId: adminClient.client_id,
+      ipAddress: readAdminLoginSource(request),
+      userAgent: readHeaderValue(request.headers?.["user-agent"]),
+    });
+    reply.header("Set-Cookie", [
+      clearedLoginCookie,
       buildAdminCookie(config, basePath, session.id, adminConfig.sessionTtlSeconds),
-    );
-    return reply.redirect(returnTo);
+    ]);
+    return reply.redirect(loginState.returnTo);
   });
 
   app.post(`${basePath}/logout`, async (request, reply) => {
@@ -276,7 +388,21 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
 
     const sessionId = readCookie(request, ADMIN_COOKIE_NAME);
     if (sessionId) {
+      const session = await sessionStore.getSession(sessionId);
       await sessionStore.deleteSession(sessionId);
+      if (session) {
+        const user = await userRepository.findById(session.userId);
+        await appendAuditSafely(auditLogRepository, {
+          eventType: "admin.logout",
+          outcome: "success",
+          source: "admin",
+          userId: session.userId,
+          username: user?.username,
+          clientId: adminClient.client_id,
+          ipAddress: readAdminLoginSource(request),
+          userAgent: readHeaderValue(request.headers?.["user-agent"]),
+        });
+      }
     }
     reply.header("Set-Cookie", buildAdminCookie(config, basePath, "", 0));
     return reply.send({ ok: true });
@@ -337,18 +463,40 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     return user ? toAdminUser(user) : reply.code(404).send({ error: "User not found" });
   });
 
+  app.get(`${basePath}/api/audit-logs`, async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    const query = parseAdminAuditLogListOptions(request.query);
+    if (!query.ok) {
+      return reply.code(400).send({ error: query.error });
+    }
+    const { offset: _offset, limit: _limit, ...countOptions } = query.value;
+    const [items, total] = await Promise.all([
+      auditLogRepository.list(query.value),
+      auditLogRepository.count(countOptions),
+    ]);
+    return { items, total };
+  });
+
   app.post(`${basePath}/api/users`, async (request, reply) => {
-    if (!(await requireAdminMutation(request, reply))) return;
+    const actor = await requireAdminMutation(request, reply);
+    if (!actor) return;
     const payload = parseAdminUserPayload(request.body, { allowIdentityFields: true });
     if (!payload.ok) {
       return reply.code(400).send({ error: payload.error });
     }
-    const user = await userRepository.create(payload.value as UserInfo);
+    const user = await userRepository.create(payload.value as Omit<UserInfo, "id" | "sub">, {
+      source: "admin",
+      actorUserId: actor.sub,
+    });
+    if (isActiveUser(user)) {
+      await oidcAccountLifecycle.allow(user.sub);
+    }
     return reply.code(201).send(toAdminUser(user));
   });
 
   app.patch(`${basePath}/api/users/:sub`, async (request, reply) => {
-    if (!(await requireAdminMutation(request, reply))) return;
+    const actor = await requireAdminMutation(request, reply);
+    if (!actor) return;
     const { sub } = request.params as { sub: string };
     const payload = parseAdminUserPayload(request.body, { allowIdentityFields: false });
     if (!payload.ok) {
@@ -358,27 +506,57 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     if (!existingUser) {
       return reply.code(404).send({ error: "User not found" });
     }
-    if (
-      existingUser.status === "active" &&
-      payload.value.status !== undefined &&
-      payload.value.status !== "active"
-    ) {
-      await revokeUserCredentials(options, sub);
+    if (payload.value.status !== undefined && payload.value.status !== "active") {
+      const lease = await oidcAccountLifecycle.acquireBlock(sub);
+      let stateChanged = false;
+      try {
+        await revokeUserCredentials(options, oidcAccountLifecycle, sub);
+        const user = await userRepository.update(sub, payload.value, {
+          source: "admin",
+          actorUserId: actor.sub,
+        });
+        stateChanged = true;
+        await lease.commit();
+        return toAdminUser(user);
+      } catch (error) {
+        if (!stateChanged) {
+          await releaseOidcAccountLease(lease);
+        }
+        throw error;
+      }
     }
-    const user = await userRepository.update(sub, payload.value);
+    const user = await userRepository.update(sub, payload.value, {
+      source: "admin",
+      actorUserId: actor.sub,
+    });
+    if (payload.value.status === "active") {
+      await oidcAccountLifecycle.allow(sub);
+    }
     return toAdminUser(user);
   });
 
   app.delete(`${basePath}/api/users/:sub`, async (request, reply) => {
-    if (!(await requireAdminMutation(request, reply))) return;
+    const actor = await requireAdminMutation(request, reply);
+    if (!actor) return;
     const { sub } = request.params as { sub: string };
     const user = await userRepository.findById(sub);
     if (!user) {
       return reply.code(404).send({ error: "User not found" });
     }
-    await revokeUserCredentials(options, user.sub);
-    await userRepository.delete(sub);
-    return reply.code(204).send();
+    const lease = await oidcAccountLifecycle.acquireBlock(user.sub);
+    let stateChanged = false;
+    try {
+      await revokeUserCredentials(options, oidcAccountLifecycle, user.sub);
+      await userRepository.delete(sub, { source: "admin", actorUserId: actor.sub });
+      stateChanged = true;
+      await lease.commit();
+      return reply.code(204).send();
+    } catch (error) {
+      if (!stateChanged) {
+        await releaseOidcAccountLease(lease);
+      }
+      throw error;
+    }
   });
 
   app.get(`${basePath}/api/providers`, async (request, reply) => {
@@ -882,22 +1060,55 @@ async function resolveAdminUser(
 }
 
 function isAdminUser(user: UserInfo, allowedGroups: string[]): boolean {
-  return (user.groups ?? []).some((group) => allowedGroups.includes(group));
+  return userHasAnyGroup(user.groups, allowedGroups);
 }
 
 function isActiveUser(user: UserInfo): boolean {
   return !user.status || user.status === "active";
 }
 
-async function revokeUserCredentials(options: AdminRoutesOptions, userId: string): Promise<void> {
+function resolveOidcAccountLifecycle(options: AdminRoutesOptions): OidcAccountLifecycleCoordinator {
+  if (options.oidcAccountLifecycle) {
+    return options.oidcAccountLifecycle;
+  }
+
+  if (options.revokeOidcAccount) {
+    return {
+      acquireBlock: (accountId) => OidcAdapterFactory.acquireAccountIdBlock(accountId),
+      revoke: options.revokeOidcAccount,
+      allow: (accountId) => OidcAdapterFactory.allowAccountId(accountId),
+    };
+  }
+
+  return {
+    acquireBlock: (accountId) => OidcAdapterFactory.acquireAccountIdBlock(accountId),
+    revoke: (accountId) => OidcAdapterFactory.revokeByAccountId(accountId),
+    allow: (accountId) => OidcAdapterFactory.allowAccountId(accountId),
+  };
+}
+
+async function revokeUserCredentials(
+  options: AdminRoutesOptions,
+  lifecycle: OidcAccountLifecycleCoordinator,
+  userId: string,
+): Promise<void> {
   // 先撤销 OIDC 令牌和第三方 provider token；任何一项失败都不继续停用或删除用户，避免
   // “状态已改变但旧 refresh token 仍可用”的不一致状态。
-  await (options.revokeOidcAccount ?? OidcAdapterFactory.revokeByAccountId)(userId);
+  await lifecycle.revoke(userId);
   await options.tokenRepository?.deleteByOwnerId(userId);
 }
 
+async function releaseOidcAccountLease(lease: OidcAccountBlockLease): Promise<void> {
+  try {
+    await lease.release();
+  } catch (error) {
+    // 释放失败时保持 fail-closed，并保留原始业务错误给调用方。
+    Logger.error("[用户管理] 释放 OIDC 账户栅栏失败:", sanitizeForLog(error));
+  }
+}
+
 function readCookie(request: FastifyRequest, name: string): string | undefined {
-  const cookie = request.headers.cookie;
+  const cookie = request.headers?.cookie;
   if (!cookie) {
     return undefined;
   }
@@ -912,6 +1123,48 @@ function readCookie(request: FastifyRequest, name: string): string | undefined {
   return undefined;
 }
 
+function readValidAdminLoginBinding(request: FastifyRequest): string | undefined {
+  const value = readCookie(request, ADMIN_LOGIN_COOKIE_NAME);
+  return value && /^[a-f0-9]{64}$/u.test(value) ? value : undefined;
+}
+
+function readAdminLoginSource(request: FastifyRequest): string {
+  const target = request as FastifyRequest & {
+    ip?: string;
+    socket?: { remoteAddress?: string };
+  };
+  return target.ip || target.socket?.remoteAddress || "unknown";
+}
+
+function readHeaderValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+async function appendAuditSafely(
+  repository: AuditLogRepository,
+  input: AuditLogInput,
+): Promise<void> {
+  try {
+    await repository.append(input);
+  } catch (error) {
+    Logger.error("[审计日志] 写入管理端事件失败:", sanitizeForLog(error));
+  }
+}
+
+function hashAdminLoginValue(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function matchesAdminLoginBinding(expectedHash: string, binding: string): boolean {
+  if (!/^[a-f0-9]{64}$/u.test(expectedHash)) {
+    return false;
+  }
+  return timingSafeEqual(
+    Buffer.from(expectedHash, "hex"),
+    Buffer.from(hashAdminLoginValue(binding), "hex"),
+  );
+}
+
 function buildAdminCookie(
   config: GiteaOidcConfig,
   basePath: string,
@@ -921,6 +1174,23 @@ function buildAdminCookie(
   const secure = isHttpsUrl(config.server.url) || isHttpsUrl(config.oidc.issuer);
   return [
     `${ADMIN_COOKIE_NAME}=${value}`,
+    "HttpOnly",
+    "SameSite=Lax",
+    `Path=${basePath}`,
+    `Max-Age=${maxAge}`,
+    ...(secure ? ["Secure"] : []),
+  ].join("; ");
+}
+
+function buildAdminLoginCookie(
+  config: GiteaOidcConfig,
+  basePath: string,
+  value: string,
+  maxAge: number,
+): string {
+  const secure = isHttpsUrl(config.server.url) || isHttpsUrl(config.oidc.issuer);
+  return [
+    `${ADMIN_LOGIN_COOKIE_NAME}=${value}`,
     "HttpOnly",
     "SameSite=Lax",
     `Path=${basePath}`,
@@ -1048,7 +1318,12 @@ function parseAdminUserPayload(
   const stringFields = options.allowIdentityFields
     ? [...ADMIN_USER_STRING_FIELDS, ...ADMIN_USER_IDENTITY_FIELDS]
     : ADMIN_USER_STRING_FIELDS;
-  const allowedKeys = new Set<string>([...stringFields, ...ADMIN_USER_LIST_FIELDS, "status"]);
+  const allowedKeys = new Set<string>([
+    ...stringFields,
+    ...ADMIN_USER_LIST_FIELDS,
+    "groups",
+    "status",
+  ]);
   const unsupported = Object.keys(input).filter((key) => !allowedKeys.has(key));
   if (unsupported.length > 0) {
     return { ok: false, error: `Unsupported user fields: ${unsupported.join(", ")}` };
@@ -1077,6 +1352,14 @@ function parseAdminUserPayload(
     payload[field] = value;
   }
 
+  if (input.groups !== undefined) {
+    const groups = parseAdminUserGroups(input.groups);
+    if (!groups.ok) {
+      return groups;
+    }
+    payload.groups = groups.value;
+  }
+
   if (input.status !== undefined) {
     if (typeof input.status !== "string" || !ADMIN_USER_STATUS_VALUES.has(input.status)) {
       return { ok: false, error: "User status is invalid" };
@@ -1085,6 +1368,46 @@ function parseAdminUserPayload(
   }
 
   return { ok: true, value: payload };
+}
+
+function parseAdminUserGroups(
+  value: unknown,
+  depth = 0,
+): { ok: true; value: UserGroup[] } | { ok: false; error: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, error: "User groups must be an array" };
+  }
+  if (depth >= 32 && value.length > 0) {
+    return { ok: false, error: "User groups exceed the maximum depth" };
+  }
+
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return { ok: false, error: "User group must be an object with id and name" };
+    }
+
+    const group = item as Record<string, unknown>;
+    const unsupported = Object.keys(group).filter(
+      (key) => key !== "id" && key !== "name" && key !== "children",
+    );
+    if (unsupported.length > 0) {
+      return { ok: false, error: `Unsupported user group fields: ${unsupported.join(", ")}` };
+    }
+    if (
+      typeof group.id !== "string" ||
+      !group.id.trim() ||
+      typeof group.name !== "string" ||
+      !group.name.trim()
+    ) {
+      return { ok: false, error: "User group id and name must be non-empty strings" };
+    }
+    if (group.children !== undefined) {
+      const children = parseAdminUserGroups(group.children, depth + 1);
+      if (!children.ok) return children;
+    }
+  }
+
+  return { ok: true, value: normalizeUserGroups(value) };
 }
 
 function parseAdminUserListOptions(
@@ -1163,6 +1486,82 @@ function parseAdminUserListOptions(
     return limit;
   }
   value.limit = limit.value ?? ADMIN_USER_LIST_DEFAULT_LIMIT;
+
+  return { ok: true, value };
+}
+
+function parseAdminAuditLogListOptions(
+  query: unknown,
+): { ok: true; value: AuditLogListOptions } | { ok: false; error: string } {
+  if (!query || typeof query !== "object" || Array.isArray(query)) {
+    return { ok: true, value: { limit: ADMIN_AUDIT_LOG_DEFAULT_LIMIT } };
+  }
+
+  const input = query as Record<string, unknown>;
+  const allowedKeys = new Set(["userId", "eventType", "outcome", "from", "to", "offset", "limit"]);
+  const unsupported = Object.keys(input).filter((key) => !allowedKeys.has(key));
+  if (unsupported.length > 0) {
+    return { ok: false, error: `Unsupported audit log query fields: ${unsupported.join(", ")}` };
+  }
+
+  const value: AuditLogListOptions = {};
+  if (input.userId !== undefined) {
+    if (typeof input.userId !== "string" || !input.userId.trim() || input.userId.length > 255) {
+      return { ok: false, error: "Audit log userId must be a non-empty string" };
+    }
+    value.userId = input.userId.trim();
+  }
+  if (input.eventType !== undefined) {
+    if (
+      typeof input.eventType !== "string" ||
+      !AUDIT_EVENT_TYPES.includes(input.eventType as (typeof AUDIT_EVENT_TYPES)[number])
+    ) {
+      return { ok: false, error: "Unsupported audit event type" };
+    }
+    value.eventType = input.eventType as AuditLogListOptions["eventType"];
+  }
+  if (input.outcome !== undefined) {
+    if (input.outcome !== "success" && input.outcome !== "failure") {
+      return { ok: false, error: "Unsupported audit outcome" };
+    }
+    value.outcome = input.outcome;
+  }
+
+  for (const field of ["from", "to"] as const) {
+    const inputValue = input[field];
+    if (inputValue === undefined) continue;
+    if (typeof inputValue !== "string") {
+      return { ok: false, error: `Audit log ${field} must be an ISO date` };
+    }
+    const date = new Date(inputValue);
+    if (!Number.isFinite(date.getTime())) {
+      return { ok: false, error: `Audit log ${field} must be an ISO date` };
+    }
+    value[field] = date;
+  }
+  if (value.from && value.to && value.from > value.to) {
+    return { ok: false, error: "Audit log from must not be later than to" };
+  }
+
+  const offset = parseAdminListInteger(
+    input.offset,
+    "offset",
+    0,
+    Number.MAX_SAFE_INTEGER,
+    "Audit log list",
+  );
+  if (!offset.ok) return offset;
+  if (offset.value !== undefined) value.offset = offset.value;
+
+  const limit = parseAdminListInteger(
+    input.limit,
+    "limit",
+    1,
+    ADMIN_AUDIT_LOG_MAX_LIMIT,
+    "Audit log list",
+  );
+  if (!limit.ok) return limit;
+  value.limit = limit.value ?? ADMIN_AUDIT_LOG_DEFAULT_LIMIT;
 
   return { ok: true, value };
 }
@@ -1310,8 +1709,10 @@ function parseAdminListInteger(
 function normalizeAdminReturnPath(basePath: string, value?: string): string {
   const allowedPaths = new Set([
     `${basePath}/users`,
+    `${basePath}/applications`,
     `${basePath}/providers`,
     `${basePath}/tokens`,
+    `${basePath}/audit-logs`,
   ]);
   if (!value) {
     return `${basePath}/users`;

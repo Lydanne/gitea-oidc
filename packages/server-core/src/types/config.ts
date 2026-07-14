@@ -55,6 +55,9 @@ export interface UserRepositoryConfig {
  * 认证系统配置
  */
 export interface AuthConfig {
+  /** 仅有一个可跳转登录方式时由服务端直接进入；默认关闭。 */
+  autoRedirectSingleProvider?: boolean;
+
   /** 用户仓储配置 */
   userRepository: UserRepositoryConfig;
 
@@ -97,6 +100,11 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     level: "info",
   },
 
+  audit: {
+    enabled: true,
+    retentionDays: 30,
+  },
+
   oidc: {
     issuer: "http://localhost:3000/oidc",
     cookieKeys: ["secret-key-1", "secret-key-2"],
@@ -108,7 +116,16 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     },
     claims: {
       openid: ["sub"],
-      profile: ["name", "email", "email_verified", "groups", "roles", "status"],
+      profile: [
+        "name",
+        "preferred_username",
+        "email",
+        "email_verified",
+        "groups",
+        "groups_tree",
+        "roles",
+        "status",
+      ],
       email: ["email", "email_verified"],
       provider_api: [],
     },
@@ -135,6 +152,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
   ],
 
   auth: {
+    autoRedirectSingleProvider: false,
     userRepository: {
       type: "memory",
       memory: {},

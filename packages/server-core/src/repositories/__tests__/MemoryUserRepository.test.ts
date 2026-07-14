@@ -16,7 +16,7 @@ describe("MemoryUserRepository", () => {
     await repository.clear();
   });
 
-  const mockUserData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt"> = {
+  const mockUserData: Omit<UserInfo, "id" | "sub" | "createdAt" | "updatedAt"> = {
     username: "testuser",
     name: "Test User",
     email: "test@example.com",
@@ -25,14 +25,17 @@ describe("MemoryUserRepository", () => {
     authProvider: "local",
     emailVerified: true,
     phoneVerified: false,
-    groups: ["users", "admins"],
+    groups: [
+      { id: "users", name: "users" },
+      { id: "admins", name: "admins" },
+    ],
     externalId: "ext123",
     metadata: { role: "user" },
   };
 
   const stripUserData = (
-    user: Omit<UserInfo, "sub" | "createdAt" | "updatedAt">,
-  ): Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"> => {
+    user: Omit<UserInfo, "id" | "sub" | "createdAt" | "updatedAt">,
+  ): Omit<UserInfo, "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"> => {
     const { authProvider: _provider, externalId: _externalId, ...rest } = user;
     return rest;
   };
@@ -42,6 +45,8 @@ describe("MemoryUserRepository", () => {
       const user = await repository.create(mockUserData);
 
       expect(user).toMatchObject(mockUserData);
+      expect(user.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(user.id).not.toBe(user.sub);
       expect(user.sub).toBeDefined();
       expect(user.createdAt).toBeInstanceOf(Date);
       expect(user.updatedAt).toBeInstanceOf(Date);
@@ -163,6 +168,7 @@ describe("MemoryUserRepository", () => {
 
       // 现在 findOrCreate 会更新用户，所以 updatedAt 会不同
       expect(found.sub).toEqual(created.sub);
+      expect(found.id).toEqual(created.id);
       expect(found.username).toEqual(created.username);
       expect(found.email).toEqual(created.email);
       expect(found.createdAt).toEqual(created.createdAt);
@@ -194,9 +200,10 @@ describe("MemoryUserRepository", () => {
     it("应该成功更新用户", async () => {
       const created = await repository.create(mockUserData);
       const updates = {
+        id: "replacement-id",
         name: "Updated Name",
         emailVerified: false,
-        groups: ["users"],
+        groups: [{ id: "users", name: "users" }],
       };
 
       // 等待一毫秒确保时间戳不同
@@ -206,7 +213,8 @@ describe("MemoryUserRepository", () => {
 
       expect(updated.name).toBe("Updated Name");
       expect(updated.emailVerified).toBe(false);
-      expect(updated.groups).toEqual(["users"]);
+      expect(updated.groups).toEqual([{ id: "users", name: "users" }]);
+      expect(updated.id).toBe(created.id);
       expect(updated.sub).toBe(created.sub);
       expect(updated.updatedAt).toBeInstanceOf(Date);
       if (updated.updatedAt && created.updatedAt) {

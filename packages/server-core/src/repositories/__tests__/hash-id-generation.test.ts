@@ -7,7 +7,7 @@ import type { UserInfo } from "../../types/auth.js";
 import { MemoryUserRepository } from "../MemoryUserRepository.js";
 import { SqliteUserRepository } from "../SqliteUserRepository.js";
 
-describe("确定性 ID 生成", () => {
+describe("确定性 sub 与随机内部 ID 生成", () => {
   describe("MemoryUserRepository", () => {
     let repository: MemoryUserRepository;
 
@@ -20,7 +20,7 @@ describe("确定性 ID 生成", () => {
     });
 
     it("相同的 authProvider + externalId 应该生成相同的 sub", async () => {
-      const userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt"> = {
+      const userData: Omit<UserInfo, "id" | "sub" | "createdAt" | "updatedAt"> = {
         username: "user1",
         name: "User One",
         email: "user1@example.com",
@@ -36,6 +36,8 @@ describe("确定性 ID 生成", () => {
       const user2 = await repository.create(userData);
 
       expect(user1.sub).toBe(user2.sub);
+      expect(user1.id).not.toBe(user2.id);
+      expect(user1.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     it("不同的 externalId 应该生成不同的 sub", async () => {
@@ -115,7 +117,7 @@ describe("确定性 ID 生成", () => {
     });
 
     it("相同的 authProvider + externalId 应该生成相同的 sub", async () => {
-      const userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt"> = {
+      const userData: Omit<UserInfo, "id" | "sub" | "createdAt" | "updatedAt"> = {
         username: "user1",
         name: "User One",
         email: "user1@example.com",
@@ -131,6 +133,7 @@ describe("确定性 ID 生成", () => {
       const user2 = await repository.create(userData);
 
       expect(user1.sub).toBe(user2.sub);
+      expect(user1.id).not.toBe(user2.id);
     });
 
     it("findOrCreate 应该使用确定性 ID", async () => {

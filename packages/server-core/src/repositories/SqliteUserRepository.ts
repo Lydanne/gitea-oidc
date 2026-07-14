@@ -5,8 +5,16 @@
 
 import Database from "better-sqlite3";
 import { randomUUID } from "crypto";
-import type { ListOptions, UserInfo, UserRepository } from "../types/auth.js";
+import type {
+  ListOptions,
+  UserDeleteResult,
+  UserFindOrCreateResult,
+  UserInfo,
+  UserRepository,
+  UserUpdateResult,
+} from "../types/auth.js";
 import { withUserDefaults } from "../utils/userDefaults.js";
+import { normalizeUserGroups } from "../utils/userGroups.js";
 import { generateUserId } from "../utils/userIdGenerator.js";
 import { getUserListSortColumn, normalizeUserListOptions } from "./userListOptions.js";
 
@@ -21,6 +29,7 @@ export class SqliteUserRepository implements UserRepository {
   private initializeDatabase(): void {
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS users (
+        id TEXT NOT NULL,
         sub TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
@@ -53,10 +62,12 @@ export class SqliteUserRepository implements UserRepository {
 
     this.db.exec(createTableSQL);
     this.ensureUserColumns();
+    this.ensureUserIds();
   }
 
   private userFromRow(row: any): UserInfo {
     return withUserDefaults({
+      id: row.id,
       sub: row.sub,
       username: row.username,
       name: row.name,
@@ -85,6 +96,7 @@ export class SqliteUserRepository implements UserRepository {
 
   private userToRow(user: UserInfo): any {
     return {
+      id: user.id,
       sub: user.sub,
       username: user.username,
       name: user.name,
@@ -95,7 +107,7 @@ export class SqliteUserRepository implements UserRepository {
       externalId: user.externalId ?? null,
       emailVerified: user.emailVerified !== undefined ? (user.emailVerified ? 1 : 0) : null,
       phoneVerified: user.phoneVerified !== undefined ? (user.phoneVerified ? 1 : 0) : null,
-      groups: user.groups ? JSON.stringify(user.groups) : null,
+      groups: user.groups ? JSON.stringify(normalizeUserGroups(user.groups)) : null,
       createdAt: user.createdAt ? user.createdAt.getTime() : Date.now(),
       updatedAt: user.updatedAt ? user.updatedAt.getTime() : Date.now(),
       metadata: user.metadata ? JSON.stringify(user.metadata) : null,
@@ -108,9 +120,7 @@ export class SqliteUserRepository implements UserRepository {
   }
 
   async findById(sub: string): Promise<UserInfo | null> {
-    const stmt = this.db.prepare("SELECT * FROM users WHERE sub = ?");
-    const row = stmt.get(sub) as any;
-    return row ? this.userFromRow(row) : null;
+    return this.findByIdSync(sub);
   }
 
   async findByUsername(username: string): Promise<UserInfo | null> {
@@ -129,6 +139,10 @@ export class SqliteUserRepository implements UserRepository {
     provider: string,
     externalId: string,
   ): Promise<UserInfo | null> {
+    return this.findByProviderAndExternalIdSync(provider, externalId);
+  }
+
+  private findByProviderAndExternalIdSync(provider: string, externalId: string): UserInfo | null {
     const sql = `
       SELECT * FROM users
       WHERE "authProvider" = ?
@@ -142,46 +156,55 @@ export class SqliteUserRepository implements UserRepository {
   async findOrCreate(
     provider: string,
     externalId: string,
-    userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider">,
+    userData: Omit<
+      UserInfo,
+      "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"
+    >,
   ): Promise<UserInfo> {
-    const existingUser = await this.findByProviderAndExternalId(provider, externalId);
+    return (await this.findOrCreateWithResult(provider, externalId, userData)).user;
+  }
 
-    if (existingUser) {
-      // 用户已存在，更新用户信息（保持 sub 和 createdAt 不变）
-      return await this.update(existingUser.sub, {
+  async findOrCreateWithResult(
+    provider: string,
+    externalId: string,
+    userData: Omit<
+      UserInfo,
+      "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"
+    >,
+  ): Promise<UserFindOrCreateResult> {
+    const transaction = this.db.transaction(() => {
+      const existingUser = this.findByProviderAndExternalIdSync(provider, externalId);
+      if (existingUser) {
+        return {
+          user: this.updateSync(existingUser, {
+            ...userData,
+            authProvider: provider,
+            externalId,
+          }),
+          before: existingUser,
+          created: false,
+        };
+      }
+
+      const now = new Date();
+      const user = this.createSync({
         ...userData,
         authProvider: provider,
         externalId,
+        createdAt: now,
+        updatedAt: now,
       });
-    }
+      return { user, before: null, created: true };
+    });
 
-    // 创建新用户
-    const userToCreate: Omit<UserInfo, "sub"> = {
-      ...userData,
-      authProvider: provider,
-      externalId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    try {
-      return await this.create(userToCreate);
-    } catch (err) {
-      // 并发的首次登录可能同时越过上面的查询；唯一索引决定胜者，失败方读取
-      // 胜者并按原有“同步资料”语义更新，不能把正常并发登录变成 500。
-      const concurrentUser = await this.findByProviderAndExternalId(provider, externalId);
-      if (concurrentUser) {
-        return this.update(concurrentUser.sub, {
-          ...userData,
-          authProvider: provider,
-          externalId,
-        });
-      }
-      throw err;
-    }
+    return transaction.immediate();
   }
 
-  async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
+  async create(userData: Omit<UserInfo, "id" | "sub">): Promise<UserInfo> {
+    return this.createSync(userData);
+  }
+
+  private createSync(userData: Omit<UserInfo, "id" | "sub">): UserInfo {
     const now = new Date();
 
     // 如果提供了 authProvider 和 externalId，使用哈希生成确定性的 sub
@@ -192,25 +215,27 @@ export class SqliteUserRepository implements UserRepository {
 
     const user: UserInfo = {
       ...userData,
+      id: randomUUID(),
       sub,
       createdAt: userData.createdAt || now,
       updatedAt: userData.updatedAt || now,
     };
 
-    await this.assertProviderIdentityAvailable(user, user.sub);
+    this.assertProviderIdentityAvailableSync(user, user.sub);
 
     const row = this.userToRow(user);
 
     const sql = `
       INSERT INTO users (
-        sub, username, name, email, picture, phone, "authProvider",
+        id, sub, username, name, email, picture, phone, "authProvider",
         "externalId", "emailVerified", "phoneVerified", groups, "createdAt", "updatedAt",
         metadata, status, roles, "lastLoginAt", "lastSyncedAt", "providerProfile"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const stmt = this.db.prepare(sql);
     stmt.run(
+      row.id,
       row.sub,
       row.username,
       row.name,
@@ -236,19 +261,31 @@ export class SqliteUserRepository implements UserRepository {
   }
 
   async update(sub: string, updates: Partial<UserInfo>): Promise<UserInfo> {
-    const user = await this.findById(sub);
-    if (!user) {
-      throw new Error(`User not found: ${sub}`);
-    }
+    return (await this.updateWithResult(sub, updates)).user;
+  }
 
+  async updateWithResult(sub: string, updates: Partial<UserInfo>): Promise<UserUpdateResult> {
+    const transaction = this.db.transaction(() => {
+      const before = this.findByIdSync(sub);
+      if (!before) {
+        throw new Error(`User not found: ${sub}`);
+      }
+      return { before, user: this.updateSync(before, updates) };
+    });
+    return transaction.immediate();
+  }
+
+  private updateSync(user: UserInfo, updates: Partial<UserInfo>): UserInfo {
+    const sub = user.sub;
     const updatedUser: UserInfo = {
       ...user,
       ...updates,
+      id: user.id,
       sub: user.sub,
       updatedAt: new Date(Date.now() + 1),
     };
 
-    await this.assertProviderIdentityAvailable(updatedUser, sub);
+    this.assertProviderIdentityAvailableSync(updatedUser, sub);
 
     const row = this.userToRow(updatedUser);
 
@@ -290,6 +327,7 @@ export class SqliteUserRepository implements UserRepository {
     const pragmaStmt = this.db.prepare(`PRAGMA table_info(users)`);
     const columns = pragmaStmt.all() as { name: string }[];
     const requiredColumns: Array<{ name: string; definition: string }> = [
+      { name: "id", definition: "ALTER TABLE users ADD COLUMN id TEXT" },
       { name: "externalId", definition: 'ALTER TABLE users ADD COLUMN "externalId" TEXT' },
       { name: "status", definition: "ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'" },
       { name: "roles", definition: "ALTER TABLE users ADD COLUMN roles TEXT" },
@@ -308,9 +346,34 @@ export class SqliteUserRepository implements UserRepository {
     }
   }
 
+  private ensureUserIds(): void {
+    const rows = this.db
+      .prepare("SELECT sub FROM users WHERE id IS NULL OR id = ''")
+      .all() as Array<{ sub: string }>;
+    const update = this.db.prepare(
+      "UPDATE users SET id = ? WHERE sub = ? AND (id IS NULL OR id = '')",
+    );
+    this.db.transaction(() => {
+      for (const row of rows) {
+        update.run(randomUUID(), row.sub);
+      }
+    })();
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_id ON users(id)");
+  }
+
   async delete(sub: string): Promise<void> {
-    const stmt = this.db.prepare("DELETE FROM users WHERE sub = ?");
-    stmt.run(sub);
+    await this.deleteWithResult(sub);
+  }
+
+  async deleteWithResult(sub: string): Promise<UserDeleteResult> {
+    const transaction = this.db.transaction(() => {
+      const deleted = this.findByIdSync(sub);
+      if (deleted) {
+        this.db.prepare("DELETE FROM users WHERE sub = ?").run(sub);
+      }
+      return { deleted };
+    });
+    return transaction.immediate();
   }
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
@@ -375,12 +438,17 @@ export class SqliteUserRepository implements UserRepository {
     });
   }
 
-  private async assertProviderIdentityAvailable(user: UserInfo, sub: string): Promise<void> {
+  private findByIdSync(sub: string): UserInfo | null {
+    const row = this.db.prepare("SELECT * FROM users WHERE sub = ?").get(sub) as any;
+    return row ? this.userFromRow(row) : null;
+  }
+
+  private assertProviderIdentityAvailableSync(user: UserInfo, sub: string): void {
     if (!user.externalId) {
       return;
     }
 
-    const existing = await this.findByProviderAndExternalId(user.authProvider, user.externalId);
+    const existing = this.findByProviderAndExternalIdSync(user.authProvider, user.externalId);
     if (existing && existing.sub !== sub) {
       throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
     }

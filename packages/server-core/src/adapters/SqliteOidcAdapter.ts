@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { chmodSync, existsSync } from "fs";
 import type { Adapter } from "oidc-provider";
 import { resolve } from "path";
-import { assertOidcClientWriteAllowed } from "./oidcClientRevocationBarrier.js";
+import { assertOidcWriteAllowed } from "./oidcClientRevocationBarrier.js";
 
 interface SharedSqliteConnection {
   db: Database.Database;
@@ -73,7 +73,7 @@ export class SqliteOidcAdapter implements Adapter {
   }
 
   async upsert(key: string, payload: any, expiresIn?: number): Promise<void> {
-    assertOidcClientWriteAllowed(payload);
+    assertOidcWriteAllowed(payload);
     const expiresAt = expiresIn === undefined ? null : nowInSeconds() + expiresIn;
     this.db
       .prepare(

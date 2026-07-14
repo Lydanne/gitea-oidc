@@ -5,7 +5,12 @@
  */
 
 import type { FastifyReply, FastifyRequest, RouteOptions } from "fastify";
-import type { ProviderProfile, UserStatus } from "./user.js";
+import type {
+  AuthenticationAuditContext,
+  AuthenticationAuditEvent,
+  UserMutationAuditContext,
+} from "./audit.js";
+import type { ProviderProfile, UserGroup, UserStatus } from "./user.js";
 
 export type { AdminConfig, AdminMeResponse, AdminSession, AdminTokenSummary } from "./admin.js";
 export type {
@@ -21,7 +26,7 @@ export type {
   ProviderTokenRepository,
   ProviderTokenStatus,
 } from "./providerApi.js";
-export type { ProviderProfile, UserStatus } from "./user.js";
+export type { ProviderProfile, UserClaims, UserGroup, UserStatus } from "./user.js";
 
 /**
  * 认证错误码
@@ -482,6 +487,9 @@ export interface AuthResult {
  * 字段命名遵循 OIDC 标准规范
  */
 export interface UserInfo {
+  /** 内部随机 ID，当前不参与认证、查询或 Claim 生成 */
+  id: string;
+
   /** 用户唯一标识符（OIDC sub claim） */
   sub: string;
 
@@ -512,8 +520,8 @@ export interface UserInfo {
   /** 是否已验证手机（OIDC phone_verified claim） */
   phoneVerified?: boolean;
 
-  /** 用户组列表（OIDC groups claim，用于团队映射） */
-  groups?: string[];
+  /** 用户组树；OIDC 输出由 userToClaims 统一投影 */
+  groups?: UserGroup[];
 
   /** 用户账号状态，未持久化的老数据默认为 active */
   status?: UserStatus;
@@ -602,23 +610,54 @@ export interface UserRepository {
   findOrCreate(
     provider: string,
     externalId: string,
-    userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider">,
+    userData: Omit<
+      UserInfo,
+      "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"
+    >,
+    auditContext?: UserMutationAuditContext,
   ): Promise<UserInfo>;
+
+  /**
+   * 返回仓储在同一次写入中观察到的创建判定与旧值。
+   *
+   * 审计包装器优先使用该增量能力，避免用写入前的独立查询推断并发结果。
+   */
+  findOrCreateWithResult?(
+    provider: string,
+    externalId: string,
+    userData: Omit<
+      UserInfo,
+      "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"
+    >,
+  ): Promise<UserFindOrCreateResult>;
 
   /**
    * 创建用户
    */
-  create(user: UserInfo): Promise<UserInfo>;
+  create(
+    user: Omit<UserInfo, "id" | "sub">,
+    auditContext?: UserMutationAuditContext,
+  ): Promise<UserInfo>;
 
   /**
    * 更新用户
    */
-  update(sub: string, updates: Partial<UserInfo>): Promise<UserInfo>;
+  update(
+    sub: string,
+    updates: Partial<UserInfo>,
+    auditContext?: UserMutationAuditContext,
+  ): Promise<UserInfo>;
+
+  /** 返回本次更新实际使用的旧值与写入后的用户。 */
+  updateWithResult?(sub: string, updates: Partial<UserInfo>): Promise<UserUpdateResult>;
 
   /**
    * 删除用户
    */
-  delete(sub: string): Promise<void>;
+  delete(sub: string, auditContext?: UserMutationAuditContext): Promise<void>;
+
+  /** 返回本次删除实际移除的用户；目标不存在时为 null。 */
+  deleteWithResult?(sub: string): Promise<UserDeleteResult>;
 
   /**
    * 查询用户列表
@@ -629,6 +668,21 @@ export interface UserRepository {
    * 清空所有用户（仅用于测试）
    */
   clear?(): Promise<void>;
+}
+
+export interface UserFindOrCreateResult {
+  user: UserInfo;
+  before: UserInfo | null;
+  created: boolean;
+}
+
+export interface UserUpdateResult {
+  user: UserInfo;
+  before: UserInfo;
+}
+
+export interface UserDeleteResult {
+  deleted: UserInfo | null;
 }
 
 /**
@@ -692,9 +746,24 @@ export interface StateStore {
    * 原子读取并删除 state。
    *
    * OAuth state 和交互结果都是一次性凭据，调用方不得用 get() + delete()
-   * 组合它们，否则并发回调可能同时读取到同一条记录。
+   * 组合它们，否则并发回调可能同时读取到同一条记录。传入 boundedCollection 时，
+   * 支持该能力的实现还必须原子移除对应的容量索引成员。
    */
-  take(state: string): Promise<any>;
+  take(state: string, boundedCollection?: string): Promise<any>;
+
+  /**
+   * 将 state 原子写入一个有容量上限的集合。
+   *
+   * 实现必须清理过期成员；集合已满时返回 false，不能淘汰尚未过期的 state。
+   * 这是可选能力；调用方应为自定义 StateStore 提供安全回退。
+   */
+  setBounded?(
+    state: string,
+    data: any,
+    ttl: number,
+    collection: string,
+    maxSize: number,
+  ): Promise<boolean>;
 
   /**
    * 原子递增一个带 TTL 的计数器，并返回递增后的值。
@@ -774,7 +843,14 @@ export interface IAuthCoordinator {
    * @param interactionUid OIDC 交互 UID
    * @param userId 已认证的用户 ID
    */
-  storeAuthResult(interactionUid: string, userId: string): Promise<void>;
+  storeAuthResult(
+    interactionUid: string,
+    userId: string,
+    auditContext?: AuthenticationAuditContext,
+  ): Promise<void>;
+
+  /** 记录有效登录流程中的 Provider 认证失败摘要，不保存请求正文或凭据。 */
+  recordAuthenticationEvent?(event: AuthenticationAuditEvent): Promise<void>;
 
   /**
    * 获取认证结果

@@ -71,10 +71,11 @@ pnpm test userIdGenerator
 // MemoryUserRepository.ts
 import { generateUserId } from '../utils/userIdGenerator';
 
-async create(userData: Omit<UserInfo, 'sub'>): Promise<UserInfo> {
+async create(userData: Omit<UserInfo, 'id' | 'sub'>): Promise<UserInfo> {
   const sub = userData.authProvider && userData.externalId
     ? generateUserId(userData.authProvider, userData.externalId)
     : randomUUID();
+  const id = randomUUID();
   
   // ...
 }

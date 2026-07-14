@@ -5,12 +5,97 @@
  * 适合高并发和分布式部署场景
  */
 
+import { randomBytes } from "crypto";
 import type { Adapter } from "oidc-provider";
 import { createClient } from "redis";
 import {
-  assertOidcClientWriteAllowed,
+  assertOidcWriteAllowed,
+  type OidcAccountBlockLease,
+  OidcAccountRevokedError,
+  readOidcPayloadAccountId,
   readOidcPayloadClientId,
 } from "./oidcClientRevocationBarrier.js";
+
+const ACCOUNT_BLOCK_LEASE_TTL_SECONDS = 900;
+
+const UPSERT_ACCOUNT_BOUND_RECORD_SCRIPT = [
+  "if redis.call('EXISTS', KEYS[2]) == 1 or redis.call('EXISTS', KEYS[3]) == 1 then",
+  "  return 0",
+  "end",
+  "local keyPrefix = ARGV[1]",
+  "local name = ARGV[2]",
+  "local id = ARGV[3]",
+  "local value = ARGV[4]",
+  "local expiresIn = tonumber(ARGV[5])",
+  "local nextPayload = cjson.decode(value)",
+  "local member = name .. ':' .. id",
+  "local function readClientId(payload)",
+  "  if type(payload) ~= 'table' then return nil end",
+  "  if payload.clientId then return payload.clientId end",
+  "  if payload.client_id then return payload.client_id end",
+  "  if type(payload.params) == 'table' then return payload.params.client_id end",
+  "  return nil",
+  "end",
+  "local function deleteStringIndexIfOwned(key)",
+  "  if redis.call('GET', key) == id then redis.call('DEL', key) end",
+  "end",
+  "local function addSetIndex(key, indexMember)",
+  "  local previousTtl = redis.call('TTL', key)",
+  "  redis.call('SADD', key, indexMember)",
+  "  if expiresIn > 0 then",
+  "    if previousTtl == -2 or (previousTtl >= 0 and previousTtl < expiresIn) then",
+  "      redis.call('EXPIRE', key, expiresIn)",
+  "    end",
+  "  elseif previousTtl >= 0 then",
+  "    redis.call('PERSIST', key)",
+  "  end",
+  "end",
+  "local previousValue = redis.call('GET', KEYS[1])",
+  "if previousValue then",
+  "  local decoded, previousPayload = pcall(cjson.decode, previousValue)",
+  "  if decoded then",
+  "    if previousPayload.userCode and previousPayload.userCode ~= nextPayload.userCode then",
+  "      deleteStringIndexIfOwned(keyPrefix .. 'userCode:' .. previousPayload.userCode)",
+  "    end",
+  "    if previousPayload.uid and previousPayload.uid ~= nextPayload.uid then",
+  "      deleteStringIndexIfOwned(keyPrefix .. 'uid:' .. previousPayload.uid)",
+  "    end",
+  "    if previousPayload.grantId and previousPayload.grantId ~= nextPayload.grantId then",
+  "      redis.call('SREM', keyPrefix .. name .. ':grantId:' .. previousPayload.grantId, id)",
+  "    end",
+  "    if previousPayload.accountId and previousPayload.accountId ~= nextPayload.accountId then",
+  "      redis.call('SREM', keyPrefix .. 'accountId:' .. previousPayload.accountId, member)",
+  "    end",
+  "    local previousClientId = readClientId(previousPayload)",
+  "    local nextClientId = readClientId(nextPayload)",
+  "    if previousClientId and previousClientId ~= nextClientId then",
+  "      redis.call('SREM', keyPrefix .. 'clientId:' .. previousClientId, member)",
+  "    end",
+  "  end",
+  "end",
+  "if expiresIn ~= 0 then",
+  "  redis.call('SETEX', KEYS[1], expiresIn, value)",
+  "else",
+  "  redis.call('SET', KEYS[1], value)",
+  "end",
+  "if nextPayload.userCode then",
+  "  local userCodeKey = keyPrefix .. 'userCode:' .. nextPayload.userCode",
+  "  if expiresIn ~= 0 then redis.call('SETEX', userCodeKey, expiresIn, id)",
+  "  else redis.call('SET', userCodeKey, id) end",
+  "end",
+  "if nextPayload.uid then",
+  "  local uidKey = keyPrefix .. 'uid:' .. nextPayload.uid",
+  "  if expiresIn ~= 0 then redis.call('SETEX', uidKey, expiresIn, id)",
+  "  else redis.call('SET', uidKey, id) end",
+  "end",
+  "if nextPayload.grantId then",
+  "  addSetIndex(keyPrefix .. name .. ':grantId:' .. nextPayload.grantId, id)",
+  "end",
+  "addSetIndex(keyPrefix .. 'accountId:' .. nextPayload.accountId, member)",
+  "local clientId = readClientId(nextPayload)",
+  "if clientId then addSetIndex(keyPrefix .. 'clientId:' .. clientId, member) end",
+  "return 1",
+].join("\n");
 
 export interface RedisOidcAdapterOptions {
   /**
@@ -146,10 +231,25 @@ export class RedisOidcAdapter implements Adapter {
    * 插入或更新记录
    */
   async upsert(id: string, payload: any, expiresIn?: number): Promise<void> {
-    assertOidcClientWriteAllowed(payload);
+    assertOidcWriteAllowed(payload);
     const client = await this.getClient();
     const key = this.key(id);
     const value = JSON.stringify(payload);
+    const accountId = readOidcPayloadAccountId(payload);
+    if (accountId) {
+      const result = await client.eval(UPSERT_ACCOUNT_BOUND_RECORD_SCRIPT, {
+        keys: [
+          key,
+          RedisOidcAdapter.accountBlockKey(this.keyPrefix, accountId),
+          RedisOidcAdapter.accountBlockLeasesKey(this.keyPrefix, accountId),
+        ],
+        arguments: [this.keyPrefix, this.name, id, value, String(expiresIn ?? 0)],
+      });
+      if (Number(result) === 0) {
+        throw new OidcAccountRevokedError();
+      }
+      return;
+    }
     const previousPayload = await this.find(id);
 
     await this.removeStaleIndexes(client, id, previousPayload, payload);
@@ -353,6 +453,58 @@ export class RedisOidcAdapter implements Adapter {
    * 删除账户所属的所有 OIDC 模型记录。账户索引使用 `model:id` 成员，避免不同
    * adapter 模型之间同名 id 互相误删。
    */
+  static async acquireAccountBlock(
+    accountId: string,
+    options: RedisOidcAdapterOptions | undefined,
+  ): Promise<OidcAccountBlockLease> {
+    const client = await RedisOidcAdapter.getSharedClient(options);
+    const keyPrefix = options?.keyPrefix || "oidc:";
+    const leaseKey = RedisOidcAdapter.accountBlockLeasesKey(keyPrefix, accountId);
+    const durableKey = RedisOidcAdapter.accountBlockKey(keyPrefix, accountId);
+    const token = randomBytes(32).toString("hex");
+    await client.eval(
+      [
+        "redis.call('SADD', KEYS[1], ARGV[1])",
+        "redis.call('EXPIRE', KEYS[1], ARGV[2])",
+        "return 1",
+      ].join("\n"),
+      {
+        keys: [leaseKey],
+        arguments: [token, String(ACCOUNT_BLOCK_LEASE_TTL_SECONDS)],
+      },
+    );
+
+    let settled = false;
+    return Object.freeze({
+      accountId,
+      async commit(): Promise<void> {
+        if (settled) return;
+        await client.eval(
+          [
+            "redis.call('SET', KEYS[1], '1')",
+            "redis.call('SREM', KEYS[2], ARGV[1])",
+            "if redis.call('SCARD', KEYS[2]) == 0 then redis.call('DEL', KEYS[2]) end",
+            "return 1",
+          ].join("\n"),
+          { keys: [durableKey, leaseKey], arguments: [token] },
+        );
+        settled = true;
+      },
+      async release(): Promise<void> {
+        if (settled) return;
+        await client.eval(
+          [
+            "redis.call('SREM', KEYS[1], ARGV[1])",
+            "if redis.call('SCARD', KEYS[1]) == 0 then redis.call('DEL', KEYS[1]) end",
+            "return 1",
+          ].join("\n"),
+          { keys: [leaseKey], arguments: [token] },
+        );
+        settled = true;
+      },
+    });
+  }
+
   static async revokeByAccountId(
     accountId: string,
     options: RedisOidcAdapterOptions | undefined,
@@ -360,23 +512,36 @@ export class RedisOidcAdapter implements Adapter {
     const client = await RedisOidcAdapter.getSharedClient(options);
     const keyPrefix = options?.keyPrefix || "oidc:";
     const accountKey = `${keyPrefix}accountId:${accountId}`;
-    const members = await client.sMembers(accountKey);
-    if (members.length === 0) {
-      return;
-    }
+    await client.eval(
+      [
+        "if redis.call('EXISTS', KEYS[2]) == 0 and redis.call('EXISTS', KEYS[3]) == 0 then",
+        "  redis.call('SET', KEYS[2], '1')",
+        "end",
+        "local members = redis.call('SMEMBERS', KEYS[1])",
+        "for _, member in ipairs(members) do",
+        "  if string.find(member, ':', 1, true) then redis.call('DEL', ARGV[1] .. member) end",
+        "end",
+        "redis.call('DEL', KEYS[1])",
+        "return #members",
+      ].join("\n"),
+      {
+        keys: [
+          accountKey,
+          RedisOidcAdapter.accountBlockKey(keyPrefix, accountId),
+          RedisOidcAdapter.accountBlockLeasesKey(keyPrefix, accountId),
+        ],
+        arguments: [keyPrefix],
+      },
+    );
+  }
 
-    const pipeline = client.multi();
-    for (const member of members) {
-      const separator = member.indexOf(":");
-      if (separator <= 0) {
-        continue;
-      }
-      const name = member.slice(0, separator);
-      const id = member.slice(separator + 1);
-      pipeline.del(`${keyPrefix}${name}:${id}`);
-    }
-    pipeline.del(accountKey);
-    await pipeline.exec();
+  static async allowAccountId(
+    accountId: string,
+    options: RedisOidcAdapterOptions | undefined,
+  ): Promise<void> {
+    const client = await RedisOidcAdapter.getSharedClient(options);
+    const keyPrefix = options?.keyPrefix || "oidc:";
+    await client.del(RedisOidcAdapter.accountBlockKey(keyPrefix, accountId));
   }
 
   /** 删除指定 Client 的全部 OIDC 模型记录。 */
@@ -430,16 +595,28 @@ export class RedisOidcAdapter implements Adapter {
     member: string,
     expiresIn?: number,
   ): Promise<void> {
-    // 每条记录的 TTL 不同：索引必须保留到其中最长的有效期，不能被短 AccessToken 缩短。
-    const previousTtl = await client.ttl(key);
-    await client.sAdd(key, member);
-    if (
-      expiresIn !== undefined &&
-      expiresIn > 0 &&
-      (previousTtl === -2 || (previousTtl >= 0 && previousTtl < expiresIn))
-    ) {
-      await client.expire(key, expiresIn);
+    if (expiresIn === undefined || expiresIn <= 0) {
+      await client.sAdd(key, member);
+      return;
     }
+
+    // TTL、成员写入和 TTL 扩展必须在 Redis 内原子执行，避免并发的短期记录
+    // 在长期记录之后执行 EXPIRE，导致撤销索引提前消失。
+    await client.eval(
+      [
+        "local previousTtl = redis.call('TTL', KEYS[1])",
+        "redis.call('SADD', KEYS[1], ARGV[1])",
+        "local requestedTtl = tonumber(ARGV[2])",
+        "if previousTtl == -2 or (previousTtl >= 0 and previousTtl < requestedTtl) then",
+        "  redis.call('EXPIRE', KEYS[1], requestedTtl)",
+        "end",
+        "return 1",
+      ].join("\n"),
+      {
+        keys: [key],
+        arguments: [member, String(Math.max(1, Math.floor(expiresIn)))],
+      },
+    );
   }
 
   private async deleteIndexIfPointsTo(client: any, key: string, id: string): Promise<void> {
@@ -486,5 +663,13 @@ export class RedisOidcAdapter implements Adapter {
       return bootstrap.getClient();
     }
     return RedisOidcAdapter.clientPromise;
+  }
+
+  private static accountBlockKey(keyPrefix: string, accountId: string): string {
+    return `${keyPrefix}accountBlock:${accountId}`;
+  }
+
+  private static accountBlockLeasesKey(keyPrefix: string, accountId: string): string {
+    return `${keyPrefix}accountBlockLeases:${accountId}`;
   }
 }

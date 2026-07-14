@@ -197,7 +197,7 @@ describe("registerProviderApiRoutes", () => {
       userRepository: {
         findById: vi.fn().mockResolvedValue({
           sub: "user-1",
-          groups: ["gitea-oidc-admins"],
+          groups: [{ id: "gitea-oidc-admins", name: "gitea-oidc-admins" }],
           roles: ["admin"],
           status: "active",
         }),

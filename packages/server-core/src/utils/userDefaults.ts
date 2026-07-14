@@ -3,6 +3,7 @@
  */
 
 import type { UserInfo } from "../types/auth.js";
+import { normalizeUserGroups } from "./userGroups.js";
 
 /**
  * 补齐规范化用户字段默认值
@@ -13,5 +14,6 @@ export function withUserDefaults<T extends UserInfo>(user: T): T {
   return {
     ...user,
     status: user.status ?? "active",
+    ...(user.groups !== undefined ? { groups: normalizeUserGroups(user.groups) } : {}),
   };
 }

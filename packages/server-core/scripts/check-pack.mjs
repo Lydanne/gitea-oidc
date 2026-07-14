@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = new URL("../", import.meta.url);
@@ -24,12 +24,11 @@ try {
     throw new Error("npm pack 未返回 JSON 结果");
   }
   const [packResult] = JSON.parse(output.slice(jsonStart));
+  const tarballPath = join(packDir, packResult.filename);
+  const readPackedFile = (path) =>
+    execFileSync("tar", ["-xOf", tarballPath, `package/${path}`], { encoding: "utf8" });
   const paths = packResult.files.map((file) => file.path);
-  const packedManifest = JSON.parse(
-    execFileSync("tar", ["-xOf", join(packDir, packResult.filename), "package/package.json"], {
-      encoding: "utf8",
-    }),
-  );
+  const packedManifest = JSON.parse(readPackedFile("package.json"));
   const workspaceReference = findWorkspaceReference(packedManifest);
   if (workspaceReference) {
     throw new Error(`npm tarball manifest 泄漏 workspace 协议: ${workspaceReference}`);
@@ -47,6 +46,37 @@ try {
   const missingPaths = requiredPaths.filter((path) => !paths.includes(path));
   if (missingPaths.length > 0) {
     throw new Error(`npm tarball 缺少运行文件: ${missingPaths.join(", ")}`);
+  }
+
+  const adminReferences = new Set(
+    Array.from(
+      readPackedFile("public/admin/index.html").matchAll(/(?:src|href)="\.\/([^"]+)"/gu),
+      (match) => `public/admin/${match[1]}`,
+    ),
+  );
+  for (const path of paths.filter(
+    (path) => path.startsWith("public/admin/assets/") && /\.(?:css|js)$/u.test(path),
+  )) {
+    const asset = readPackedFile(path);
+    const relativeReferences = [
+      ...Array.from(
+        asset.matchAll(/["'](\.\/[^"']+\.(?:css|eot|gif|jpe?g|js|png|svg|ttf|webp|woff2?))["']/gu),
+        (match) => match[1],
+      ),
+      ...Array.from(
+        asset.matchAll(
+          /url\((?:["']?)(\.\/[^)"']+\.(?:eot|gif|jpe?g|png|svg|ttf|webp|woff2?))(?:["']?)\)/gu,
+        ),
+        (match) => match[1],
+      ),
+    ];
+    for (const reference of relativeReferences) {
+      adminReferences.add(posix.normalize(posix.join(posix.dirname(path), reference)));
+    }
+  }
+  const missingAdminAssets = [...adminReferences].filter((path) => !paths.includes(path));
+  if (missingAdminAssets.length > 0) {
+    throw new Error(`管理台入口引用了未打包资源: ${missingAdminAssets.join(", ")}`);
   }
 
   const allowedRootFiles = new Set(["LICENSE", "README.md", "README.en.md", "package.json"]);

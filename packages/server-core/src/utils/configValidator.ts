@@ -489,6 +489,10 @@ function checkConfigWarnings(config: any): string[] {
     );
   }
 
+  if (config.audit?.enabled === false) {
+    warnings.push("身份审计已关闭，登录、退出和用户资料变更将无法追溯");
+  }
+
   // 检查 HTTPS
   if (config.server?.url && !config.server.url.startsWith("https://")) {
     warnings.push("⚠️  服务器 URL 未使用 HTTPS，生产环境中建议使用 HTTPS");

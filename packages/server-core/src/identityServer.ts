@@ -9,7 +9,13 @@ import path, { join } from "path";
 import { ApplicationClientAdapter } from "./adapters/ApplicationClientAdapter.js";
 import { OidcAdapterFactory } from "./adapters/OidcAdapterFactory.js";
 import { createApplicationRuntime } from "./applications/applicationRuntime.js";
-import { type GiteaOidcConfig, loadConfig, resolveApplicationsConfig } from "./config.js";
+import { registerOidcAuditEvents } from "./audit/oidcAuditEvents.js";
+import {
+  DEFAULT_AUDIT_CONFIG,
+  type GiteaOidcConfig,
+  loadConfig,
+  resolveApplicationsConfig,
+} from "./config.js";
 // 认证系统导入
 import { AuthCoordinator } from "./core/AuthCoordinator.js";
 import { DingTalkProviderApiClient } from "./provider-api/DingTalkProviderApiClient.js";
@@ -18,12 +24,15 @@ import { ProviderApiService } from "./provider-api/ProviderApiService.js";
 import { ProviderTokenProbeScheduler } from "./provider-api/ProviderTokenProbeScheduler.js";
 import { FeishuAuthProvider } from "./providers/FeishuAuthProvider.js";
 import { LocalAuthProvider } from "./providers/LocalAuthProvider.js";
+import { AuditedUserRepository } from "./repositories/AuditedUserRepository.js";
+import { AuditLogRepositoryFactory } from "./repositories/AuditLogRepositoryFactory.js";
 import { ProviderTokenRepositoryFactory } from "./repositories/ProviderTokenRepositoryFactory.js";
 import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory.js";
 import { registerAdminRoutes, setAdminSecurityHeaders } from "./routes/adminRoutes.js";
 import { registerProviderApiRoutes } from "./routes/providerApiRoutes.js";
 import { MemoryStateStore } from "./stores/MemoryStateStore.js";
 import { RedisStateStore } from "./stores/RedisStateStore.js";
+import type { AuditLogRepository } from "./types/audit.js";
 import type { AuthContext, StateStore } from "./types/auth.js";
 import type { ProviderTokenRepository } from "./types/providerApi.js";
 import { readConsentGrantDisclosure, renderConsentPage } from "./ui/consentPageRenderer.js";
@@ -41,11 +50,13 @@ import {
   summarizeUserForLog,
 } from "./utils/logSanitizer.js";
 import { registerRawJsonBodyParser } from "./utils/rawBody.js";
+import { userToClaims } from "./utils/userClaims.js";
 
 interface ServerRuntimeResources {
   app?: Pick<FastifyInstance, "close">;
   authCoordinator?: Pick<AuthCoordinator, "destroy">;
   userRepository?: { close?: () => Promise<void> | void };
+  auditLogRepository?: Pick<AuditLogRepository, "close">;
   providerTokenProbeScheduler?: Pick<ProviderTokenProbeScheduler, "stop">;
   tokenRepository?: Pick<ProviderTokenRepository, "close">;
   stateStore?: { destroy?: () => Promise<void> | void };
@@ -164,8 +175,16 @@ async function createIdentityServerFromConfig(
 
     const stateStore = createStateStore(config);
     runtimeResources.stateStore = stateStore;
-    const userRepository = UserRepositoryFactory.create(config.auth.userRepository);
-    runtimeResources.userRepository = userRepository as { close?: () => Promise<void> | void };
+    const storedUserRepository = UserRepositoryFactory.create(config.auth.userRepository);
+    runtimeResources.userRepository = storedUserRepository as {
+      close?: () => Promise<void> | void;
+    };
+    const auditLogRepository = AuditLogRepositoryFactory.create(
+      config.auth.userRepository,
+      config.audit ?? DEFAULT_AUDIT_CONFIG,
+    );
+    runtimeResources.auditLogRepository = auditLogRepository;
+    const userRepository = new AuditedUserRepository(storedUserRepository, auditLogRepository);
     const applicationRuntime = await createApplicationRuntime(config);
     runtimeResources.applicationRuntime = applicationRuntime;
     if (config.providerApi.enabled) {
@@ -192,7 +211,9 @@ async function createIdentityServerFromConfig(
       app,
       stateStore,
       userRepository,
+      auditLogRepository,
       providersConfig: config.auth.providers,
+      autoRedirectSingleProvider: config.auth.autoRedirectSingleProvider,
     });
     runtimeResources.authCoordinator = authCoordinator;
 
@@ -305,20 +326,7 @@ async function createIdentityServerFromConfig(
               }),
             );
 
-            // 直接使用 UserInfo 的 OIDC 标准字段
-            const userClaims = {
-              sub: user.sub,
-              name: user.name,
-              email: user.email,
-              email_verified: user.emailVerified ?? false,
-              picture: user.picture,
-              phone: user.phone,
-              phone_verified: user.phoneVerified ?? false,
-              groups: user.groups ?? [],
-              roles: user.roles ?? [],
-              status: user.status ?? "active",
-              updated_at: user.updatedAt ? Math.floor(user.updatedAt.getTime() / 1000) : undefined,
-            };
+            const userClaims = userToClaims(user);
 
             Logger.debug("[返回声明]", summarizeClaimsForLog(userClaims));
             return userClaims;
@@ -333,6 +341,7 @@ async function createIdentityServerFromConfig(
     };
 
     const oidc = new Provider(config.oidc.issuer, configuration);
+    registerOidcAuditEvents(oidc, auditLogRepository, userRepository);
 
     if (providerApiService && tokenRepository) {
       const feishuProviderConfig = config.auth.providers.feishu?.config as any;
@@ -412,11 +421,16 @@ async function createIdentityServerFromConfig(
       oidcProvider: oidc,
       authCoordinator,
       userRepository,
+      auditLogRepository,
       providerApiService,
       tokenRepository,
       stateStore,
       publicDir,
-      revokeOidcAccount: (accountId) => OidcAdapterFactory.revokeByAccountId(accountId),
+      oidcAccountLifecycle: {
+        acquireBlock: (accountId) => OidcAdapterFactory.acquireAccountIdBlock(accountId),
+        revoke: (accountId) => OidcAdapterFactory.revokeByAccountId(accountId),
+        allow: (accountId) => OidcAdapterFactory.allowAccountId(accountId),
+      },
       applicationService: applicationRuntime?.applicationService,
       oidcClientLifecycle: applicationRuntime
         ? {
@@ -531,11 +545,13 @@ async function createIdentityServerFromConfig(
           interaction: details,
         };
 
-        // 渲染统一登录页面
-        const html = await authCoordinator.renderUnifiedLoginPage(context);
+        const loginResult = await authCoordinator.resolveUnifiedLogin(context);
 
         setInteractionSecurityHeaders(reply);
-        return reply.type("text/html").send(html);
+        if (loginResult.type === "redirect") {
+          return reply.redirect(loginResult.redirectUrl);
+        }
+        return reply.type("text/html; charset=utf-8").send(loginResult.html);
       } catch (err) {
         Logger.error("[交互页面] 渲染失败:", sanitizeForLog(err));
 
@@ -942,6 +958,7 @@ export async function cleanupServerResources(
   await runCleanupStep("认证系统", () => resources.authCoordinator?.destroy());
   await runCleanupStep("Provider token 仓储", () => resources.tokenRepository?.close?.());
   await runCleanupStep("应用仓储", () => resources.applicationRuntime?.close());
+  await runCleanupStep("审计日志仓储", () => resources.auditLogRepository?.close?.());
   await runCleanupStep("用户仓储", () => resources.userRepository?.close?.());
   await runCleanupStep("State store", () => resources.stateStore?.destroy?.());
   await runCleanupStep("OIDC 适配器", cleanupAdapters);
@@ -954,3 +971,7 @@ export async function cleanupServerResources(
     throw new AggregateError(errors, "Server resource cleanup failed");
   }
 }
+
+export type { UserInfo } from "./types/auth.js";
+export type { UserClaims, UserGroup } from "./types/user.js";
+export { userToClaims } from "./utils/userClaims.js";

@@ -154,7 +154,31 @@ describe("RedisOidcAdapter", () => {
     it("应该创建跨模型的 clientId 撤销索引", async () => {
       await adapter.upsert("token-1", { clientId: "client-1", accountId: "user-1" });
 
-      expect(mockClient.sAdd).toHaveBeenCalledWith("test:clientId:client-1", "Session:token-1");
+      expect(mockClient.eval).toHaveBeenCalledWith(
+        expect.stringMatching(/EXISTS[\s\S]*accountId:[\s\S]*clientId:/),
+        {
+          keys: [
+            "test:Session:token-1",
+            "test:accountBlock:user-1",
+            "test:accountBlockLeases:user-1",
+          ],
+          arguments: [
+            "test:",
+            "Session",
+            "token-1",
+            JSON.stringify({ clientId: "client-1", accountId: "user-1" }),
+            "0",
+          ],
+        },
+      );
+    });
+
+    it("共享账户栅栏存在时拒绝跨实例写回凭证", async () => {
+      mockClient.eval.mockResolvedValueOnce(0);
+
+      await expect(
+        adapter.upsert("token-1", { clientId: "client-1", accountId: "user-1" }),
+      ).rejects.toMatchObject({ code: "OIDC_ACCOUNT_REVOKED" });
     });
 
     it("应该为索引设置过期时间", async () => {
@@ -165,23 +189,37 @@ describe("RedisOidcAdapter", () => {
         grantId: "grant-456",
       };
       const expiresIn = 600;
-      mockClient.ttl.mockResolvedValueOnce(-2);
 
       await adapter.upsert(id, payload, expiresIn);
 
       expect(mockClient.setEx).toHaveBeenCalledWith("test:userCode:USER-CODE-456", expiresIn, id);
       expect(mockClient.setEx).toHaveBeenCalledWith("test:uid:UID-456", expiresIn, id);
-      expect(mockClient.expire).toHaveBeenCalledWith("test:Session:grantId:grant-456", expiresIn);
+      expect(mockClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('SADD'"), {
+        keys: ["test:Session:grantId:grant-456"],
+        arguments: [id, String(expiresIn)],
+      });
+      expect(mockClient.ttl).not.toHaveBeenCalled();
+      expect(mockClient.expire).not.toHaveBeenCalled();
     });
 
-    it("grant 索引不会被短生命周期记录缩短", async () => {
-      mockClient.ttl.mockResolvedValueOnce(-2).mockResolvedValueOnce(3600);
-
+    it("使用原子脚本避免并发的短生命周期记录缩短 grant 索引", async () => {
       await adapter.upsert("refresh", { grantId: "shared" }, 3600);
       await adapter.upsert("access", { grantId: "shared" }, 60);
 
-      expect(mockClient.expire).toHaveBeenCalledTimes(1);
-      expect(mockClient.expire).toHaveBeenCalledWith("test:Session:grantId:shared", 3600);
+      expect(mockClient.eval).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining("local previousTtl = redis.call('TTL', KEYS[1])"),
+        {
+          keys: ["test:Session:grantId:shared"],
+          arguments: ["refresh", "3600"],
+        },
+      );
+      expect(mockClient.eval).toHaveBeenNthCalledWith(2, expect.any(String), {
+        keys: ["test:Session:grantId:shared"],
+        arguments: ["access", "60"],
+      });
+      expect(mockClient.ttl).not.toHaveBeenCalled();
+      expect(mockClient.expire).not.toHaveBeenCalled();
     });
   });
 
@@ -407,6 +445,51 @@ describe("RedisOidcAdapter", () => {
       expect(multi.del).toHaveBeenCalledWith("test:RefreshToken:refresh-1");
       expect(multi.del).toHaveBeenCalledWith("test:clientId:client-1");
       expect(multi.exec).toHaveBeenCalled();
+    });
+  });
+
+  describe("revokeByAccountId", () => {
+    it("使用共享租约和原子脚本阻止撤销后的并发写回", async () => {
+      const options = { url: "redis://localhost:6379", keyPrefix: "test:" };
+      const lease = await RedisOidcAdapter.acquireAccountBlock("user-1", options);
+
+      expect(mockClient.eval).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining("redis.call('SADD', KEYS[1], ARGV[1])"),
+        {
+          keys: ["test:accountBlockLeases:user-1"],
+          arguments: [expect.stringMatching(/^[a-f0-9]{64}$/u), "900"],
+        },
+      );
+
+      await RedisOidcAdapter.revokeByAccountId("user-1", options);
+      expect(mockClient.eval).toHaveBeenNthCalledWith(
+        2,
+        expect.stringMatching(/SMEMBERS[\s\S]*DEL/),
+        {
+          keys: [
+            "test:accountId:user-1",
+            "test:accountBlock:user-1",
+            "test:accountBlockLeases:user-1",
+          ],
+          arguments: ["test:"],
+        },
+      );
+
+      await lease.commit();
+      expect(mockClient.eval).toHaveBeenNthCalledWith(3, expect.stringMatching(/SET[\s\S]*SREM/), {
+        keys: ["test:accountBlock:user-1", "test:accountBlockLeases:user-1"],
+        arguments: [expect.stringMatching(/^[a-f0-9]{64}$/u)],
+      });
+    });
+
+    it("重新启用账户时只移除持久栅栏", async () => {
+      await RedisOidcAdapter.allowAccountId("user-1", {
+        url: "redis://localhost:6379",
+        keyPrefix: "test:",
+      });
+
+      expect(mockClient.del).toHaveBeenCalledWith("test:accountBlock:user-1");
     });
   });
 

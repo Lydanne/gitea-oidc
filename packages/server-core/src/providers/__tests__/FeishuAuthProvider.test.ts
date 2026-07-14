@@ -31,6 +31,7 @@ type CoordinatorMock = {
   generateOAuthState: ReturnType<typeof vi.fn>;
   verifyOAuthState: ReturnType<typeof vi.fn>;
   storeAuthResult: ReturnType<typeof vi.fn>;
+  recordAuthenticationEvent: ReturnType<typeof vi.fn>;
 };
 
 describe("FeishuAuthProvider", () => {
@@ -61,6 +62,7 @@ describe("FeishuAuthProvider", () => {
       generateOAuthState: vi.fn(),
       verifyOAuthState: vi.fn(),
       storeAuthResult: vi.fn(),
+      recordAuthenticationEvent: vi.fn(),
     };
 
     provider = new FeishuAuthProvider(userRepository as any, coordinator as any);
@@ -79,6 +81,21 @@ describe("FeishuAuthProvider", () => {
         v3: {
           user: {
             get: vi.fn(),
+          },
+        },
+      },
+      tenant: {
+        v2: {
+          tenant: {
+            query: vi.fn().mockResolvedValue({
+              code: 0,
+              data: {
+                tenant: {
+                  name: "示例组织",
+                  tenant_key: "tenant-1",
+                },
+              },
+            }),
           },
         },
       },
@@ -175,7 +192,18 @@ describe("FeishuAuthProvider", () => {
         createContext({ query: { code: "abc", state: "state-1" } as any }),
       );
 
-      expect(result).toEqual({ success: false, error: AuthErrors.invalidState("state-1") });
+      expect(result).toEqual({
+        success: false,
+        error: AuthErrors.invalidState("state-1"),
+        metadata: {
+          auditContext: {
+            provider: "feishu",
+            clientId: undefined,
+            ipAddress: undefined,
+            userAgent: undefined,
+          },
+        },
+      });
     });
 
     it("returns oauthCallbackFailed when exchange code fails", async () => {
@@ -219,6 +247,7 @@ describe("FeishuAuthProvider", () => {
       });
       vi.spyOn(provider as any, "getFeishuUserInfo").mockResolvedValue(feishuUser);
       const user: UserInfo = {
+        id: "internal-user-1",
         sub: "user-1",
         username: "zhangsan",
         name: "张三",
@@ -242,7 +271,10 @@ describe("FeishuAuthProvider", () => {
           username: "open-1",
           email: "test@example.com",
           emailVerified: false,
-          groups: ["dev-group"],
+          groups: [
+            { id: "Default", name: "Default" },
+            { id: "dev-group", name: "dev-group" },
+          ],
         }),
       );
     });
@@ -336,6 +368,7 @@ describe("FeishuAuthProvider", () => {
 
       expect(result.open_id).toBe("open-1");
       expect(result.name).toBe("Alice");
+      expect(result.organization).toEqual({ id: "tenant-1", name: "示例组织" });
       expect(result.fullInfo).toEqual({ department_path: [], department_ids: ["dept-1"] });
     });
 
@@ -366,7 +399,29 @@ describe("FeishuAuthProvider", () => {
 
       expect(result.open_id).toBe("open-1");
       expect(result.name).toBe("Bob");
+      expect(result.organization).toEqual({ id: "tenant-1", name: "示例组织" });
       expect(result.fullInfo).toBeUndefined();
+    });
+
+    it("获取企业信息失败时仍返回用户和部门信息", async () => {
+      const mockLarkClient = (provider as any).larkClient;
+      mockLarkClient.authen.v1.userInfo.get.mockResolvedValue({
+        code: 0,
+        data: { open_id: "open-1", name: "Bob", tenant_key: "tenant-1" },
+      });
+      mockLarkClient.contact.v3.user.get.mockResolvedValue({
+        code: 0,
+        data: { user: { department_path: [], department_ids: ["dept-1"] } },
+      });
+      mockLarkClient.tenant.v2.tenant.query.mockResolvedValue({
+        code: 1184001,
+        msg: "no permission",
+      });
+
+      const result = await (provider as any).getFeishuUserInfo("token");
+
+      expect(result.organization).toBeUndefined();
+      expect(result.fullInfo).toEqual({ department_path: [], department_ids: ["dept-1"] });
     });
   });
 
@@ -423,10 +478,13 @@ describe("FeishuAuthProvider", () => {
       expect((provider as any).mapUsername(feishuUser)).toBe("mapped-user");
       expect((provider as any).mapName(feishuUser)).toBe("mapped-name");
       expect((provider as any).mapEmail(feishuUser)).toBe("mapped@example.com");
-      expect((provider as any).mapGroups(feishuUser)).toEqual(["dev-group"]);
+      expect((provider as any).mapGroups(feishuUser)).toEqual([
+        { id: "Default", name: "Default" },
+        { id: "dev-group", name: "dev-group" },
+      ]);
     });
 
-    it("mapGroups 在无映射时返回部门名称且不追加后台管理员组", () => {
+    it("mapGroups 在无映射时追加 Default 且不追加后台管理员组", () => {
       delete (provider as any).config.groupMapping;
       const feishuUser: any = {
         open_id: "open-1",
@@ -440,7 +498,99 @@ describe("FeishuAuthProvider", () => {
         },
       };
 
-      expect((provider as any).mapGroups(feishuUser)).toEqual(["DeptA", "DeptB"]);
+      expect((provider as any).mapGroups(feishuUser)).toEqual([
+        { id: "Default", name: "Default" },
+        { id: "DeptA", name: "DeptA" },
+        { id: "DeptB", name: "DeptB" },
+      ]);
+    });
+
+    it("mapGroups 根据部门路径合并用户分组树", () => {
+      delete (provider as any).config.groupMapping;
+      const feishuUser: any = {
+        organization: { id: "tenant-1", name: "示例组织" },
+        fullInfo: {
+          department_ids: ["od-backend"],
+          department_path: [
+            {
+              department_id: "od-engineering",
+              department_name: { name: "研发中心" },
+              department_path: { department_ids: ["od-engineering"] },
+            },
+            {
+              department_id: "od-backend",
+              department_name: { name: "后端组" },
+              department_path: { department_ids: ["od-engineering", "od-backend"] },
+            },
+          ],
+        },
+      };
+
+      expect((provider as any).mapGroups(feishuUser)).toEqual([
+        { id: "Default", name: "Default" },
+        {
+          id: "tenant-1",
+          name: "示例组织",
+          children: [
+            {
+              id: "od-engineering",
+              name: "研发中心",
+              children: [{ id: "od-backend", name: "后端组" }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("mapGroups 使用飞书完整路径补齐未单独返回的祖先部门名称", () => {
+      delete (provider as any).config.groupMapping;
+      const feishuUser: any = {
+        organization: { id: "tenant-1", name: "示例组织" },
+        fullInfo: {
+          department_ids: ["od-backend"],
+          department_path: [
+            {
+              department_id: "od-backend",
+              department_name: { name: "后端组" },
+              department_path: {
+                department_ids: ["od-engineering", "od-backend"],
+                department_path_name: { name: "研发中心/后端组" },
+              },
+            },
+          ],
+        },
+      };
+
+      expect((provider as any).mapGroups(feishuUser)).toEqual([
+        { id: "Default", name: "Default" },
+        {
+          id: "tenant-1",
+          name: "示例组织",
+          children: [
+            {
+              id: "od-engineering",
+              name: "研发中心",
+              children: [{ id: "od-backend", name: "后端组" }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("mapGroups 忽略飞书未授权返回的不完整部门节点", () => {
+      delete (provider as any).config.groupMapping;
+      const feishuUser: any = {
+        organization: { id: "tenant-1", name: "示例组织" },
+        fullInfo: {
+          department_ids: ["", undefined],
+          department_path: [{ department_name: {} }],
+        },
+      };
+
+      expect((provider as any).mapGroups(feishuUser)).toEqual([
+        { id: "Default", name: "Default" },
+        { id: "tenant-1", name: "示例组织" },
+      ]);
     });
 
     it("缺少映射字段时使用默认值", () => {
@@ -485,11 +635,11 @@ describe("FeishuAuthProvider", () => {
       await callbackRoute?.handler(request, reply);
 
       expect(handleSpy).toHaveBeenCalled();
-      expect(coordinator.storeAuthResult).toHaveBeenCalledWith('i "123', "user-1");
+      expect(coordinator.storeAuthResult).toHaveBeenCalledWith('i "123', "user-1", undefined);
       expect(reply.redirect).toHaveBeenCalledWith("/interaction/i%20%22123/complete");
     });
 
-    it("returns 400 when callback fails", async () => {
+    it("未验证 state 的 callback 失败不写结构化审计", async () => {
       const handleSpy = vi.spyOn(provider as any, "handleCallback").mockResolvedValue({
         success: false,
         error: AuthErrors.invalidState("state-1"),
@@ -514,8 +664,56 @@ describe("FeishuAuthProvider", () => {
       await callbackRoute?.handler(request, reply);
 
       expect(handleSpy).toHaveBeenCalled();
+      expect(coordinator.recordAuthenticationEvent).not.toHaveBeenCalled();
       expect(reply.code).toHaveBeenCalledWith(400);
       expect(reply.send).toHaveBeenCalledWith({ error: "无效的认证状态" });
+    });
+
+    it("已验证 state 的 callback 失败记录有界审计摘要", async () => {
+      vi.spyOn(provider as any, "handleCallback").mockResolvedValue({
+        success: false,
+        userId: "user-1",
+        error: AuthErrors.invalidCredentials(),
+        metadata: {
+          auditContext: {
+            clientId: "gitea",
+            ipAddress: "203.0.113.10",
+            userAgent: "Audit Test",
+            username: "alice",
+          },
+        },
+      });
+      const callbackRoute = provider
+        .registerRoutes()
+        .find((route) => route.method === "GET" && route.path === "/callback");
+      const reply = {
+        redirect: vi.fn(),
+        code: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      } as any;
+
+      await callbackRoute?.handler(
+        {
+          method: "GET",
+          query: { code: "abc", state: "state-1" },
+          body: null,
+          params: {},
+          ip: "198.51.100.10",
+          headers: { "user-agent": "Fallback Agent" },
+        } as any,
+        reply,
+      );
+
+      expect(coordinator.recordAuthenticationEvent).toHaveBeenCalledWith({
+        outcome: "failure",
+        userId: "user-1",
+        provider: "feishu",
+        clientId: "gitea",
+        ipAddress: "203.0.113.10",
+        userAgent: "Audit Test",
+        username: "alice",
+        reason: "AUTH_2001",
+      });
     });
 
     it("处理加密 challenge 请求并返回 challenge", async () => {

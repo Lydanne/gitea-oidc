@@ -422,6 +422,32 @@ describe("OidcAdapterFactory", () => {
     });
   });
 
+  describe("账户撤销发行栅栏", () => {
+    it("撤销期间和用户停用后都拒绝凭证写回，重新启用后恢复", async () => {
+      OidcAdapterFactory.configure({ type: "sqlite", sqlite: { dbPath: ":memory:" } });
+      const adapter = OidcAdapterFactory.create("RefreshToken") as SqliteOidcAdapter;
+      await adapter.upsert("before-disable", { accountId: "user-1", clientId: "client-1" });
+
+      const lease = await OidcAdapterFactory.acquireAccountIdBlock("user-1");
+      await OidcAdapterFactory.revokeByAccountId("user-1");
+
+      await expect(adapter.find("before-disable")).resolves.toBeUndefined();
+      await expect(
+        adapter.upsert("racing-refresh", { accountId: "user-1", clientId: "client-1" }),
+      ).rejects.toMatchObject({ code: "OIDC_ACCOUNT_REVOKED" });
+
+      await lease.commit();
+      await expect(
+        adapter.upsert("after-disable", { accountId: "user-1", clientId: "client-1" }),
+      ).rejects.toMatchObject({ code: "OIDC_ACCOUNT_REVOKED" });
+
+      await OidcAdapterFactory.allowAccountId("user-1");
+      await expect(
+        adapter.upsert("after-enable", { accountId: "user-1", clientId: "client-1" }),
+      ).resolves.toBeUndefined();
+    });
+  });
+
   describe("集成测试", () => {
     it("应该支持完整的配置-创建-清理流程", async () => {
       const tempDirectory = await mkdtemp(join(tmpdir(), "gitea-oidc-adapter-"));

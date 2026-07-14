@@ -254,7 +254,10 @@ describe("LocalAuthProvider", () => {
       (provider as any).config.adminUsers = [];
       userRepository.findByProviderAndExternalId.mockResolvedValue({
         sub: "user-1",
-        groups: ["gitea-oidc-admins", "team-a"],
+        groups: [
+          { id: "gitea-oidc-admins", name: "gitea-oidc-admins" },
+          { id: "team-a", name: "team-a" },
+        ],
       });
       userRepository.findOrCreate.mockResolvedValue({
         sub: "user-1",
@@ -267,7 +270,7 @@ describe("LocalAuthProvider", () => {
       expect(userRepository.findOrCreate).toHaveBeenCalledWith(
         "local",
         "alice",
-        expect.objectContaining({ groups: ["team-a"] }),
+        expect.objectContaining({ groups: [{ id: "team-a", name: "team-a" }] }),
       );
     });
 

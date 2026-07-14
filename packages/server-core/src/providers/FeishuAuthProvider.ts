@@ -18,6 +18,7 @@ import type {
   PluginRoute,
   PluginWebhook,
   ProviderTokenRepository,
+  UserGroup,
   UserInfo,
   UserRepository,
 } from "../types/auth.js";
@@ -26,8 +27,15 @@ import { AuthErrors } from "../utils/authErrors.js";
 import { Logger } from "../utils/Logger.js";
 import { sanitizeForLog } from "../utils/logSanitizer.js";
 import { getRawRequestBody } from "../utils/rawBody.js";
+import { buildUserGroupTree, mergeUserGroups, userGroupsFromValues } from "../utils/userGroups.js";
 
 const FEISHU_SIGNATURE_TOLERANCE_SECONDS = 300;
+const FEISHU_DEFAULT_GROUP = "Default";
+
+interface FeishuOrganization {
+  id: string;
+  name: string;
+}
 
 interface FeishuUserInfo {
   open_id: string;
@@ -44,6 +52,7 @@ interface FeishuUserInfo {
   enterprise_email?: string;
   tenant_key?: string;
   user_id?: string;
+  organization?: FeishuOrganization;
   fullInfo?: FullFeishuUserInfo;
 }
 
@@ -56,26 +65,26 @@ interface FullFeishuUserInfo {
   };
   city: string;
   country: string;
-  department_ids: string[];
-  department_path: {
-    department_id: string;
-    department_name: {
-      i18n_name: {
-        en_us: string;
-        ja_jp: string;
-        zh_cn: string;
+  department_ids?: string[];
+  department_path?: {
+    department_id?: string;
+    department_name?: {
+      i18n_name?: {
+        en_us?: string;
+        ja_jp?: string;
+        zh_cn?: string;
       };
-      name: string;
+      name?: string;
     };
-    department_path: {
-      department_ids: string[];
-      department_path_name: {
-        i18n_name: {
-          en_us: string;
-          ja_jp: string;
-          zh_cn: string;
+    department_path?: {
+      department_ids?: string[];
+      department_path_name?: {
+        i18n_name?: {
+          en_us?: string;
+          ja_jp?: string;
+          zh_cn?: string;
         };
-        name: string;
+        name?: string;
       };
     };
   }[];
@@ -226,6 +235,7 @@ export class FeishuAuthProvider implements AuthProvider {
     const state = await this.coordinator.generateOAuthState(context.interactionUid, this.name, {
       userAgent: context.request.headers["user-agent"],
       ip: context.request.ip,
+      clientId: readInteractionClientId(context.interaction),
     });
 
     // 构建飞书授权 URL
@@ -287,8 +297,23 @@ export class FeishuAuthProvider implements AuthProvider {
       return {
         success: false,
         error: AuthErrors.invalidState(state as string),
+        metadata: {
+          auditContext: {
+            provider: this.name,
+            clientId: readString(stateData.metadata?.clientId),
+            ipAddress: readString(stateData.metadata?.ip),
+            userAgent: readString(stateData.metadata?.userAgent),
+          },
+        },
       };
     }
+
+    const auditContext = {
+      provider: this.name,
+      clientId: readString(stateData.metadata?.clientId),
+      ipAddress: readString(stateData.metadata?.ip),
+      userAgent: readString(stateData.metadata?.userAgent),
+    };
 
     try {
       // 用 code 换取 user_access_token
@@ -324,7 +349,12 @@ export class FeishuAuthProvider implements AuthProvider {
       if (user.status && user.status !== "active") {
         return {
           success: false,
+          userId: user.sub,
+          userInfo: user,
           error: AuthErrors.invalidCredentials(),
+          metadata: {
+            auditContext: { ...auditContext, username: user.username },
+          },
         };
       }
 
@@ -337,6 +367,7 @@ export class FeishuAuthProvider implements AuthProvider {
         // 将 stateData 附加到结果中，避免重复验证
         metadata: {
           interactionUid: stateData.interactionUid,
+          auditContext: { ...auditContext, username: user.username },
         },
       };
     } catch (err) {
@@ -347,6 +378,7 @@ export class FeishuAuthProvider implements AuthProvider {
         error: AuthErrors.oauthCallbackFailed("飞书登录失败", {
           cause: err instanceof Error ? err.message : String(err),
         }),
+        metadata: { auditContext },
       };
     }
   }
@@ -442,7 +474,11 @@ export class FeishuAuthProvider implements AuthProvider {
         if (interactionUid) {
           // 将用户信息存储到临时存储中，然后重定向回交互页面
           // 这样可以避免 cookie 丢失的问题
-          await this.coordinator.storeAuthResult(interactionUid, result.userId);
+          await this.coordinator.storeAuthResult(
+            interactionUid,
+            result.userId,
+            result.metadata?.auditContext,
+          );
 
           // 重定向回交互页面，让它完成 OIDC 交互
           return reply.redirect(`/interaction/${encodeURIComponent(interactionUid)}/complete`);
@@ -454,6 +490,22 @@ export class FeishuAuthProvider implements AuthProvider {
       }
 
       // 认证失败
+      const auditContext = result.metadata?.auditContext;
+      // 只有成功消费过本服务签发 state 的回调才写结构化审计，避免公开 callback
+      // 被匿名请求直接转换成无界数据库写入。
+      if (auditContext) {
+        await this.coordinator.recordAuthenticationEvent?.({
+          outcome: "failure",
+          userId: result.userId,
+          provider: this.name,
+          clientId: readString(auditContext.clientId),
+          ipAddress: readString(auditContext.ipAddress) ?? request.ip,
+          userAgent:
+            readString(auditContext.userAgent) ?? readHeader(request.headers["user-agent"]),
+          username: readString(auditContext.username),
+          reason: result.error?.code,
+        });
+      }
       const errorMessage = result.error?.userMessage || result.error?.message || "认证失败";
       return reply.code(400).send({ error: errorMessage });
     };
@@ -823,6 +875,7 @@ export class FeishuAuthProvider implements AuthProvider {
 
       const basicUserInfo = userInfoRes.data as FeishuUserInfo;
       const openId = basicUserInfo.open_id;
+      const organizationPromise = this.getFeishuOrganization(basicUserInfo.tenant_key);
 
       Logger.debug("[FeishuAuth] Got basic user info:", {
         hasOpenId: Boolean(openId),
@@ -849,15 +902,21 @@ export class FeishuAuthProvider implements AuthProvider {
           hasData: !!fullUserRes.data,
         });
 
+        const organization = await organizationPromise;
+
         if (fullUserRes.code === 0 && fullUserRes.data?.user) {
-          return { ...basicUserInfo, fullInfo: fullUserRes.data.user as FullFeishuUserInfo };
+          return {
+            ...basicUserInfo,
+            ...(organization ? { organization } : {}),
+            fullInfo: fullUserRes.data.user as FullFeishuUserInfo,
+          };
         } else {
           Logger.warn("[FeishuAuth] Failed to get full user info via SDK, using basic info:", {
             code: fullUserRes.code,
             msg: fullUserRes.msg,
             hasOpenId: Boolean(openId),
           });
-          return basicUserInfo;
+          return { ...basicUserInfo, ...(organization ? { organization } : {}) };
         }
       } catch (error) {
         Logger.warn(
@@ -867,7 +926,8 @@ export class FeishuAuthProvider implements AuthProvider {
             hasOpenId: Boolean(openId),
           }),
         );
-        return basicUserInfo;
+        const organization = await organizationPromise;
+        return { ...basicUserInfo, ...(organization ? { organization } : {}) };
       }
     } catch (error) {
       Logger.error(
@@ -877,6 +937,40 @@ export class FeishuAuthProvider implements AuthProvider {
         }),
       );
       throw error;
+    }
+  }
+
+  /** 获取飞书企业名称和租户 ID；失败时不阻断登录。 */
+  private async getFeishuOrganization(
+    fallbackTenantKey?: string,
+  ): Promise<FeishuOrganization | undefined> {
+    const tenantApi = this.larkClient.tenant?.v2?.tenant;
+    if (!tenantApi?.query) {
+      return undefined;
+    }
+
+    try {
+      const response = await tenantApi.query({});
+      const tenant = response.data?.tenant;
+      const id = tenant?.tenant_key || fallbackTenantKey;
+      if (response.code !== 0 || !tenant?.name || !id) {
+        Logger.warn("[FeishuAuth] Failed to get organization info via SDK:", {
+          code: response.code,
+          msg: response.msg,
+          hasTenantKey: Boolean(id),
+        });
+        return undefined;
+      }
+      return { id, name: tenant.name };
+    } catch (error) {
+      Logger.warn(
+        "[FeishuAuth] Exception getting organization info via SDK:",
+        sanitizeForLog({
+          error: error instanceof Error ? error.message : String(error),
+          hasTenantKey: Boolean(fallbackTenantKey),
+        }),
+      );
+      return undefined;
     }
   }
 
@@ -913,21 +1007,81 @@ export class FeishuAuthProvider implements AuthProvider {
     return feishuUser.email || `${feishuUser.open_id}@feishu.local`;
   }
 
-  private mapGroups(feishuUser: FeishuUserInfo): string[] {
+  private mapGroups(feishuUser: FeishuUserInfo): UserGroup[] {
+    const defaultGroups = userGroupsFromValues([FEISHU_DEFAULT_GROUP]);
     const mapping = this.config.groupMapping;
     if (mapping) {
-      return Object.entries(mapping).reduce((acc, [key, value]) => {
-        if (feishuUser.fullInfo?.department_path?.some((d) => d.department_name.name === key)) {
-          acc.push(value);
-        }
-        return acc;
-      }, [] as string[]);
+      return mergeUserGroups(
+        defaultGroups.concat(
+          userGroupsFromValues(
+            Object.entries(mapping)
+              .filter(([key]) =>
+                feishuUser.fullInfo?.department_path?.some(
+                  (department) => department.department_name?.name === key,
+                ),
+              )
+              .map(([, value]) => value),
+          ),
+        ),
+      );
     }
-    const groups = feishuUser.fullInfo?.department_path?.map((d) => d.department_name.name) ?? [];
-    if (feishuUser.fullInfo?.department_ids?.length) {
-      groups.push(...feishuUser.fullInfo.department_ids);
+
+    const departments = (feishuUser.fullInfo?.department_path ?? []).flatMap((department) => {
+      const id =
+        readTrimmedString(department.department_id) ??
+        readTrimmedString(department.department_name?.name);
+      if (!id) return [];
+      return [
+        {
+          source: department,
+          id,
+          name: readTrimmedString(department.department_name?.name) ?? id,
+        },
+      ];
+    });
+    const names = new Map<string, string>();
+    for (const department of departments) {
+      names.set(department.id, department.name);
+
+      const ids = (department.source.department_path?.department_ids ?? [])
+        .map(readTrimmedString)
+        .filter((id): id is string => Boolean(id));
+      if (!ids.includes(department.id)) ids.push(department.id);
+      const pathNames = splitFeishuDepartmentPathName(
+        department.source.department_path?.department_path_name?.name,
+      ).slice(-ids.length);
+      if (pathNames.length === ids.length) {
+        ids.forEach((id, index) => {
+          const name = pathNames[index];
+          if (name && !names.has(id)) names.set(id, name);
+        });
+      }
     }
-    return groups;
+
+    const organization = feishuUser.organization;
+    const paths = departments.map((department) => {
+      const ids = (department.source.department_path?.department_ids ?? [])
+        .map(readTrimmedString)
+        .filter((id): id is string => Boolean(id));
+      if (!ids.includes(department.id)) {
+        ids.push(department.id);
+      }
+      const departmentPath = ids.map((id) => ({ id, name: names.get(id) ?? id }));
+      return organization ? [organization, ...departmentPath] : departmentPath;
+    });
+    const covered = new Set(paths.flatMap((path) => path.map((group) => group.id)));
+    for (const rawId of feishuUser.fullInfo?.department_ids ?? []) {
+      const id = readTrimmedString(rawId);
+      if (!id) continue;
+      if (!covered.has(id)) {
+        const department = { id, name: names.get(id) ?? id };
+        paths.push(organization ? [organization, department] : [department]);
+      }
+    }
+    if (paths.length === 0 && organization) {
+      paths.push([organization]);
+    }
+    return mergeUserGroups([...defaultGroups, ...buildUserGroupTree(paths)]);
   }
 
   async destroy(): Promise<void> {
@@ -939,6 +1093,34 @@ export class FeishuAuthProvider implements AuthProvider {
 function getSingleHeader(request: FastifyRequest, name: string): string | undefined {
   const value = request.headers[name];
   return typeof value === "string" ? value : undefined;
+}
+
+function readInteractionClientId(interaction: unknown): string | undefined {
+  if (!interaction || typeof interaction !== "object") return undefined;
+  const params = (interaction as { params?: unknown }).params;
+  if (!params || typeof params !== "object") return undefined;
+  return readString((params as Record<string, unknown>).client_id);
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function readTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function splitFeishuDepartmentPathName(value: string | undefined): string[] {
+  return (value ?? "")
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function readHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function timingSafeStringEqual(left: string, right: string): boolean {

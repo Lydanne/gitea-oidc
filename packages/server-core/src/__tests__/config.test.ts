@@ -92,6 +92,8 @@ describe("loadConfig", () => {
         oidc: expect.objectContaining({
           cookieKeys: ["dev-cookie-key-change-me-32-chars-min"],
         }),
+        audit: { enabled: true, retentionDays: 30 },
+        auth: expect.objectContaining({ autoRedirectSingleProvider: false }),
         clients: [
           expect.objectContaining({
             client_id: "gitea",

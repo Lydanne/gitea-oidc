@@ -22,6 +22,11 @@ import { PluginPermission } from "../types/auth.js";
 import { AuthErrors } from "../utils/authErrors.js";
 import { Logger } from "../utils/Logger.js";
 import { sanitizeForLog } from "../utils/logSanitizer.js";
+import {
+  mergeUserGroups,
+  userGroupsFromValues,
+  withoutUserGroupValues,
+} from "../utils/userGroups.js";
 
 export class LocalAuthProvider implements AuthProvider {
   readonly name = "local";
@@ -168,12 +173,12 @@ export class LocalAuthProvider implements AuthProvider {
     const existingUser = this.userRepository.findByProviderAndExternalId
       ? await this.userRepository.findByProviderAndExternalId(this.name, username)
       : null;
-    const groups = new Set([
-      ...(existingUser?.groups ?? []).filter((group) => group !== ADMIN_GROUP),
-      ...(this.config.defaultGroups ?? []),
+    let groups = mergeUserGroups([
+      ...withoutUserGroupValues(existingUser?.groups, [ADMIN_GROUP]),
+      ...userGroupsFromValues(this.config.defaultGroups ?? []),
     ]);
     if ((this.config.adminUsers ?? []).includes(username)) {
-      groups.add(ADMIN_GROUP);
+      groups = mergeUserGroups([...groups, ...userGroupsFromValues([ADMIN_GROUP])]);
     }
 
     const user = await this.userRepository.findOrCreate(this.name, username, {
@@ -184,7 +189,7 @@ export class LocalAuthProvider implements AuthProvider {
       ...(existingUser ||
       this.config.defaultGroups !== undefined ||
       this.config.adminUsers !== undefined
-        ? { groups: Array.from(groups) }
+        ? { groups }
         : {}),
     });
 

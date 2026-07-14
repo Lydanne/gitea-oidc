@@ -7,6 +7,10 @@
 import { existsSync, unlinkSync } from "fs";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  acquireOidcAccountBlock,
+  clearOidcClientRevocationBarriers,
+} from "../oidcClientRevocationBarrier.js";
 import { SqliteOidcAdapter } from "../SqliteOidcAdapter.js";
 
 describe("SqliteOidcAdapter", () => {
@@ -25,6 +29,7 @@ describe("SqliteOidcAdapter", () => {
   });
 
   afterEach(async () => {
+    clearOidcClientRevocationBarriers();
     await SqliteOidcAdapter.closeAll();
     // 清理测试数据库
     if (existsSync(testDbPath)) {
@@ -52,6 +57,19 @@ describe("SqliteOidcAdapter", () => {
   });
 
   describe("upsert", () => {
+    it("账户停用开始后拒绝并发请求写回凭证", async () => {
+      const lease = acquireOidcAccountBlock("user-1");
+
+      await expect(
+        adapter.upsert("token-after-revoke", { accountId: "user-1" }),
+      ).rejects.toMatchObject({ code: "OIDC_ACCOUNT_REVOKED" });
+
+      await lease.release();
+      await expect(
+        adapter.upsert("token-after-release", { accountId: "user-1" }),
+      ).resolves.toBeUndefined();
+    });
+
     it("应该插入新记录", async () => {
       const key = "test-key-1";
       const payload = { userId: "user123", data: "test data" };

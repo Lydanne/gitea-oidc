@@ -32,6 +32,19 @@ describe("AuthCoordinator", () => {
 
   const userRepositoryMock = () => ({
     findById: vi.fn(),
+    findByProviderAndExternalId: vi.fn().mockResolvedValue(null),
+    update: vi.fn().mockResolvedValue(undefined),
+  });
+
+  const auditLogRepositoryMock = () => ({
+    append: vi.fn().mockImplementation(async (input) => ({
+      id: "audit-1",
+      createdAt: new Date(),
+      ...input,
+    })),
+    list: vi.fn(),
+    count: vi.fn(),
+    deleteOlderThan: vi.fn(),
   });
 
   const createProvider = (overrides: Partial<AuthProvider> = {}): AuthProvider =>
@@ -51,6 +64,7 @@ describe("AuthCoordinator", () => {
   let app: ReturnType<typeof fastifyStub>;
   let stateStore: ReturnType<typeof stateStoreMock>;
   let userRepository: ReturnType<typeof userRepositoryMock>;
+  let auditLogRepository: ReturnType<typeof auditLogRepositoryMock>;
   let coordinator: AuthCoordinator;
   let permissionSpy: ReturnType<typeof vi.spyOn>;
 
@@ -66,10 +80,12 @@ describe("AuthCoordinator", () => {
     app = fastifyStub();
     stateStore = stateStoreMock();
     userRepository = userRepositoryMock();
+    auditLogRepository = auditLogRepositoryMock();
     coordinator = new AuthCoordinator({
       app: app as any,
       stateStore: stateStore as any,
       userRepository: userRepository as any,
+      auditLogRepository: auditLogRepository as any,
       providersConfig,
     });
     permissionSpy = vi.spyOn(PermissionChecker.prototype, "requirePermission");
@@ -87,6 +103,7 @@ describe("AuthCoordinator", () => {
     params: overrides.params ?? {},
     query: overrides.query ?? {},
     body: overrides.body ?? {},
+    interaction: overrides.interaction,
   });
 
   describe("registerProvider", () => {
@@ -324,6 +341,83 @@ describe("AuthCoordinator", () => {
       expect(result.success).toBe(true);
     });
 
+    it("Provider 认证成功时等待 OIDC 最终授权事件记录登录", async () => {
+      (provider.authenticate as any).mockResolvedValue({
+        success: true,
+        userId: "user-1",
+        userInfo: { username: "alice" },
+      });
+
+      await coordinator.handleAuthentication(
+        createContext({
+          request: { headers: { "user-agent": "Audit Test" }, ip: "203.0.113.10" } as any,
+          interaction: { params: { client_id: "gitea" } } as any,
+        }),
+      );
+
+      expect(userRepository.update).not.toHaveBeenCalled();
+      expect(auditLogRepository.append).not.toHaveBeenCalled();
+    });
+
+    it("认证失败时只记录稳定原因码和尝试的用户名", async () => {
+      (provider.authenticate as any).mockResolvedValue({
+        success: false,
+        error: { code: "AUTH_3001", message: "invalid credentials" },
+      });
+
+      await coordinator.handleAuthentication(createContext({ body: { username: "alice" } }));
+
+      expect(auditLogRepository.append).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "user.login",
+          outcome: "failure",
+          username: "alice",
+          reason: "AUTH_3001",
+        }),
+      );
+      expect(JSON.stringify(auditLogRepository.append.mock.calls)).not.toContain(
+        "invalid credentials",
+      );
+    });
+
+    it("已知用户认证失败时写入 userId 以支持按用户筛选", async () => {
+      (provider.authenticate as any).mockResolvedValue({
+        success: false,
+        error: { code: "AUTH_3001", message: "invalid credentials" },
+      });
+      userRepository.findByProviderAndExternalId.mockResolvedValue({
+        sub: "user-1",
+        username: "alice",
+      });
+
+      await coordinator.handleAuthentication(createContext({ body: { username: "alice" } }));
+
+      expect(userRepository.findByProviderAndExternalId).toHaveBeenCalledWith("feishu", "alice");
+      expect(auditLogRepository.append).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome: "failure",
+          userId: "user-1",
+          username: "alice",
+        }),
+      );
+    });
+
+    it("审计仓储失败不会改变认证结果", async () => {
+      (provider.authenticate as any).mockResolvedValue({
+        success: false,
+        error: { code: "AUTH_3001", message: "invalid credentials" },
+      });
+      auditLogRepository.append.mockRejectedValueOnce(new Error("audit unavailable"));
+
+      const result = await coordinator.handleAuthentication(createContext());
+
+      expect(result.success).toBe(false);
+      expect(app.log.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.objectContaining({ message: "audit unavailable" }) }),
+        "Failed to persist audit log",
+      );
+    });
+
     it("wraps errors into internal error", async () => {
       (provider.authenticate as any).mockRejectedValue(new Error("boom"));
       const result = await coordinator.handleAuthentication(createContext());
@@ -417,12 +511,19 @@ describe("AuthCoordinator", () => {
     });
 
     it("storeAuthResult and getAuthResult roundtrip", async () => {
-      await coordinator.storeAuthResult("inter-1", "user-1");
+      await coordinator.storeAuthResult("inter-1", "user-1", {
+        provider: "feishu",
+        clientId: "gitea",
+        ipAddress: "203.0.113.10",
+        userAgent: "Audit Test",
+        username: "alice",
+      });
       expect(stateStore.set).toHaveBeenCalledWith(
         "auth_result_inter-1",
         expect.objectContaining({ userId: "user-1", type: "auth_result" }),
         300,
       );
+      expect(auditLogRepository.append).not.toHaveBeenCalled();
 
       stateStore.take.mockResolvedValue({
         userId: "user-1",
@@ -609,6 +710,135 @@ describe("AuthCoordinator", () => {
 
       expect(html).toContain('<form id="local"></form>');
       expect(html).toContain("https://feishu.com");
+    });
+
+    it("配置开启且只有一个跳转型登录方式时直接返回跳转结果", async () => {
+      coordinator = new AuthCoordinator({
+        app: app as any,
+        stateStore: stateStore as any,
+        userRepository: userRepository as any,
+        providersConfig,
+        autoRedirectSingleProvider: true,
+      });
+      coordinator.registerProvider(
+        createProvider({
+          renderLoginUI: vi.fn().mockResolvedValue({
+            type: "redirect",
+            redirectUrl: "https://id.example.com/login",
+            button: { text: "使用飞书继续" },
+          }),
+        }),
+      );
+
+      await expect(coordinator.resolveUnifiedLogin(createContext())).resolves.toEqual({
+        type: "redirect",
+        redirectUrl: "https://id.example.com/login",
+      });
+    });
+
+    it("配置关闭时仍渲染唯一的跳转型登录方式", async () => {
+      coordinator.registerProvider(
+        createProvider({
+          renderLoginUI: vi.fn().mockResolvedValue({
+            type: "redirect",
+            redirectUrl: "https://id.example.com/login",
+            button: { text: "使用飞书继续" },
+          }),
+        }),
+      );
+
+      const result = await coordinator.resolveUnifiedLogin(createContext());
+
+      expect(result.type).toBe("html");
+      expect(result).toEqual(
+        expect.objectContaining({ html: expect.stringContaining("https://id.example.com/login") }),
+      );
+    });
+
+    it("本地表单或多个可用方式不会触发自动跳转", async () => {
+      coordinator = new AuthCoordinator({
+        app: app as any,
+        stateStore: stateStore as any,
+        userRepository: userRepository as any,
+        providersConfig: {
+          local: { enabled: true, displayName: "Local", priority: 1, config: {} },
+          feishu: providersConfig.feishu,
+        },
+        autoRedirectSingleProvider: true,
+      });
+      coordinator.registerProvider(
+        createProvider({
+          name: "local",
+          renderLoginUI: vi
+            .fn()
+            .mockResolvedValue({ type: "html", html: '<form id="local"></form>' }),
+        }),
+      );
+      coordinator.registerProvider(
+        createProvider({
+          renderLoginUI: vi.fn().mockResolvedValue({
+            type: "redirect",
+            redirectUrl: "https://id.example.com/login",
+            button: { text: "使用飞书继续" },
+          }),
+        }),
+      );
+
+      const result = await coordinator.resolveUnifiedLogin(createContext());
+
+      expect(result.type).toBe("html");
+      expect(result).toEqual(
+        expect.objectContaining({ html: expect.stringContaining('<form id="local"></form>') }),
+      );
+    });
+
+    it("非法跳转地址不会触发自动跳转", async () => {
+      coordinator = new AuthCoordinator({
+        app: app as any,
+        stateStore: stateStore as any,
+        userRepository: userRepository as any,
+        providersConfig,
+        autoRedirectSingleProvider: true,
+      });
+      coordinator.registerProvider(
+        createProvider({
+          renderLoginUI: vi.fn().mockResolvedValue({
+            type: "redirect",
+            redirectUrl: "javascript:alert(1)",
+            button: { text: "危险登录" },
+          }),
+        }),
+      );
+
+      const result = await coordinator.resolveUnifiedLogin(createContext());
+
+      expect(result.type).toBe("html");
+      expect(result).not.toEqual(expect.objectContaining({ redirectUrl: expect.any(String) }));
+    });
+
+    it("明确从统一页隐藏的入口不会触发自动跳转", async () => {
+      coordinator = new AuthCoordinator({
+        app: app as any,
+        stateStore: stateStore as any,
+        userRepository: userRepository as any,
+        providersConfig,
+        autoRedirectSingleProvider: true,
+      });
+      coordinator.registerProvider(
+        createProvider({
+          renderLoginUI: vi.fn().mockResolvedValue({
+            type: "redirect",
+            redirectUrl: "https://id.example.com/hidden",
+            showInUnifiedPage: false,
+            button: { text: "隐藏入口" },
+          }),
+        }),
+      );
+
+      const result = await coordinator.resolveUnifiedLogin(createContext());
+
+      expect(result.type).toBe("html");
+      expect(result).not.toEqual(expect.objectContaining({ redirectUrl: expect.any(String) }));
     });
   });
 

@@ -1,7 +1,15 @@
 import { randomUUID } from "crypto";
-import { Pool } from "pg";
-import type { ListOptions, UserInfo, UserRepository } from "../types/auth.js";
+import { Pool, type PoolClient } from "pg";
+import type {
+  ListOptions,
+  UserDeleteResult,
+  UserFindOrCreateResult,
+  UserInfo,
+  UserRepository,
+  UserUpdateResult,
+} from "../types/auth.js";
 import { withUserDefaults } from "../utils/userDefaults.js";
+import { normalizeUserGroups } from "../utils/userGroups.js";
 import { generateUserId } from "../utils/userIdGenerator.js";
 import { getUserListSortColumn, normalizeUserListOptions } from "./userListOptions.js";
 
@@ -25,6 +33,7 @@ export class PgsqlUserRepository implements UserRepository {
   private async initializeDatabase(): Promise<void> {
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS users (
+        id TEXT,
         sub TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
@@ -58,11 +67,25 @@ export class PgsqlUserRepository implements UserRepository {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS "lastLoginAt" TIMESTAMP WITH TIME ZONE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS "lastSyncedAt" TIMESTAMP WITH TIME ZONE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS "providerProfile" JSONB;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS id TEXT;
     `;
 
     const client = await this.pool.connect();
     try {
       await client.query(createTableSQL);
+      const missingIds = await client.query<{ sub: string }>(
+        "SELECT sub FROM users WHERE id IS NULL OR id = ''",
+      );
+      for (const row of missingIds.rows) {
+        await client.query("UPDATE users SET id = $1 WHERE sub = $2 AND (id IS NULL OR id = '')", [
+          randomUUID(),
+          row.sub,
+        ]);
+      }
+      await client.query(`
+        ALTER TABLE users ALTER COLUMN id SET NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_id ON users(id);
+      `);
     } finally {
       client.release();
     }
@@ -70,6 +93,7 @@ export class PgsqlUserRepository implements UserRepository {
 
   private userFromRow(row: any): UserInfo {
     return withUserDefaults({
+      id: row.id,
       sub: row.sub,
       username: row.username,
       name: row.name,
@@ -98,6 +122,7 @@ export class PgsqlUserRepository implements UserRepository {
 
   private userToRow(user: UserInfo): any {
     return {
+      id: user.id,
       sub: user.sub,
       username: user.username,
       name: user.name,
@@ -108,7 +133,7 @@ export class PgsqlUserRepository implements UserRepository {
       externalId: user.externalId ?? null,
       emailVerified: user.emailVerified !== undefined ? (user.emailVerified ? 1 : 0) : null,
       phoneVerified: user.phoneVerified !== undefined ? (user.phoneVerified ? 1 : 0) : null,
-      groups: user.groups || null,
+      groups: user.groups ? normalizeUserGroups(user.groups) : null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       metadata: user.metadata || null,
@@ -175,21 +200,36 @@ export class PgsqlUserRepository implements UserRepository {
   async findOrCreate(
     provider: string,
     externalId: string,
-    userData: Omit<UserInfo, "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider">,
+    userData: Omit<
+      UserInfo,
+      "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"
+    >,
   ): Promise<UserInfo> {
+    return (await this.findOrCreateWithResult(provider, externalId, userData)).user;
+  }
+
+  async findOrCreateWithResult(
+    provider: string,
+    externalId: string,
+    userData: Omit<
+      UserInfo,
+      "id" | "sub" | "createdAt" | "updatedAt" | "externalId" | "authProvider"
+    >,
+  ): Promise<UserFindOrCreateResult> {
     const existingUser = await this.findByProviderAndExternalId(provider, externalId);
 
     if (existingUser) {
       // 用户已存在，更新用户信息（保持 sub 和 createdAt 不变）
-      return await this.update(existingUser.sub, {
+      const result = await this.updateWithResult(existingUser.sub, {
         ...userData,
         authProvider: provider,
         externalId,
       });
+      return { ...result, created: false };
     }
 
     // 创建新用户
-    const userToCreate: Omit<UserInfo, "sub"> = {
+    const userToCreate: Omit<UserInfo, "id" | "sub"> = {
       ...userData,
       authProvider: provider,
       externalId: externalId,
@@ -198,23 +238,25 @@ export class PgsqlUserRepository implements UserRepository {
     };
 
     try {
-      return await this.create(userToCreate);
+      const user = await this.create(userToCreate);
+      return { user, before: null, created: true };
     } catch (err) {
       // PostgreSQL 的唯一索引是最终并发仲裁；仅在同一 provider identity 已被另一
       // 请求创建时重试读取，其他约束错误（如用户名冲突）仍需原样暴露。
       const concurrentUser = await this.findByProviderAndExternalId(provider, externalId);
       if (concurrentUser) {
-        return this.update(concurrentUser.sub, {
+        const result = await this.updateWithResult(concurrentUser.sub, {
           ...userData,
           authProvider: provider,
           externalId,
         });
+        return { ...result, created: false };
       }
       throw err;
     }
   }
 
-  async create(userData: Omit<UserInfo, "sub">): Promise<UserInfo> {
+  async create(userData: Omit<UserInfo, "id" | "sub">): Promise<UserInfo> {
     await this.ready;
     const now = new Date();
 
@@ -226,6 +268,7 @@ export class PgsqlUserRepository implements UserRepository {
 
     const user: UserInfo = {
       ...userData,
+      id: randomUUID(),
       sub,
       createdAt: userData.createdAt || now,
       updatedAt: userData.updatedAt || now,
@@ -237,18 +280,19 @@ export class PgsqlUserRepository implements UserRepository {
 
     const sql = `
       INSERT INTO users (
-        sub, username, name, email, picture, phone, "authProvider",
+        id, sub, username, name, email, picture, phone, "authProvider",
         "externalId", "emailVerified", "phoneVerified", groups, "createdAt", "updatedAt",
         metadata, status, roles, "lastLoginAt", "lastSyncedAt", "providerProfile"
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15, $16, $17, $18, $19
+        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
       )
     `;
 
     const client = await this.pool.connect();
     try {
       await client.query(sql, [
+        row.id,
         row.sub,
         row.username,
         row.name,
@@ -276,65 +320,47 @@ export class PgsqlUserRepository implements UserRepository {
   }
 
   async update(sub: string, updates: Partial<UserInfo>): Promise<UserInfo> {
-    const user = await this.findById(sub);
-    if (!user) {
-      throw new Error(`User not found: ${sub}`);
-    }
+    return (await this.updateWithResult(sub, updates)).user;
+  }
 
-    const updatedUser: UserInfo = {
-      ...user,
-      ...updates,
-      sub: user.sub,
-      updatedAt: new Date(),
-    };
-
-    await this.assertProviderIdentityAvailable(updatedUser, sub);
-
-    const row = this.userToRow(updatedUser);
-
-    const sql = `
-      UPDATE users SET
-        username = $1, name = $2, email = $3, picture = $4, phone = $5, "authProvider" = $6,
-        "externalId" = $7,
-        "emailVerified" = $8, "phoneVerified" = $9, groups = $10, "updatedAt" = $11,
-        metadata = $12, status = $13, roles = $14, "lastLoginAt" = $15,
-        "lastSyncedAt" = $16, "providerProfile" = $17
-      WHERE sub = $18
-    `;
-
+  async updateWithResult(sub: string, updates: Partial<UserInfo>): Promise<UserUpdateResult> {
+    await this.ready;
     const client = await this.pool.connect();
     try {
-      await client.query(sql, [
-        row.username,
-        row.name,
-        row.email,
-        row.picture,
-        row.phone,
-        row.authProvider,
-        row.externalId,
-        row.emailVerified,
-        row.phoneVerified,
-        row.groups,
-        row.updatedAt,
-        row.metadata,
-        row.status,
-        row.roles,
-        row.lastLoginAt,
-        row.lastSyncedAt,
-        row.providerProfile,
-        sub,
-      ]);
-      return updatedUser;
+      await client.query("BEGIN");
+      const before = await this.findByIdWithClient(client, sub, true);
+      if (!before) {
+        throw new Error(`User not found: ${sub}`);
+      }
+      const user = await this.updateWithClient(client, before, updates);
+      await client.query("COMMIT");
+      return { before, user };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
     } finally {
       client.release();
     }
   }
 
   async delete(sub: string): Promise<void> {
+    await this.deleteWithResult(sub);
+  }
+
+  async deleteWithResult(sub: string): Promise<UserDeleteResult> {
     await this.ready;
     const client = await this.pool.connect();
     try {
-      await client.query("DELETE FROM users WHERE sub = $1", [sub]);
+      await client.query("BEGIN");
+      const deleted = await this.findByIdWithClient(client, sub, true);
+      if (deleted) {
+        await client.query("DELETE FROM users WHERE sub = $1", [sub]);
+      }
+      await client.query("COMMIT");
+      return { deleted };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
     } finally {
       client.release();
     }
@@ -426,6 +452,80 @@ export class PgsqlUserRepository implements UserRepository {
 
     const existing = await this.findByProviderAndExternalId(user.authProvider, user.externalId);
     if (existing && existing.sub !== sub) {
+      throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
+    }
+  }
+
+  private async findByIdWithClient(
+    client: PoolClient,
+    sub: string,
+    lock: boolean,
+  ): Promise<UserInfo | null> {
+    const result = await client.query(
+      `SELECT * FROM users WHERE sub = $1${lock ? " FOR UPDATE" : ""}`,
+      [sub],
+    );
+    return result.rows.length > 0 ? this.userFromRow(result.rows[0]) : null;
+  }
+
+  private async updateWithClient(
+    client: PoolClient,
+    before: UserInfo,
+    updates: Partial<UserInfo>,
+  ): Promise<UserInfo> {
+    const updatedUser: UserInfo = {
+      ...before,
+      ...updates,
+      id: before.id,
+      sub: before.sub,
+      updatedAt: new Date(),
+    };
+    await this.assertProviderIdentityAvailableWithClient(client, updatedUser, before.sub);
+    const row = this.userToRow(updatedUser);
+    await client.query(
+      `UPDATE users SET
+        username = $1, name = $2, email = $3, picture = $4, phone = $5, "authProvider" = $6,
+        "externalId" = $7,
+        "emailVerified" = $8, "phoneVerified" = $9, groups = $10, "updatedAt" = $11,
+        metadata = $12, status = $13, roles = $14, "lastLoginAt" = $15,
+        "lastSyncedAt" = $16, "providerProfile" = $17
+       WHERE sub = $18`,
+      [
+        row.username,
+        row.name,
+        row.email,
+        row.picture,
+        row.phone,
+        row.authProvider,
+        row.externalId,
+        row.emailVerified,
+        row.phoneVerified,
+        row.groups,
+        row.updatedAt,
+        row.metadata,
+        row.status,
+        row.roles,
+        row.lastLoginAt,
+        row.lastSyncedAt,
+        row.providerProfile,
+        before.sub,
+      ],
+    );
+    return updatedUser;
+  }
+
+  private async assertProviderIdentityAvailableWithClient(
+    client: PoolClient,
+    user: UserInfo,
+    sub: string,
+  ): Promise<void> {
+    if (!user.externalId) return;
+    const result = await client.query(
+      `SELECT sub FROM users WHERE "authProvider" = $1 AND "externalId" = $2`,
+      [user.authProvider, user.externalId],
+    );
+    const existingSub = result.rows[0]?.sub;
+    if (existingSub && existingSub !== sub) {
       throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
     }
   }

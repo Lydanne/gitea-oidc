@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { OidcAdapterConfig } from "./adapters/OidcAdapterFactory.js";
 import type { AdminConfig } from "./types/admin.js";
+import type { AuditConfig } from "./types/audit.js";
 import type { AuthConfig } from "./types/config.js";
 import type { ProviderApiRuntimeConfig } from "./types/providerApi.js";
 
@@ -81,6 +82,9 @@ export interface GiteaOidcConfig {
     enabled: boolean;
     level: "info" | "warn" | "error" | "debug";
   };
+
+  /** 结构化审计日志配置；旧版 TypeScript 配置省略时使用安全默认值。 */
+  audit?: AuditConfig;
 
   /**
    * OIDC Provider 核心配置
@@ -269,6 +273,11 @@ export type ConfigModule = GiteaOidcConfig | (() => GiteaOidcConfig);
  *
  * 用户配置文件会深度合并并覆盖这些默认值
  */
+export const DEFAULT_AUDIT_CONFIG: AuditConfig = {
+  enabled: true,
+  retentionDays: 30,
+};
+
 const defaultConfig: GiteaOidcConfig = {
   server: {
     host: "0.0.0.0",
@@ -284,6 +293,8 @@ const defaultConfig: GiteaOidcConfig = {
     level: "info",
   },
 
+  audit: { ...DEFAULT_AUDIT_CONFIG },
+
   oidc: {
     issuer: "http://localhost:3000/oidc",
     cookieKeys: ["dev-cookie-key-change-me-32-chars-min"],
@@ -295,7 +306,7 @@ const defaultConfig: GiteaOidcConfig = {
     },
     claims: {
       openid: ["sub"],
-      profile: ["name", "email", "groups", "roles", "status"],
+      profile: ["name", "preferred_username", "email", "groups", "groups_tree", "roles", "status"],
       email: ["email", "email_verified"],
       provider_api: [],
     },
@@ -321,6 +332,7 @@ const defaultConfig: GiteaOidcConfig = {
   ],
 
   auth: {
+    autoRedirectSingleProvider: false,
     userRepository: {
       type: "memory",
       memory: {},

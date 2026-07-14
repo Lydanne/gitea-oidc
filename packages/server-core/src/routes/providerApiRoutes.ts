@@ -9,6 +9,7 @@ import type { UserRepository } from "../types/auth.js";
 import type { ProviderApiRequest } from "../types/providerApi.js";
 import { resolveBearerToken } from "../utils/oidcToken.js";
 import { summarizeTokenError } from "../utils/tokenCrypto.js";
+import { userGroupPermissionValues } from "../utils/userGroups.js";
 
 export const PROVIDER_API_REQUIRED_SCOPE = "provider_api";
 
@@ -72,7 +73,7 @@ export function registerProviderApiRoutes(options: ProviderApiRoutesOptions): vo
     try {
       const result = await providerApiService.request(provider, providerRequest, {
         userId: bearer.user.sub,
-        groups: bearer.user.groups,
+        groups: userGroupPermissionValues(bearer.user.groups),
         roles: bearer.user.roles,
       });
       return reply.send(result);

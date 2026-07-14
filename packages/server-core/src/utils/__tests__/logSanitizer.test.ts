@@ -72,6 +72,7 @@ describe("logSanitizer", () => {
 
   it("summarizes users without raw profile, metadata or contact values", () => {
     const user: UserInfo = {
+      id: "internal-user-1",
       sub: "user-1",
       username: "alice",
       name: "Alice",
@@ -79,7 +80,10 @@ describe("logSanitizer", () => {
       phone: "13800000000",
       authProvider: "feishu",
       externalId: "open-id",
-      groups: ["dev", "ops"],
+      groups: [
+        { id: "dev", name: "dev" },
+        { id: "ops", name: "ops" },
+      ],
       roles: ["admin"],
       status: "active",
       providerProfile: {

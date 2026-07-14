@@ -77,6 +77,10 @@ const createBaseConfig = (): GiteaOidcConfig => ({
     allowedGroups: ["gitea-oidc-admins"],
     sessionTtlSeconds: 3600,
   },
+  audit: {
+    enabled: true,
+    retentionDays: 30,
+  },
   providerApi: {
     enabled: true,
     tokenEncryptionKey: "A".repeat(32),
@@ -126,6 +130,70 @@ describe("validateConfig", () => {
 
     expect(result.valid).toBe(true);
     expect(result.config?.server.corsOrigins).toEqual([]);
+  });
+
+  it("单一登录方式自动跳转默认关闭且可显式开启", () => {
+    const defaultConfig = createBaseConfig() as any;
+    delete defaultConfig.auth.autoRedirectSingleProvider;
+
+    const defaultResult = validateConfig(defaultConfig);
+
+    expect(defaultResult.valid).toBe(true);
+    expect(defaultResult.config?.auth.autoRedirectSingleProvider).toBe(false);
+
+    const enabledConfig = createBaseConfig();
+    enabledConfig.auth.autoRedirectSingleProvider = true;
+
+    const enabledResult = validateConfig(enabledConfig);
+
+    expect(enabledResult.valid).toBe(true);
+    expect(enabledResult.config?.auth.autoRedirectSingleProvider).toBe(true);
+  });
+
+  it("审计配置缺省时启用并自动删除超过 30 天的记录", () => {
+    const config = createBaseConfig() as any;
+    delete config.audit;
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(true);
+    expect(result.config?.audit).toEqual({ enabled: true, retentionDays: 30 });
+  });
+
+  it("允许自定义审计日志保留天数", () => {
+    const config = createBaseConfig();
+    config.audit!.retentionDays = 90;
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(true);
+    expect(result.config?.audit.retentionDays).toBe(90);
+  });
+
+  it("拒绝超出边界的审计保留天数", () => {
+    const config = createBaseConfig();
+    config.audit!.retentionDays = 0;
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "audit.retentionDays",
+        }),
+      ]),
+    );
+  });
+
+  it("关闭身份审计时给出可见警告", () => {
+    const config = createBaseConfig();
+    config.audit!.enabled = false;
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toContain("身份审计已关闭，登录、退出和用户资料变更将无法追溯");
   });
 
   it("keeps legacy TypeScript configs compatible when applications is omitted", () => {

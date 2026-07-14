@@ -6,10 +6,13 @@
 
 import type { Adapter } from "oidc-provider";
 import {
+  acquireOidcAccountBlock,
   acquireOidcClientBlock,
+  allowOidcAccount,
   allowOidcClient,
   blockOidcClient,
   clearOidcClientRevocationBarriers,
+  type OidcAccountBlockLease,
   type OidcClientBlockLease,
 } from "./oidcClientRevocationBarrier.js";
 import { RedisOidcAdapter, type RedisOidcAdapterOptions } from "./RedisOidcAdapter.js";
@@ -169,6 +172,7 @@ export class OidcAdapterFactory {
   /**
    * 撤销某个账户的全部 OIDC 记录。
    * 用户删除或更换外部身份后调用，避免旧 refresh token 在同一 sub 再次出现时复活。
+   * 调用方必须先持有 acquireAccountIdBlock() 返回的租约。
    */
   static async revokeByAccountId(accountId: string): Promise<void> {
     if (!OidcAdapterFactory.config) {
@@ -189,6 +193,62 @@ export class OidcAdapterFactory {
         // oidc-provider 的内存适配器会随当前进程结束，且不允许生产环境使用。
         break;
     }
+  }
+
+  /** 在用户状态提交前取得账户级栅栏，Redis 模式下同时创建跨实例租约。 */
+  static async acquireAccountIdBlock(accountId: string): Promise<OidcAccountBlockLease> {
+    const localLease = acquireOidcAccountBlock(accountId);
+    if (OidcAdapterFactory.config?.type !== "redis") {
+      return localLease;
+    }
+
+    let redisLease: OidcAccountBlockLease;
+    try {
+      redisLease = await RedisOidcAdapter.acquireAccountBlock(
+        accountId,
+        OidcAdapterFactory.config.redis,
+      );
+    } catch (error) {
+      await localLease.release();
+      throw error;
+    }
+
+    let settled = false;
+    return Object.freeze({
+      accountId,
+      async commit(): Promise<void> {
+        if (settled) return;
+        try {
+          await redisLease.commit();
+        } catch (error) {
+          // Redis 结果不确定时将本实例提升为持久封锁，避免状态已经提交后本地失守。
+          await localLease.commit();
+          throw error;
+        }
+        await localLease.commit();
+        settled = true;
+      },
+      async release(): Promise<void> {
+        if (settled) return;
+        try {
+          await redisLease.release();
+        } catch (error) {
+          // 远端临时租约有 TTL；本地租约仍应释放，避免一次清理故障永久锁死当前实例。
+          await localLease.release();
+          throw error;
+        }
+        await localLease.release();
+        settled = true;
+      },
+    });
+  }
+
+  /** 用户创建或重新启用后移除持久账户栅栏，不越过仍在执行的停用租约。 */
+  static async allowAccountId(accountId: string): Promise<void> {
+    if (OidcAdapterFactory.config?.type === "redis") {
+      await RedisOidcAdapter.allowAccountId(accountId, OidcAdapterFactory.config.redis);
+    }
+    allowOidcAccount(accountId);
   }
 
   /** 停用应用时撤销该 Client 的全部 OIDC Artifact。 */

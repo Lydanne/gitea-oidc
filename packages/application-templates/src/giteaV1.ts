@@ -254,6 +254,9 @@ export interface ResolvedGiteaTemplateV1 extends ResolvedApplicationTemplate {
 const buildCallbackUrl = (input: GiteaTemplateInputV1): string =>
   `${input.giteaBaseUrl}/user/oauth2/${input.authSourceName}/callback`;
 
+const buildPostLogoutRedirectUrl = (input: GiteaTemplateInputV1): string =>
+  `${input.giteaBaseUrl}/`;
+
 const buildDiscoveryUrl = (issuer: string): string =>
   `${issuer.replace(/\/+$/u, "")}/.well-known/openid-configuration`;
 
@@ -283,6 +286,7 @@ const buildGiteaCliCommand = (
 const buildIntegrationGuide = (
   input: GiteaTemplateInputV1,
   callbackUrl: string,
+  postLogoutRedirectUrl: string,
   discoveryUrl: string,
   scopes: readonly string[],
 ): IntegrationGuideV1 => {
@@ -315,6 +319,12 @@ const buildIntegrationGuide = (
     },
     { kind: "field", label: "Scopes", value: scopes.join(" "), copyable: true },
     { kind: "field", label: "Callback URL", value: callbackUrl, copyable: true },
+    {
+      kind: "field",
+      label: "Post Logout Redirect URI",
+      value: postLogoutRedirectUrl,
+      copyable: true,
+    },
     ...(input.groupClaimName
       ? [
           {
@@ -352,6 +362,7 @@ const buildResolution = (
   context: GiteaTemplateContextV1,
 ): ResolvedGiteaTemplateV1 => {
   const callbackUrl = buildCallbackUrl(input);
+  const postLogoutRedirectUrl = buildPostLogoutRedirectUrl(input);
   const discoveryUrl = buildDiscoveryUrl(context.issuer);
   const baseScopes = ["openid", "profile", "email"];
   const groupScope = input.groupClaimName
@@ -400,7 +411,7 @@ const buildResolution = (
       grantTypes: ["authorization_code"],
       responseTypes: ["code"],
       redirectUris: [callbackUrl],
-      postLogoutRedirectUris: [],
+      postLogoutRedirectUris: [postLogoutRedirectUrl],
       allowedScopes: scopes,
       allowedResources: [],
       pkcePolicy: "optional",
@@ -410,7 +421,13 @@ const buildResolution = (
         resourceServer: false,
       },
     },
-    integrationGuide: buildIntegrationGuide(input, callbackUrl, discoveryUrl, scopes),
+    integrationGuide: buildIntegrationGuide(
+      input,
+      callbackUrl,
+      postLogoutRedirectUrl,
+      discoveryUrl,
+      scopes,
+    ),
     warnings: [PKCE_COMPATIBILITY_WARNING],
   };
 };

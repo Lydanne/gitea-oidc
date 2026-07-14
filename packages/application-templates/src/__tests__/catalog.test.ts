@@ -3,6 +3,7 @@ import {
   applicationTemplateCatalog,
   createTemplateCatalog,
   GiteaTemplateV1,
+  GiteaTemplateV2,
   TemplateCatalogError,
 } from "../index.js";
 
@@ -13,6 +14,13 @@ describe("TemplateCatalog", () => {
     expect(templates).toEqual([
       {
         reference: { id: "gitea", version: 1 },
+        name: "Gitea",
+        description: expect.any(String),
+        supportedVersions: ["1.24", "1.25", "1.26"],
+        form: expect.objectContaining({ fields: expect.any(Array) }),
+      },
+      {
+        reference: { id: "gitea", version: 2 },
         name: "Gitea",
         description: expect.any(String),
         supportedVersions: ["1.24", "1.25", "1.26"],
@@ -32,10 +40,10 @@ describe("TemplateCatalog", () => {
       resolve: GiteaTemplateV1.resolve,
     });
     expect(applicationTemplateCatalog.getLatest("gitea")).toMatchObject({
-      id: GiteaTemplateV1.id,
-      version: GiteaTemplateV1.version,
+      id: GiteaTemplateV2.id,
+      version: GiteaTemplateV2.version,
     });
-    expect(() => applicationTemplateCatalog.get({ id: "gitea", version: 2 })).toThrowError(
+    expect(() => applicationTemplateCatalog.get({ id: "gitea", version: 3 })).toThrowError(
       TemplateCatalogError,
     );
   });

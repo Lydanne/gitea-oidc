@@ -54,6 +54,8 @@ describe("GiteaTemplateV1", () => {
         tokenEndpointAuthMethod: "client_secret_basic",
         grantTypes: ["authorization_code"],
         responseTypes: ["code"],
+        redirectUris: ["http://127.0.0.1:3000/gitea/user/oauth2/company-sso/callback"],
+        postLogoutRedirectUris: ["http://127.0.0.1:3000/gitea/"],
         allowedScopes: ["openid", "profile", "email"],
         pkcePolicy: "optional",
         capabilities: {
@@ -122,6 +124,12 @@ describe("GiteaTemplateV1", () => {
     expect(guide.nodes.every((node) => node.kind !== ("html" as never))).toBe(true);
     expect(serialized).toContain(GITEA_CLIENT_ID_PLACEHOLDER);
     expect(serialized).toContain(GITEA_CLIENT_SECRET_PLACEHOLDER);
+    expect(guide.nodes).toContainEqual({
+      kind: "field",
+      label: "Post Logout Redirect URI",
+      value: "http://127.0.0.1:3000/gitea/",
+      copyable: true,
+    });
     expect(cli).toContain("gitea admin auth add-oauth");
     expect(cli).toContain("--provider openidConnect");
     expect(cli).toContain("--auto-discover-url");

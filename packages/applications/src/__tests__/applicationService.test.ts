@@ -79,6 +79,11 @@ describe("ApplicationService", () => {
         supportedVersions: ["1.24", "1.25", "1.26"],
         form: expect.objectContaining({ fields: expect.any(Array) }),
       }),
+      expect.objectContaining({
+        reference: { id: "gitea", version: 3 },
+        supportedVersions: ["1.27"],
+        form: expect.objectContaining({ fields: expect.any(Array) }),
+      }),
     ]);
     expect(
       service.previewApplicationTemplate({

@@ -58,10 +58,10 @@ Callback URL 中的 `company-sso` 必须与 Gitea 认证源名称一致。Post L
 7. 预览模板派生的 Callback URL、退出回跳地址、scopes、Gitea 字段和 CLI 命令。
 8. 创建应用，并立即把一次性显示的 Client ID 与 Client Secret 保存到 Secret Manager。
 
-新建应用默认使用 `gitea@2`，并可选择 Gitea `1.24`、`1.25` 或 `1.26`。模板会生成授权码流程、
-`client_secret_basic`、精确 Callback URL 和 Post Logout Redirect URI。Gitea 1.24 不支持全名与
-SSH 公钥 Claim，模板会在预览时拒绝；1.25 和 1.26 支持。上线前仍应使用真实目标版本完成一次端到端
-验收。
+新建应用默认使用 `gitea@3`，目标版本固定为 Gitea `1.27`。需要接入 `1.24`、`1.25` 或 `1.26`
+时选择历史 `gitea@1` 或 `gitea@2`。模板会生成授权码流程、`client_secret_basic`、精确 Callback
+URL 和 Post Logout Redirect URI。Gitea 1.24 不支持全名与 SSH 公钥 Claim，模板会在预览时拒绝；
+1.25 及以上支持。上线前仍应使用真实目标版本完成一次端到端验收。
 
 Client Secret 明文只在创建或轮换响应中显示一次。页面关闭后不能再次读取，只能重新轮换。
 
@@ -112,6 +112,7 @@ Client Secret，避免一处凭据泄露扩大影响范围。
 | 附加授权范围（Scopes） | 使用模板生成的逗号列表，例如 `openid,profile,email` |
 | 全名声明名称 | Gitea 1.25+ 按需填写，例如 `name` |
 | SSH 公钥声明名称 | Gitea 1.25+ 按需填写 |
+| 外部 ID Claim 名称（可选） | Gitea 1.27 默认留空，继续使用稳定的 `sub` |
 | 必须填写 Claim 声明的名称/值 | 按需成对填写 |
 | 用户组 Claim 声明名称 | 组映射时填写，例如 `groups` |
 | 管理员用户组 Claim 值 | 按需填写 `groups` 中的完整路径 |
@@ -152,6 +153,10 @@ unset GITEA_OIDC_CLIENT_ID GITEA_OIDC_CLIENT_SECRET
 必须进入 Gitea 管理后台确认用户同步状态；如果模板中取消“该认证源已经启用”，模板不会提供 CLI
 命令，应直接通过后台创建未启用的认证源。
 
+Gitea 1.27 的 CLI 还没有 External ID Claim 参数。`externalIdClaimName` 留空时仍可使用模板命令；
+填写其他 Claim 时模板不会输出不完整的命令，必须通过管理后台创建认证源，并在首次登录前确认该
+字段。已有认证源从 1.26 升级时不要修改该字段，否则 Gitea 可能把同一用户识别为新的外部账号。
+
 ## Claims 和用户组映射
 
 OIDC 配置中的 scope 必须能返回 Gitea 使用的 claim。常用配置：
@@ -182,6 +187,9 @@ OIDC 配置中的 scope 必须能返回 Gitea 使用的 claim。常用配置：
 `示例组织/研发中心/后端组` 和 `tenant_example/od_engineering/od_backend`。飞书用户还包含固定的
 `Default` 分组；旧版自动添加的 `Owners` 已不再使用。`groups_tree` 保留完整层级，供理解树形分组
 的自定义客户端使用。`sub` 是稳定用户标识，不应改成邮箱、昵称等可变字段。
+
+Gitea 1.27 新增 External ID Claim 只是为了支持需要替换默认 `sub` 的特殊身份源迁移。日常接入和
+从 1.26 升级都应留空；如果确实改用其他 Claim，该字段必须稳定、不可变且在授权 scopes 中实际返回。
 
 Gitea 的组映射值应填写 `groups` 中实际返回的完整路径。管理后台的 `admin.allowedGroups` 仍兼容
 任一节点的单独 ID 或名称，但建议新配置使用完整 ID 路径，避免不同组织或分支下的同名团队冲突。

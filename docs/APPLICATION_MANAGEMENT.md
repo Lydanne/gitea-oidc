@@ -126,20 +126,23 @@ scope；公共 Client 不生成 Client Secret，并强制使用 PKCE S256。登�
 
 ## 使用 Gitea 模板
 
-内置目录保留 `gitea@1`，新建应用默认使用 `gitea@2`；两个模板版本都声明目标版本 `1.24`、`1.25`
-和 `1.26`。管理员填写 Gitea Base URL、认证源名称、目标版本、部署环境和认证源选项后，服务端会
-派生并校验：
+内置目录保留支持 `1.24`、`1.25` 和 `1.26` 的 `gitea@1`、`gitea@2`；新建应用默认使用仅支持
+`1.27` 的 `gitea@3`。管理员填写 Gitea Base URL、认证源名称、目标版本、部署环境和认证源选项后，
+服务端会派生并校验：
 
 - Gitea 固定回调地址；
 - Gitea 站点根地址对应的 Post Logout Redirect URI；
 - 与当前部署 claim 配置一致的 OIDC scopes；
 - Gitea 的 PKCE 兼容策略；
 - 图标、2FA、全名/SSH/Required Claim、管理员/受限组和组织团队映射；
+- Gitea 1.27 可选的 External ID Claim 及其实际承载 scope；
 - 管理后台字段、discovery URL 和目标版本支持的 `gitea admin auth add-oauth` 命令说明。
 
-Gitea 1.24 不支持全名与 SSH 公钥 Claim，模板会拒绝这种组合；1.25 和 1.26 支持。`add-oauth`
-没有用户同步参数且总是创建启用状态的认证源，因此模板会要求在后台确认用户同步；选择不启用认证源
-时不会生成 CLI 命令，避免认证源在调整前短暂启用。
+Gitea 1.24 不支持全名与 SSH 公钥 Claim，模板会拒绝这种组合；1.25 及以上支持。已有认证源升级到
+1.27 时 External ID Claim 应留空，继续使用稳定的 `sub`。Gitea 1.27 的 `add-oauth` 仍没有
+External ID Claim 参数；填写其他 Claim 时模板不会生成不完整的 CLI 命令，而是要求在首次登录前
+通过后台创建认证源。`add-oauth` 也没有用户同步参数且总是创建启用状态的认证源，因此模板会要求在
+后台确认用户同步；选择不启用认证源时同样不会生成 CLI 命令。
 
 创建时会把模板解析结果保存为不可变版本快照。即使模板目录以后升级或移除，应用的公开 connection
 和接入说明仍从创建时快照重复生成，不会静默漂移。模板只生成结构化纯文本说明，不保存或拼接真实
@@ -262,7 +265,7 @@ Client Adapter、`clientSource` 整源切换、一次性直接凭据、管理页
 - 外部 KMS 主密钥轮换和历史密文迁移；
 - 多实例共享 ApplicationRepository；
 - npm 多包版本和发布编排；
-- Gitea `1.24`、`1.25`、`1.26` 的真实实例兼容矩阵认证。
+- Gitea `1.24`、`1.25`、`1.26`、`1.27` 的真实实例兼容矩阵认证。
 
 正式发布连接器前，外部业务应用仍应使用成熟的标准 OIDC 客户端库消费管理后台给出的 Issuer、
 Client ID、Client Secret、Redirect URI、scopes 和 PKCE 策略；本仓库内部消费者可以使用预览包

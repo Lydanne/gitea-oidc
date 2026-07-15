@@ -117,7 +117,8 @@ try {
     )}\n`,
   );
 
-  runPnpm(["install", "--offline", "--ignore-scripts"], temporaryRoot);
+  // 临时 consumer 没有预生成锁文件；优先复用 store，缺少兼容版本时允许从 registry 下载。
+  runPnpm(["install", "--prefer-offline", "--ignore-scripts"], temporaryRoot);
   run(process.execPath, ["esm.mjs"], consumerRoot);
   run(process.execPath, ["cjs.cjs"], consumerRoot);
   runPnpm(["exec", "tsc", "-p", "tsconfig.json"], consumerRoot);

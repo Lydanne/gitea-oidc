@@ -130,22 +130,23 @@ try {
         private: true,
         dependencies: {
           ...localTarballs,
-          "@nestjs/common": "^11.1.28",
-          "@nestjs/core": "^11.1.28",
-          "@nestjs/platform-express": "^11.1.28",
-          "@nestjs/platform-fastify": "^11.1.28",
-          "better-sqlite3": "^12.4.1",
-          express: "^5.2.1",
-          fastify: "^5.10.0",
-          "openid-client": "^6.8.4",
-          "reflect-metadata": "^0.2.2",
-          rxjs: "^7.8.2",
-          zod: "^4.1.12",
+          // 使用锁文件已有的精确版本，避免消费检查随 registry 最新版本漂移。
+          "@nestjs/common": "11.1.28",
+          "@nestjs/core": "11.1.28",
+          "@nestjs/platform-express": "11.1.28",
+          "@nestjs/platform-fastify": "11.1.28",
+          "better-sqlite3": "12.4.1",
+          express: "5.2.1",
+          fastify: "5.10.0",
+          "openid-client": "6.8.4",
+          "reflect-metadata": "0.2.2",
+          rxjs: "7.8.2",
+          zod: "4.1.12",
         },
         devDependencies: {
-          "@types/express": "^5.0.5",
-          "@types/node": "^22.0.0",
-          typescript: "^5.9.3",
+          "@types/express": "5.0.5",
+          "@types/node": "22.19.1",
+          typescript: "5.9.3",
         },
       },
       null,
@@ -220,7 +221,8 @@ try {
   );
 
   // node-sqlite 的消费验收必须执行 better-sqlite3 安装脚本，才能验证当前 Node ABI。
-  runPnpm(["install", "--offline", "--no-frozen-lockfile"], temporaryRoot);
+  // 临时 consumer 不在仓库锁文件的 importer 中；优先复用缓存，缺元数据时允许从 registry 补齐。
+  runPnpm(["install", "--prefer-offline", "--no-frozen-lockfile"], temporaryRoot);
   run(process.execPath, ["esm.mjs"], consumerRoot);
   run(process.execPath, ["cjs.cjs"], consumerRoot);
   runPnpm(["exec", "tsc", "-p", "tsconfig.json"], consumerRoot);

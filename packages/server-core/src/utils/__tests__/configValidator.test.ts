@@ -77,6 +77,12 @@ const createBaseConfig = (): ResolvedGiteaOidcConfig => ({
     allowedGroups: ["gitea-oidc-admins"],
     sessionTtlSeconds: 3600,
   },
+  portal: {
+    enabled: false,
+    basePath: "/portal",
+    clientId: "",
+    sessionTtlSeconds: 3600,
+  },
   audit: {
     enabled: true,
     retentionDays: 30,
@@ -185,6 +191,83 @@ describe("validateConfig", () => {
 
     expect(result.valid).toBe(true);
     expect(result.config?.admin.enabled).toBe(false);
+  });
+
+  it("旧版配置省略 portal 时默认关闭", () => {
+    const config = createBaseConfig() as any;
+    delete config.portal;
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(true);
+    expect(result.config?.portal).toEqual({
+      enabled: false,
+      basePath: "/portal",
+      clientId: "",
+      sessionTtlSeconds: 3600,
+    });
+  });
+
+  it("启用门户时要求精确匹配登录和退出回调的 confidential Client", () => {
+    const config = createBaseConfig();
+    config.portal = {
+      enabled: true,
+      basePath: "/portal",
+      clientId: "portal-client",
+      sessionTtlSeconds: 3600,
+    };
+
+    const missingResult = validateConfig(config);
+    expect(missingResult.valid).toBe(false);
+    expect(missingResult.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "portal_client_required", path: "clients" }),
+      ]),
+    );
+
+    config.clients.push({
+      client_id: "portal-client",
+      client_secret: "portal-secret-value-123",
+      redirect_uris: ["https://id.example.com/portal/callback"],
+      post_logout_redirect_uris: ["https://id.example.com/portal/signed-out"],
+      response_types: ["code"],
+      grant_types: ["authorization_code"],
+      token_endpoint_auth_method: "client_secret_basic",
+    });
+
+    const validResult = validateConfig(config);
+    expect(validResult.valid).toBe(true);
+  });
+
+  it("拒绝门户路径与后台路径重叠", () => {
+    const config = createBaseConfig();
+    config.portal = {
+      enabled: true,
+      basePath: "/admin/portal",
+      clientId: "web-app",
+      sessionTtlSeconds: 3600,
+    };
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "portal.basePath" })]),
+    );
+  });
+
+  it("拒绝门户展示 URL 中的通配符", () => {
+    const config = createBaseConfig();
+    config.clients[0]!.portal = {
+      launch_url: "https://app.example.com/*",
+    };
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "clients.0.portal.launch_url" })]),
+    );
   });
 
   it("允许自定义审计日志保留天数", () => {
@@ -532,6 +615,28 @@ describe("validateConfig", () => {
         expect.objectContaining({
           path: "providerApi.allowedClientIds",
           code: "production_provider_api_client_allowlist_required",
+        }),
+      ]),
+    );
+  });
+
+  it("requires HTTPS for disabled portal metadata in production database mode", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const config = createBaseConfig();
+    config.auth.userRepository = { type: "sqlite", sqlite: { dbPath: "./users.db" } };
+    config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };
+    config.clients[0]!.portal = {
+      enabled: false,
+      launch_url: "http://127.0.0.1:3000/",
+    };
+
+    const result = validateConfig(config);
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "clients.0.portal.launch_url",
+          code: "production_https_required",
         }),
       ]),
     );

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { applicationTemplateCatalog } from "@gitea-oidc/application-templates";
 import {
   ApplicationSecretEncryptor,
@@ -7,6 +8,7 @@ import {
   SqliteApplicationRepository,
   type SystemClientImportInput,
 } from "@gitea-oidc/applications";
+import { type PortalApplicationListV1, parsePortalApplicationListV1 } from "@gitea-oidc/contracts";
 import type { ApplicationClientProjectionSource } from "../adapters/ApplicationClientAdapter.js";
 import { type ResolvedGiteaOidcConfig, resolveApplicationsConfig } from "../config.js";
 
@@ -37,6 +39,7 @@ export interface ApplicationManagementFacade {
   ): Promise<{ replayed: boolean; response: unknown }>;
   listApplicationTemplates(): readonly unknown[];
   previewApplicationTemplate(request: unknown): unknown;
+  listPortalApplications(): Promise<PortalApplicationListV1>;
   listApplicationDetails(): Promise<unknown[]>;
   getApplication(id: string): Promise<unknown>;
   getApplicationConnection(id: string): Promise<unknown>;
@@ -117,7 +120,10 @@ export async function createApplicationRuntime(
       ...(providerApi ? ["provider_api"] : []),
     ];
     return {
-      name: `System Client (${client.client_id})`,
+      name: client.portal?.name ?? `System Client (${client.client_id})`,
+      ...(client.portal?.description === undefined
+        ? {}
+        : { description: client.portal.description }),
       clientId: client.client_id,
       clientSecret: client.client_secret,
       redirectUris: client.redirect_uris,
@@ -130,6 +136,16 @@ export async function createApplicationRuntime(
       // 迁移 Client 保留旧行为；模板能力确认后再显式升级 PKCE。
       pkcePolicy: "optional" as const,
       providerApi,
+      ...(client.portal === undefined
+        ? {}
+        : {
+            portal: {
+              enabled: client.portal.enabled ?? true,
+              launchUrl: client.portal.launch_url,
+              ...(client.portal.icon_url === undefined ? {} : { iconUrl: client.portal.icon_url }),
+              order: client.portal.order ?? 0,
+            },
+          }),
     };
   });
 
@@ -150,6 +166,7 @@ export async function createApplicationRuntime(
         service.createTemplateApplication(request as never, context),
       listApplicationTemplates: () => service.listApplicationTemplates(),
       previewApplicationTemplate: (request) => service.previewApplicationTemplate(request as never),
+      listPortalApplications: () => service.listPortalApplications(),
       listApplicationDetails: () => service.listApplicationDetails(),
       getApplication: (id) => service.getApplication(id),
       getApplicationConnection: (id) => service.getApplicationConnection(id),
@@ -205,4 +222,32 @@ export async function createApplicationRuntime(
       }
     },
   };
+}
+
+/** config Client 模式下生成与数据库模式一致的普通用户门户安全投影。 */
+export function listConfiguredPortalApplications(
+  config: ResolvedGiteaOidcConfig,
+): PortalApplicationListV1 {
+  const applications = config.clients
+    .filter((client) => client.portal !== undefined && client.portal.enabled !== false)
+    .map((client) => {
+      const portal = client.portal!;
+      const digest = createHash("sha256").update(client.client_id, "utf8").digest("hex");
+      const fallbackName = client.client_id.trim().slice(0, 120) || "OIDC 应用";
+      return {
+        id: `system-app-${digest.slice(0, 24)}`,
+        name: portal.name ?? fallbackName,
+        ...(portal.description === undefined ? {} : { description: portal.description }),
+        ...(portal.icon_url === undefined ? {} : { iconUrl: portal.icon_url }),
+        launchUrl: portal.launch_url,
+        order: portal.order ?? 0,
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.order - right.order ||
+        left.name.localeCompare(right.name) ||
+        left.id.localeCompare(right.id),
+    );
+  return parsePortalApplicationListV1(applications);
 }

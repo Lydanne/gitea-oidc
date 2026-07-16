@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedGiteaOidcConfig } from "../../config.js";
-import { createApplicationRuntime } from "../applicationRuntime.js";
+import {
+  createApplicationRuntime,
+  listConfiguredPortalApplications,
+} from "../applicationRuntime.js";
 
 function createRuntimeConfig(tempDir: string): ResolvedGiteaOidcConfig {
   const masterKey = Buffer.from(Array.from({ length: 32 }, (_, index) => index + 41));
@@ -41,6 +44,40 @@ function createRuntimeConfig(tempDir: string): ResolvedGiteaOidcConfig {
 }
 
 describe("createApplicationRuntime", () => {
+  it("在 config 和 database Client 模式下生成一致的门户安全投影", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-portal-runtime-"));
+    const config = createRuntimeConfig(tempDir);
+    config.clients[0]!.portal = {
+      enabled: true,
+      name: "代码平台",
+      description: "内部代码托管服务",
+      launch_url: "https://git.example.com/",
+      icon_url: "https://git.example.com/icon.png",
+      order: 20,
+    };
+    let runtime: Awaited<ReturnType<typeof createApplicationRuntime>>;
+
+    try {
+      const configured = listConfiguredPortalApplications(config);
+      runtime = await createApplicationRuntime(config);
+      const persisted = await runtime!.applicationService.listPortalApplications();
+
+      expect(configured).toEqual([
+        expect.objectContaining({
+          name: "代码平台",
+          description: "内部代码托管服务",
+          launchUrl: "https://git.example.com/",
+          iconUrl: "https://git.example.com/icon.png",
+          order: 20,
+        }),
+      ]);
+      expect(persisted).toEqual(configured);
+    } finally {
+      await runtime?.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it("重启后恢复未完成的禁用并且不会重复推进状态", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-application-runtime-"));
     const config = createRuntimeConfig(tempDir);

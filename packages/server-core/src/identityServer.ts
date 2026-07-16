@@ -8,7 +8,10 @@ import { type Configuration, Provider } from "oidc-provider";
 import path, { join } from "path";
 import { ApplicationClientAdapter } from "./adapters/ApplicationClientAdapter.js";
 import { OidcAdapterFactory } from "./adapters/OidcAdapterFactory.js";
-import { createApplicationRuntime } from "./applications/applicationRuntime.js";
+import {
+  createApplicationRuntime,
+  listConfiguredPortalApplications,
+} from "./applications/applicationRuntime.js";
 import { registerOidcAuditEvents } from "./audit/oidcAuditEvents.js";
 import {
   DEFAULT_AUDIT_CONFIG,
@@ -30,6 +33,7 @@ import { AuditLogRepositoryFactory } from "./repositories/AuditLogRepositoryFact
 import { ProviderTokenRepositoryFactory } from "./repositories/ProviderTokenRepositoryFactory.js";
 import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory.js";
 import { registerAdminRoutes, setAdminSecurityHeaders } from "./routes/adminRoutes.js";
+import { registerPortalRoutes, setPortalSecurityHeaders } from "./routes/portalRoutes.js";
 import { registerProviderApiRoutes } from "./routes/providerApiRoutes.js";
 import { MemoryStateStore } from "./stores/MemoryStateStore.js";
 import { RedisStateStore } from "./stores/RedisStateStore.js";
@@ -62,6 +66,7 @@ interface ServerRuntimeResources {
   tokenRepository?: Pick<ProviderTokenRepository, "close">;
   stateStore?: { destroy?: () => Promise<void> | void };
   applicationRuntime?: { close: () => Promise<void> | void };
+  portalSessionStore?: { clear: () => Promise<void> | void };
 }
 
 interface ServerCleanupOptions {
@@ -167,6 +172,8 @@ async function createIdentityServerFromConfig(
       setHeaders: (res, filePath) => {
         if (isAdminPublicFilePath(filePath, publicDir)) {
           setAdminSecurityHeaders(res);
+        } else if (isPortalPublicFilePath(filePath, publicDir)) {
+          setPortalSecurityHeaders(res, new URL(config.server.url).protocol === "http:");
         }
       },
     });
@@ -443,6 +450,20 @@ async function createIdentityServerFromConfig(
         : undefined,
     });
 
+    const portalSessionStore = registerPortalRoutes({
+      app,
+      config,
+      oidcProvider: oidc,
+      userRepository,
+      auditLogRepository,
+      stateStore,
+      publicDir,
+      listPortalApplications: applicationRuntime
+        ? () => applicationRuntime.applicationService.listPortalApplications()
+        : () => listConfiguredPortalApplications(config),
+    });
+    runtimeResources.portalSessionStore = portalSessionStore ?? undefined;
+
     // 挂载OIDC到Fastify
     app.use("/oidc", oidc.callback());
 
@@ -464,7 +485,7 @@ async function createIdentityServerFromConfig(
     // 首页 - 项目介绍和GitHub链接
     app.get("/", async (request, reply) => {
       Logger.info("[首页] 用户访问首页");
-      return reply.redirect("/index.html");
+      return reply.redirect(config.portal.enabled ? config.portal.basePath : "/index.html");
     });
 
     // 统一登录页面（使用认证插件系统）
@@ -845,6 +866,15 @@ export function isAdminPublicFilePath(filePath: string, publicDir?: string): boo
   return normalizedPath.includes("/public/admin/");
 }
 
+export function isPortalPublicFilePath(filePath: string, publicDir?: string): boolean {
+  const normalizedPath = filePath.split(path.sep).join("/");
+  if (publicDir) {
+    const normalizedPortalDir = join(publicDir, "portal").split(path.sep).join("/");
+    return normalizedPath.startsWith(`${normalizedPortalDir}/`);
+  }
+  return normalizedPath.includes("/public/portal/");
+}
+
 export function setInteractionSecurityHeaders(target: HeaderTarget): void {
   setHeader(target, "Content-Security-Policy", INTERACTION_CONTENT_SECURITY_POLICY);
   setHeader(target, "X-Frame-Options", "DENY");
@@ -961,6 +991,7 @@ export async function cleanupServerResources(
   );
   await runCleanupStep("认证系统", () => resources.authCoordinator?.destroy());
   await runCleanupStep("Provider token 仓储", () => resources.tokenRepository?.close?.());
+  await runCleanupStep("用户门户会话", () => resources.portalSessionStore?.clear());
   await runCleanupStep("应用仓储", () => resources.applicationRuntime?.close());
   await runCleanupStep("审计日志仓储", () => resources.auditLogRepository?.close?.());
   await runCleanupStep("用户仓储", () => resources.userRepository?.close?.());

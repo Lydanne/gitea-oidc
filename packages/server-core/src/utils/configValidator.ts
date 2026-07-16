@@ -13,6 +13,11 @@ import {
   getAdminRedirectUri,
 } from "./adminClient.js";
 import { Logger } from "./Logger.js";
+import {
+  findPortalClient,
+  formatPortalClientRequirement,
+  getPortalRedirectUri,
+} from "./portalClient.js";
 
 const DEFAULT_COOKIE_KEYS = new Set([
   "change-this-to-a-random-string-in-production",
@@ -25,6 +30,7 @@ const DEFAULT_COOKIE_KEYS = new Set([
 const DEFAULT_CLIENT_SECRETS = new Set([
   "secret",
   "gitea-client-secret-change-in-production",
+  "portal-client-secret-change-in-production",
   "change-this-client-secret",
   "dev-client-secret-change-me",
 ]);
@@ -147,6 +153,15 @@ function checkRuntimeConfigErrors(config: ResolvedGiteaOidcConfig): ConfigValida
     });
   }
 
+  if (config.portal.enabled && !findPortalClient(config)) {
+    const redirectUri = getPortalRedirectUri(config);
+    errors.push({
+      path: "clients",
+      message: `启用内置用户门户时，${formatPortalClientRequirement(config, redirectUri)}`,
+      code: "portal_client_required",
+    });
+  }
+
   return errors;
 }
 
@@ -230,6 +245,21 @@ function checkProductionErrors(config: ResolvedGiteaOidcConfig): ConfigValidatio
         });
       }
     });
+
+    if (client.portal) {
+      for (const [field, value] of [
+        ["launch_url", client.portal.launch_url],
+        ["icon_url", client.portal.icon_url],
+      ] as const) {
+        if (value && !isHttpsUrl(value)) {
+          errors.push({
+            path: `clients.${clientIndex}.portal.${field}`,
+            message: `生产环境门户应用 "${client.client_id}" 的 ${field} 必须使用 HTTPS`,
+            code: "production_https_required",
+          });
+        }
+      }
+    }
   });
 
   if (config.auth.userRepository.type === "memory") {

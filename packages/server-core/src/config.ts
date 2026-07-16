@@ -20,6 +20,7 @@ import type { OidcAdapterConfig } from "./adapters/OidcAdapterFactory.js";
 import type { AdminConfig } from "./types/admin.js";
 import type { AuditConfig } from "./types/audit.js";
 import type { AuthConfig } from "./types/config.js";
+import type { PortalClientConfig, PortalConfig } from "./types/portal.js";
 import type { ProviderApiRuntimeConfig } from "./types/providerApi.js";
 
 export interface ApplicationsConfig {
@@ -199,6 +200,8 @@ export interface GiteaOidcConfig {
     response_types: string[];
     grant_types: string[];
     token_endpoint_auth_method: string;
+    /** 可选的用户门户展示配置；不会赋予额外 OIDC 或 Provider API 权限。 */
+    portal?: PortalClientConfig;
   }>;
 
   /**
@@ -211,6 +214,11 @@ export interface GiteaOidcConfig {
    * 内置后台管理配置
    */
   admin?: AdminConfig;
+
+  /**
+   * 内置用户门户配置。门户使用独立 BFF Session，并通过已注册的 OIDC Client 登录。
+   */
+  portal?: PortalConfig;
 
   /**
    * 统一 Provider API 配置
@@ -255,9 +263,13 @@ export interface GiteaOidcConfig {
 }
 
 /** 已经完成默认值填充和校验、可供服务内部安全使用的配置。 */
-export type ResolvedGiteaOidcConfig = Omit<GiteaOidcConfig, "server" | "admin" | "providerApi"> & {
+export type ResolvedGiteaOidcConfig = Omit<
+  GiteaOidcConfig,
+  "server" | "admin" | "portal" | "providerApi"
+> & {
   server: Omit<GiteaOidcConfig["server"], "corsOrigins"> & { corsOrigins: string[] };
   admin: AdminConfig;
+  portal: PortalConfig;
   providerApi: ProviderApiRuntimeConfig;
 };
 
@@ -371,6 +383,13 @@ const defaultConfig: ResolvedGiteaOidcConfig = {
     enabled: false,
     basePath: "/admin",
     allowedGroups: ["gitea-oidc-admins"],
+    sessionTtlSeconds: 3600,
+  },
+
+  portal: {
+    enabled: false,
+    basePath: "/portal",
+    clientId: "",
     sessionTtlSeconds: 3600,
   },
 

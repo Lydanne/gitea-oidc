@@ -16,7 +16,7 @@ export const AUDIT_EVENT_TYPES = [
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
 export type AuditOutcome = "success" | "failure";
-export type AuditSource = "admin" | "provider" | "oidc" | "system";
+export type AuditSource = "admin" | "portal" | "provider" | "oidc" | "system";
 
 export interface AuditConfig {
   enabled: boolean;

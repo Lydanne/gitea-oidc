@@ -205,6 +205,13 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
     sessionTtlSeconds: 3600,
   },
 
+  portal: {
+    enabled: false,
+    basePath: "/portal",
+    clientId: "",
+    sessionTtlSeconds: 3600,
+  },
+
   providerApi: {
     enabled: false,
     tokenEncryptionKey: "replace-with-a-long-random-provider-token-key",

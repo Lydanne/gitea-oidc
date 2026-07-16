@@ -1,4 +1,4 @@
-import{F as e,j as t,l as n,ln as r,y as i}from"./button-CzVenRui.js";import{o as a}from"./StatusTag-D74DA8vh.js";var o=n.extend({name:`textarea`,style:`
+import{F as e,j as t,l as n,ln as r,y as i}from"./button-CzVenRui.js";import{s as a}from"./StatusTag-B4FONvhN.js";var o=n.extend({name:`textarea`,style:`
     .p-textarea {
         font-family: inherit;
         font-feature-settings: inherit;

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -17,6 +17,7 @@ import {
   createIdentityServer,
   isAdminPublicFilePath,
   isMainModulePath,
+  isPortalPublicFilePath,
   resolveCorsOrigin,
   setInteractionSecurityHeaders,
   start,
@@ -88,6 +89,12 @@ const createValidRuntimeConfig = (): ResolvedGiteaOidcConfig => ({
     enabled: true,
     basePath: "/admin",
     allowedGroups: ["gitea-oidc-admins"],
+    sessionTtlSeconds: 3600,
+  },
+  portal: {
+    enabled: false,
+    basePath: "/portal",
+    clientId: "",
     sessionTtlSeconds: 3600,
   },
   providerApi: {
@@ -370,6 +377,13 @@ describe("server static security headers", () => {
     expect(isAdminPublicFilePath("/srv/app/public/admin/assets/index.js")).toBe(true);
     expect(isAdminPublicFilePath("/srv/app/public/favicon.ico")).toBe(false);
     expect(isAdminPublicFilePath("/srv/app/public/admin2/index.html")).toBe(false);
+  });
+
+  it("identifies only portal public files for portal security headers", () => {
+    expect(isPortalPublicFilePath("/srv/app/public/portal/index.html")).toBe(true);
+    expect(isPortalPublicFilePath("/srv/app/public/portal/assets/index.js")).toBe(true);
+    expect(isPortalPublicFilePath("/srv/app/public/favicon.ico")).toBe(false);
+    expect(isPortalPublicFilePath("/srv/app/public/portal2/index.html")).toBe(false);
   });
 
   it("applies restrictive security headers to interaction login pages", () => {
@@ -750,6 +764,57 @@ describe("server resource cleanup", () => {
     }
   });
 
+  it("serves portal shell and assets from a custom basePath", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-portal-base-path-"));
+    const publicDir = join(tempDir, "public");
+    await mkdir(join(publicDir, "portal", "assets"), { recursive: true });
+    await writeFile(
+      join(publicDir, "portal", "index.html"),
+      '<!doctype html><html lang="zh-CN"><head></head><body><script src="./assets/app.js"></script></body></html>',
+    );
+    await writeFile(join(publicDir, "portal", "assets", "app.js"), "globalThis.portalLoaded=true;");
+
+    const config = createValidRuntimeConfig();
+    config.logging.enabled = false;
+    config.admin.enabled = false;
+    config.portal = {
+      enabled: true,
+      basePath: "/workspace",
+      clientId: "web-app",
+      sessionTtlSeconds: 3600,
+    };
+    config.clients[0]!.redirect_uris.push("https://id.example.com/workspace/callback");
+    config.clients[0]!.post_logout_redirect_uris = ["https://id.example.com/workspace/signed-out"];
+    config.auth.userRepository = { type: "memory", memory: {} };
+    config.auth.providers.local.enabled = false;
+    config.providerApi.enabled = false;
+    config.adapter = { type: "memory" };
+    config.jwks = { filePath: join(tempDir, "jwks.json"), keyId: "test-key" };
+    const app = await createIdentityServer(config, { publicDir });
+
+    try {
+      const home = await app.inject({ method: "GET", url: "/" });
+      expect(home.statusCode).toBe(302);
+      expect(home.headers.location).toBe("/workspace");
+
+      const page = await app.inject({ method: "GET", url: "/workspace" });
+      expect(page.statusCode).toBe(200);
+      expect(page.body).toContain('<base href="/workspace/">');
+      expect(page.body).toContain('data-gitea-oidc-portal-base-path="/workspace"');
+      expect(page.headers["content-security-policy"]).toContain("script-src 'self'");
+      expect(page.headers["cache-control"]).toBe("no-store");
+
+      const asset = await app.inject({ method: "GET", url: "/workspace/assets/app.js" });
+      expect(asset.statusCode).toBe(200);
+      expect(asset.headers["content-type"]).toContain("javascript");
+      expect(asset.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+      expect(asset.headers["content-security-policy"]).toContain("script-src 'self'");
+    } finally {
+      await app.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it("cleans initialized resources before closing the app", async () => {
     const calls: string[] = [];
     const resources = {
@@ -761,6 +826,9 @@ describe("server resource cleanup", () => {
       },
       tokenRepository: {
         close: vi.fn(async () => calls.push("tokenRepository")),
+      },
+      portalSessionStore: {
+        clear: vi.fn(async () => calls.push("portalSessions")),
       },
       applicationRuntime: {
         close: vi.fn(async () => calls.push("applications")),
@@ -783,6 +851,7 @@ describe("server resource cleanup", () => {
       "scheduler",
       "auth",
       "tokenRepository",
+      "portalSessions",
       "applications",
       "userRepository",
       "stateStore",

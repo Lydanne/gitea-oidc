@@ -80,7 +80,76 @@ export const ClientConfigSchema = z.object({
   response_types: z.array(z.string()).min(1),
   grant_types: z.array(z.string()).min(1),
   token_endpoint_auth_method: z.string(),
+  portal: z
+    .object({
+      enabled: z.boolean().default(true),
+      name: z.string().trim().min(1).max(120).optional(),
+      description: z.string().trim().min(1).max(2000).optional(),
+      launch_url: z.url({ message: "门户应用入口必须是有效的 URL" }),
+      icon_url: z.url({ message: "门户应用图标必须是有效的 URL" }).optional(),
+      order: z.number().int().min(0).max(1_000_000).default(0),
+    })
+    .superRefine((portal, context) => {
+      for (const [field, value] of [
+        ["launch_url", portal.launch_url],
+        ["icon_url", portal.icon_url],
+      ] as const) {
+        if (!value) continue;
+        try {
+          const url = new URL(value);
+          if (url.protocol !== "http:" && url.protocol !== "https:") {
+            context.addIssue({
+              code: "custom",
+              path: [field],
+              message: "门户 URL 只允许使用 HTTP 或 HTTPS",
+            });
+          }
+          if (url.username || url.password) {
+            context.addIssue({
+              code: "custom",
+              path: [field],
+              message: "门户 URL 不能包含用户名或密码",
+            });
+          }
+          if (url.hash) {
+            context.addIssue({
+              code: "custom",
+              path: [field],
+              message: "门户 URL 不能包含 fragment",
+            });
+          }
+          if (value.includes("*")) {
+            context.addIssue({
+              code: "custom",
+              path: [field],
+              message: "门户 URL 不能包含通配符",
+            });
+          }
+          if (url.protocol === "http:" && !isLoopbackPortalHostname(url.hostname)) {
+            context.addIssue({
+              code: "custom",
+              path: [field],
+              message: "HTTP 门户 URL 仅允许 localhost 或 loopback 地址",
+            });
+          }
+        } catch {
+          // z.url 会提供基础 URL 错误。
+        }
+      }
+    })
+    .optional(),
 });
+
+function isLoopbackPortalHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[|\]$/gu, "").toLowerCase();
+  if (normalized === "localhost" || normalized === "::1") return true;
+  const octets = normalized.split(".");
+  return (
+    octets.length === 4 &&
+    octets[0] === "127" &&
+    octets.every((octet) => /^\d+$/u.test(octet) && Number(octet) >= 0 && Number(octet) <= 255)
+  );
+}
 
 /**
  * 认证提供者配置 Schema
@@ -189,6 +258,20 @@ export const AdminConfigSchema = z.object({
   basePath: z.string().regex(/^\/[a-zA-Z0-9/_-]*$/, "后台路径必须以 / 开头"),
   allowedGroups: z.array(z.string().min(1)).default(["gitea-oidc-admins"]),
   sessionTtlSeconds: z.number().int().positive().default(3600),
+});
+
+/**
+ * 内置用户门户配置 Schema。
+ */
+export const PortalConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  basePath: z
+    .string()
+    .max(128, "门户路径长度不能超过 128 个字符")
+    .regex(/^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/, "门户路径必须是非根绝对路径")
+    .default("/portal"),
+  clientId: z.string().trim().max(255).default(""),
+  sessionTtlSeconds: z.number().int().positive().max(2_592_000).default(3600),
 });
 
 /**
@@ -371,6 +454,12 @@ export const GiteaOidcConfigSchema = z
       allowedGroups: ["gitea-oidc-admins"],
       sessionTtlSeconds: 3600,
     }),
+    portal: PortalConfigSchema.default({
+      enabled: false,
+      basePath: "/portal",
+      clientId: "",
+      sessionTtlSeconds: 3600,
+    }),
     providerApi: ProviderApiConfigSchema.default({
       enabled: false,
       tokenEncryptionKey: "",
@@ -400,6 +489,40 @@ export const GiteaOidcConfigSchema = z
     }),
   })
   .superRefine((data, context) => {
+    if (data.portal.enabled) {
+      const reservedBasePaths = ["/oidc", "/auth", "/interaction", "/api"];
+      if (
+        reservedBasePaths.some(
+          (path) => data.portal.basePath === path || data.portal.basePath.startsWith(`${path}/`),
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["portal", "basePath"],
+          message: "门户路径不能占用 OIDC、认证、交互或 API 路径",
+        });
+      }
+      if (
+        data.admin.enabled &&
+        (data.portal.basePath === data.admin.basePath ||
+          data.portal.basePath.startsWith(`${data.admin.basePath}/`) ||
+          data.admin.basePath.startsWith(`${data.portal.basePath}/`))
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["portal", "basePath"],
+          message: "门户路径不能与后台路径重叠",
+        });
+      }
+      if (!data.portal.clientId) {
+        context.addIssue({
+          code: "custom",
+          path: ["portal", "clientId"],
+          message: "启用门户时必须配置 portal.clientId",
+        });
+      }
+    }
+
     const databaseMode = data.applications.clientSource === "database";
     if (data.applications.enabled !== databaseMode) {
       context.addIssue({

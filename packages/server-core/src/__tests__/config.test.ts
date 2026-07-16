@@ -101,6 +101,12 @@ describe("loadConfig", () => {
       allowedGroups: ["gitea-oidc-admins"],
       sessionTtlSeconds: 3600,
     });
+    expect(result.portal).toEqual({
+      enabled: false,
+      basePath: "/portal",
+      clientId: "",
+      sessionTtlSeconds: 3600,
+    });
     expect(result.clients[0].redirect_uris).toEqual([
       "http://localhost:3001/user/oauth2/gitea/callback",
     ]);

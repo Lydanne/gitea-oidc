@@ -7,22 +7,20 @@
     }
   },
   "git": {
-    "commit": true,
-    "tag": true,
-    "push": true,
-    "requireCleanWorkingDir": true,
-    "tagName": "v${version}",
-    "commitMessage": "chore(server-core): 发布 v${version}"
+    "commit": false,
+    "tag": false,
+    "push": false,
+    "requireBranch": "main",
+    "requireCleanWorkingDir": true
   },
   "github": {
-    "release": true,
-    "releaseName": "Release v${version}",
-    "releaseNotes": "${changelog}"
+    "release": false
   },
   "npm": {
-    "publish": true
+    "publish": false
   },
   "hooks": {
-    "before:init": "pnpm --dir ../.. audit:all && pnpm --dir ../.. build:prod && pnpm test:pack"
+    "before:init": "pnpm --dir ../.. release:verify",
+    "after:bump": "node ../../scripts/release/sync-version.mjs ${version}"
   }
 }

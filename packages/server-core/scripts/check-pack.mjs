@@ -7,6 +7,11 @@ import { fileURLToPath } from "node:url";
 const packageRoot = new URL("../", import.meta.url);
 const packageJson = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8"));
 const packDir = await mkdtemp(join(tmpdir(), "gitea-oidc-pack-"));
+const npmEnvironment = {
+  ...process.env,
+  HUSKY: "0",
+  NPM_CONFIG_CACHE: join(packDir, ".npm-cache"),
+};
 
 try {
   const output = execFileSync(
@@ -15,7 +20,7 @@ try {
     {
       cwd: packageRoot,
       encoding: "utf8",
-      env: { ...process.env, HUSKY: "0" },
+      env: npmEnvironment,
       stdio: ["ignore", "pipe", "inherit"],
     },
   );
@@ -42,42 +47,50 @@ try {
     "public/index.html",
     "public/error-session-expired.html",
     "public/admin/index.html",
+    "public/portal/index.html",
   ].map((path) => path.replace(/^\.\//, ""));
   const missingPaths = requiredPaths.filter((path) => !paths.includes(path));
   if (missingPaths.length > 0) {
     throw new Error(`npm tarball 缺少运行文件: ${missingPaths.join(", ")}`);
   }
 
-  const adminReferences = new Set(
-    Array.from(
-      readPackedFile("public/admin/index.html").matchAll(/(?:src|href)="\.\/([^"]+)"/gu),
-      (match) => `public/admin/${match[1]}`,
-    ),
-  );
-  for (const path of paths.filter(
-    (path) => path.startsWith("public/admin/assets/") && /\.(?:css|js)$/u.test(path),
-  )) {
-    const asset = readPackedFile(path);
-    const relativeReferences = [
-      ...Array.from(
-        asset.matchAll(/["'](\.\/[^"']+\.(?:css|eot|gif|jpe?g|js|png|svg|ttf|webp|woff2?))["']/gu),
-        (match) => match[1],
+  const assertWebAssets = (surface, label) => {
+    const references = new Set(
+      Array.from(
+        readPackedFile(`public/${surface}/index.html`).matchAll(/(?:src|href)="\.\/([^"]+)"/gu),
+        (match) => `public/${surface}/${match[1]}`,
       ),
-      ...Array.from(
-        asset.matchAll(
-          /url\((?:["']?)(\.\/[^)"']+\.(?:eot|gif|jpe?g|png|svg|ttf|webp|woff2?))(?:["']?)\)/gu,
+    );
+    for (const path of paths.filter(
+      (path) => path.startsWith(`public/${surface}/assets/`) && /\.(?:css|js)$/u.test(path),
+    )) {
+      const asset = readPackedFile(path);
+      const relativeReferences = [
+        ...Array.from(
+          asset.matchAll(
+            /["'](\.\/[^"']+\.(?:css|eot|gif|jpe?g|js|png|svg|ttf|webp|woff2?))["']/gu,
+          ),
+          (match) => match[1],
         ),
-        (match) => match[1],
-      ),
-    ];
-    for (const reference of relativeReferences) {
-      adminReferences.add(posix.normalize(posix.join(posix.dirname(path), reference)));
+        ...Array.from(
+          asset.matchAll(
+            /url\((?:["']?)(\.\/[^)"']+\.(?:eot|gif|jpe?g|png|svg|ttf|webp|woff2?))(?:["']?)\)/gu,
+          ),
+          (match) => match[1],
+        ),
+      ];
+      for (const reference of relativeReferences) {
+        references.add(posix.normalize(posix.join(posix.dirname(path), reference)));
+      }
     }
-  }
-  const missingAdminAssets = [...adminReferences].filter((path) => !paths.includes(path));
-  if (missingAdminAssets.length > 0) {
-    throw new Error(`管理台入口引用了未打包资源: ${missingAdminAssets.join(", ")}`);
-  }
+    const missingAssets = [...references].filter((path) => !paths.includes(path));
+    if (missingAssets.length > 0) {
+      throw new Error(`${label}入口引用了未打包资源: ${missingAssets.join(", ")}`);
+    }
+  };
+
+  assertWebAssets("admin", "管理台");
+  assertWebAssets("portal", "用户门户");
 
   const allowedRootFiles = new Set(["LICENSE", "README.md", "README.en.md", "package.json"]);
   const forbiddenPaths = paths.filter(
@@ -153,7 +166,7 @@ try {
     ["install", "--ignore-scripts", "--no-audit", "--no-fund", join(packDir, packResult.filename)],
     {
       cwd: consumerDir,
-      env: { ...process.env, HUSKY: "0" },
+      env: npmEnvironment,
       stdio: ["ignore", "pipe", "inherit"],
     },
   );

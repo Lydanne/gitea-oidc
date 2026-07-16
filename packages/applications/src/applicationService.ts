@@ -8,6 +8,7 @@ import {
 import {
   APPLICATION_CREDENTIAL_SCHEMA_VERSION,
   ApplicationTemplatePreviewV1Schema,
+  parsePortalApplicationListV1,
 } from "@gitea-oidc/contracts";
 import type { ApplicationSecretEncryptor } from "./applicationSecretEncryptor.js";
 import {
@@ -28,6 +29,7 @@ import type {
   ApplicationConnectionV1,
   ApplicationCreationReceiptV1,
   ApplicationDetailsV1,
+  ApplicationPortalInputV1,
   ApplicationTemplatePreviewV1,
   ApplicationV1,
   CreateCustomApplicationContext,
@@ -40,6 +42,7 @@ import type {
   CreateTemplateApplicationResponseV1,
   IntegrationGuideV1,
   OidcClientV1,
+  PortalApplicationListV1,
   PreviewApplicationTemplateRequestV1,
   RotateApplicationCredentialResponseV1,
   StoredApplicationAggregate,
@@ -69,6 +72,7 @@ export interface ApplicationServiceOptions {
 
 export interface SystemClientImportInput {
   name: string;
+  description?: string;
   clientId: string;
   clientSecret: string;
   redirectUris: string[];
@@ -80,7 +84,12 @@ export interface SystemClientImportInput {
   environment: "development" | "staging" | "production";
   pkcePolicy: "required" | "optional";
   providerApi: boolean;
+  portal?: ApplicationPortalInputV1;
 }
+
+type NormalizedSystemClientImportInput = Omit<SystemClientImportInput, "portal"> & {
+  portal?: ApplicationV1["portal"];
+};
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) {
@@ -196,6 +205,9 @@ export class ApplicationService {
         trustLevel: normalized.application.trustLevel,
         consentPolicy: normalized.application.consentPolicy,
         environment: normalized.application.environment,
+        ...(normalized.application.portal === undefined
+          ? {}
+          : { portal: normalized.application.portal }),
         ...(normalized.application.owner === undefined
           ? {}
           : { owner: normalized.application.owner }),
@@ -409,6 +421,9 @@ export class ApplicationService {
         trustLevel: validatedProjection.application.trustLevel,
         consentPolicy: validatedProjection.application.consentPolicy,
         environment: validatedProjection.application.environment,
+        ...(validatedProjection.application.portal === undefined
+          ? {}
+          : { portal: validatedProjection.application.portal }),
         ...(validatedProjection.application.owner === undefined
           ? {}
           : { owner: validatedProjection.application.owner }),
@@ -497,13 +512,11 @@ export class ApplicationService {
     if (new Set(inputs.map((input) => input.clientId)).size !== inputs.length) {
       throw new ApplicationConflictError("配置中存在重复的 OIDC client_id");
     }
-    for (const input of inputs) {
-      this.validateSystemClientImport(input);
-    }
+    const normalizedInputs = inputs.map((input) => this.validateSystemClientImport(input));
 
     return this.repository.transaction(async (transaction) => {
       const imported: ApplicationDetailsV1[] = [];
-      for (const input of inputs) {
+      for (const input of normalizedInputs) {
         const existing = await transaction.findByClientId(input.clientId);
         if (existing) {
           imported.push(
@@ -518,11 +531,13 @@ export class ApplicationService {
           id: applicationId,
           name: input.name,
           slug,
+          ...(input.description === undefined ? {} : { description: input.description }),
           status: "active",
           source: { kind: "system" },
           trustLevel: "first_party",
           consentPolicy: "skip_for_trusted",
           environment: input.environment,
+          ...(input.portal === undefined ? {} : { portal: input.portal }),
           version: 1,
           createdAt: now,
           updatedAt: now,
@@ -566,7 +581,7 @@ export class ApplicationService {
         imported.push(toApplicationDetails(aggregate));
       }
 
-      const configuredClientIds = new Set(inputs.map((input) => input.clientId));
+      const configuredClientIds = new Set(normalizedInputs.map((input) => input.clientId));
       for (const aggregate of await transaction.list()) {
         if (aggregate.application.source.kind !== "system") {
           continue;
@@ -584,6 +599,38 @@ export class ApplicationService {
     return this.repository.read(async (transaction) =>
       (await transaction.list()).map((aggregate) => aggregate.application),
     );
+  }
+
+  /** 返回普通用户门户可见的最小只读投影，不暴露 Client 或管理面元数据。 */
+  public async listPortalApplications(): Promise<PortalApplicationListV1> {
+    return this.repository.read(async (transaction) => {
+      const applications = (await transaction.list())
+        .filter(
+          (aggregate) =>
+            aggregate.application.status === "active" &&
+            aggregate.application.portal?.enabled === true,
+        )
+        .map((aggregate) => {
+          const portal = aggregate.application.portal!;
+          return {
+            id: aggregate.application.id,
+            name: aggregate.application.name,
+            ...(aggregate.application.description === undefined
+              ? {}
+              : { description: aggregate.application.description }),
+            ...(portal.iconUrl === undefined ? {} : { iconUrl: portal.iconUrl }),
+            launchUrl: portal.launchUrl,
+            order: portal.order,
+          };
+        })
+        .sort(
+          (left, right) =>
+            left.order - right.order ||
+            left.name.localeCompare(right.name) ||
+            left.id.localeCompare(right.id),
+        );
+      return parsePortalApplicationListV1(applications);
+    });
   }
 
   public async listApplicationDetails(): Promise<ApplicationDetailsV1[]> {
@@ -860,6 +907,9 @@ export class ApplicationService {
         ...(normalized.application.description === undefined
           ? {}
           : { description: normalized.application.description }),
+        ...(normalized.application.portal === undefined
+          ? {}
+          : { portal: normalized.application.portal }),
         environment: resolvedApplication.environment,
         ...(resolvedApplication.owner === undefined ? {} : { owner: resolvedApplication.owner }),
         trustLevel: resolvedApplication.trustLevel,
@@ -919,7 +969,9 @@ export class ApplicationService {
     }
   }
 
-  private validateSystemClientImport(input: SystemClientImportInput): void {
+  private validateSystemClientImport(
+    input: SystemClientImportInput,
+  ): NormalizedSystemClientImportInput {
     if (
       input.clientId.trim() !== input.clientId ||
       input.clientId.length === 0 ||
@@ -950,11 +1002,13 @@ export class ApplicationService {
     if (unsupportedScope) {
       throw new ApplicationValidationError(`system Client 使用不支持的 scope: ${unsupportedScope}`);
     }
-    validateAndNormalizeCreateCustomRequest({
+    const normalized = validateAndNormalizeCreateCustomRequest({
       schemaVersion: 1,
       application: {
         name: input.name,
+        ...(input.description === undefined ? {} : { description: input.description }),
         environment: input.environment,
+        ...(input.portal === undefined ? {} : { portal: input.portal }),
         trustLevel: "first_party",
         consentPolicy: "skip_for_trusted",
       },
@@ -971,12 +1025,22 @@ export class ApplicationService {
       },
       credentialDelivery: "direct",
     });
+    const { description: _rawDescription, portal: _rawPortal, ...inputWithoutProjection } = input;
+    return {
+      ...inputWithoutProjection,
+      ...(normalized.application.description === undefined
+        ? {}
+        : { description: normalized.application.description }),
+      ...(normalized.application.portal === undefined
+        ? {}
+        : { portal: normalized.application.portal }),
+    };
   }
 
   private async reconcileSystemClient(
     transaction: ApplicationRepositoryTransaction,
     aggregate: StoredApplicationAggregate,
-    input: SystemClientImportInput,
+    input: NormalizedSystemClientImportInput,
   ): Promise<StoredApplicationAggregate> {
     const client = this.requireManagedSystemClient(aggregate, input.clientId);
     // 上一次启动若在 OIDC Artifact 撤销前中断，必须先完成停用，不能直接恢复 Client。
@@ -987,10 +1051,12 @@ export class ApplicationService {
     const desiredMetadata = {
       issuer: this.issuer,
       name: input.name,
+      description: input.description,
       applicationStatus: "active",
       trustLevel: "first_party",
       consentPolicy: "skip_for_trusted",
       environment: input.environment,
+      portal: input.portal,
       clientType: "confidential",
       clientStatus: "active",
       redirectUris: input.redirectUris,
@@ -1035,18 +1101,27 @@ export class ApplicationService {
       capabilities: { providerApi: input.providerApi },
       status: "active",
     };
+    const updatedApplication: ApplicationV1 = {
+      ...aggregate.application,
+      name: input.name,
+      ...(input.description === undefined ? {} : { description: input.description }),
+      status: "active",
+      trustLevel: "first_party",
+      consentPolicy: "skip_for_trusted",
+      environment: input.environment,
+      ...(input.portal === undefined ? {} : { portal: input.portal }),
+      version: aggregate.application.version + 1,
+      updatedAt: now,
+    };
+    if (input.portal === undefined) {
+      delete updatedApplication.portal;
+    }
+    if (input.description === undefined) {
+      delete updatedApplication.description;
+    }
     const updated: StoredApplicationAggregate = {
       ...aggregate,
-      application: {
-        ...aggregate.application,
-        name: input.name,
-        status: "active",
-        trustLevel: "first_party",
-        consentPolicy: "skip_for_trusted",
-        environment: input.environment,
-        version: aggregate.application.version + 1,
-        updatedAt: now,
-      },
+      application: updatedApplication,
       connectionIssuer: this.issuer,
       clients: [updatedClient],
       secrets:
@@ -1194,10 +1269,12 @@ export class ApplicationService {
     return {
       issuer: aggregate.connectionIssuer,
       name: aggregate.application.name,
+      description: aggregate.application.description,
       applicationStatus: aggregate.application.status,
       trustLevel: aggregate.application.trustLevel,
       consentPolicy: aggregate.application.consentPolicy,
       environment: aggregate.application.environment,
+      portal: aggregate.application.portal,
       clientType: client.clientType,
       clientStatus: client.status,
       redirectUris: client.redirectUris,
@@ -1214,7 +1291,7 @@ export class ApplicationService {
 
   private systemClientSecretMatches(
     secret: StoredApplicationAggregate["secrets"][number] | undefined,
-    input: SystemClientImportInput,
+    input: NormalizedSystemClientImportInput,
   ): boolean {
     if (secret === undefined) {
       return false;

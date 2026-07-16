@@ -33,7 +33,15 @@ const request: CreateCustomApplicationRequestV1 = {
 const templateRequest: CreateTemplateApplicationRequestV1 = {
   schemaVersion: 1,
   template: { id: "gitea", version: 1 },
-  application: { name: "研发 Gitea", slug: "engineering-gitea" },
+  application: {
+    name: "研发 Gitea",
+    slug: "engineering-gitea",
+    portal: {
+      launchUrl: "https://git.example.com",
+      iconUrl: "https://git.example.com/assets/img/logo.svg",
+      order: 20,
+    },
+  },
   templateInput: {
     giteaBaseUrl: "https://git.example.com",
     authSourceName: "company-sso",
@@ -56,6 +64,10 @@ const systemClientInput: SystemClientImportInput = {
   environment: "production",
   pkcePolicy: "optional",
   providerApi: false,
+  portal: {
+    launchUrl: "https://id.example.com/admin/",
+    order: 100,
+  },
 };
 
 function createFixture(now: () => Date = () => new Date("2026-07-10T00:00:00.000Z")) {
@@ -126,6 +138,12 @@ describe("ApplicationService", () => {
       environment: "production",
       trustLevel: "third_party",
       consentPolicy: "explicit",
+      portal: {
+        enabled: true,
+        launchUrl: "https://git.example.com",
+        iconUrl: "https://git.example.com/assets/img/logo.svg",
+        order: 20,
+      },
     });
     expect(outcome.response.connection).toMatchObject({
       template: { id: "gitea", version: 1 },
@@ -213,6 +231,33 @@ describe("ApplicationService", () => {
         { idempotencyKey: "template-groups-allowed" },
       ),
     ).resolves.toMatchObject({ replayed: false });
+  });
+
+  it("按解析后的应用环境拒绝模板和 system Client 的不安全门户 URL", async () => {
+    const { service } = createFixture();
+    await expect(
+      service.createTemplateApplication(
+        {
+          ...templateRequest,
+          application: {
+            ...templateRequest.application,
+            slug: "unsafe-template-portal",
+            portal: { launchUrl: "http://127.0.0.1:3000", order: 0 },
+          },
+        },
+        { idempotencyKey: "unsafe-template-portal" },
+      ),
+    ).rejects.toBeInstanceOf(ApplicationValidationError);
+
+    await expect(
+      service.importSystemClients([
+        {
+          ...systemClientInput,
+          clientId: "unsafe-system-portal",
+          portal: { launchUrl: "http://127.0.0.1:3000", order: 0 },
+        },
+      ]),
+    ).rejects.toBeInstanceOf(ApplicationValidationError);
   });
 
   it("模板或部署策略变化后仍先重放已经提交的幂等回执", async () => {
@@ -442,6 +487,79 @@ describe("ApplicationService", () => {
     expect(await service.listApplications()).toHaveLength(1);
   });
 
+  it("只按顺序公开 active 且已启用的门户应用最小投影", async () => {
+    const { service } = createFixture();
+    const later = await service.createCustomApplication(
+      {
+        ...request,
+        application: {
+          ...request.application,
+          description: "稍后展示",
+          slug: "portal-later",
+          portal: {
+            launchUrl: "https://later.example.com/?from=portal",
+            iconUrl: "https://later.example.com/icon.svg",
+            order: 20,
+          },
+        },
+      },
+      { idempotencyKey: "portal-later-application" },
+    );
+    const earlier = await service.createCustomApplication(
+      {
+        ...request,
+        application: {
+          ...request.application,
+          slug: "portal-earlier",
+          portal: { launchUrl: "https://earlier.example.com", order: 10 },
+        },
+      },
+      { idempotencyKey: "portal-earlier-application" },
+    );
+    await service.createCustomApplication(
+      {
+        ...request,
+        application: {
+          ...request.application,
+          slug: "portal-hidden",
+          portal: { enabled: false, launchUrl: "https://hidden.example.com", order: 0 },
+        },
+      },
+      { idempotencyKey: "portal-hidden-application" },
+    );
+    await service.createCustomApplication(
+      {
+        ...request,
+        application: { ...request.application, slug: "portal-not-configured" },
+      },
+      { idempotencyKey: "portal-not-configured" },
+    );
+
+    const listed = await service.listPortalApplications();
+    expect(listed).toEqual([
+      {
+        id: earlier.response.application.id,
+        name: "示例应用",
+        launchUrl: "https://earlier.example.com",
+        order: 10,
+      },
+      {
+        id: later.response.application.id,
+        name: "示例应用",
+        description: "稍后展示",
+        iconUrl: "https://later.example.com/icon.svg",
+        launchUrl: "https://later.example.com/?from=portal",
+        order: 20,
+      },
+    ]);
+    expect(Object.isFrozen(listed)).toBe(true);
+    expect(Object.keys(listed[0]!).sort()).toEqual(["id", "launchUrl", "name", "order"]);
+    expect(JSON.stringify(listed)).not.toContain("clientId");
+
+    await service.disableApplication(earlier.response.application.id, { expectedVersion: 1 });
+    await expect(service.listPortalApplications()).resolves.toEqual([listed[1]]);
+  });
+
   it("同一幂等键不能绑定不同请求", async () => {
     const { service } = createFixture();
     await service.createCustomApplication(request, { idempotencyKey: "conflicting-key" });
@@ -632,6 +750,7 @@ describe("ApplicationService", () => {
       trustLevel: "first_party",
       consentPolicy: "skip_for_trusted",
       version: 1,
+      portal: { enabled: true, launchUrl: "https://id.example.com/admin/", order: 100 },
     });
     expect(JSON.stringify(first)).not.toContain(systemClientInput.clientSecret);
     await expect(
@@ -645,6 +764,11 @@ describe("ApplicationService", () => {
       postLogoutRedirectUris: ["https://id.example.com/admin/signed-out"],
       environment: "staging",
       pkcePolicy: "required",
+      portal: {
+        launchUrl: "https://id.example.com/admin/v2/",
+        iconUrl: "https://id.example.com/admin/icon.svg",
+        order: 5,
+      },
     };
     now = "2026-07-10T01:00:00.000Z";
     const [metadataUpdated] = await service.importSystemClients([metadataUpdate]);
@@ -653,6 +777,12 @@ describe("ApplicationService", () => {
         id: first[0]!.application.id,
         name: metadataUpdate.name,
         environment: "staging",
+        portal: {
+          enabled: true,
+          launchUrl: "https://id.example.com/admin/v2/",
+          iconUrl: "https://id.example.com/admin/icon.svg",
+          order: 5,
+        },
         version: 2,
         updatedAt: now,
       },

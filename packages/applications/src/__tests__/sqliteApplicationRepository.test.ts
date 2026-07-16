@@ -51,6 +51,11 @@ function createRequest(slug: string): CreateCustomApplicationRequestV1 {
       name: slug,
       slug,
       environment: "production",
+      portal: {
+        launchUrl: `https://${slug}.example.com/`,
+        iconUrl: `https://${slug}.example.com/icon.svg`,
+        order: 10,
+      },
     },
     client: {
       clientType: "confidential",
@@ -82,6 +87,14 @@ describe("SqliteApplicationRepository", () => {
     expect(
       (await secondService.getApplication(created.response.application.id)).application.slug,
     ).toBe("restart-app");
+    await expect(secondService.listPortalApplications()).resolves.toMatchObject([
+      {
+        id: created.response.application.id,
+        launchUrl: "https://restart-app.example.com/",
+        iconUrl: "https://restart-app.example.com/icon.svg",
+        order: 10,
+      },
+    ]);
     const replay = await secondService.createCustomApplication(createRequest("restart-app"), {
       idempotencyKey: "restart-idempotency-key",
     });

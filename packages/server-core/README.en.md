@@ -53,6 +53,8 @@ user repositories, and pluggable OIDC persistence adapters.
 - **Unified login page** combining multiple providers
 - **Optional application control plane** with custom applications, a versioned Gitea template,
   one-time credentials, and Client Secret rotation
+- **Built-in user portal** with an authenticated application directory, admin shortcut, and
+  independent BFF session
 - **Private preview integration packages** for native Node.js, SQLite session storage, Express 4/5,
   Fastify 5, NestJS 10/11, and a local setup CLI (not published to npm yet)
 - **Flexible user repositories**:
@@ -173,7 +175,11 @@ Important fields (development example):
 ### 3. Create `.htpasswd` (local auth)
 
 ```bash
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync('admin123', 10));" > .htpasswd
+read -r -s ADMIN_PASSWORD
+export ADMIN_PASSWORD
+node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
+unset ADMIN_PASSWORD
+chmod 0600 .htpasswd
 ```
 
 ### 4. Run the server
@@ -182,9 +188,12 @@ node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSyn
 # Development (with watch)
 pnpm dev
 
-# Production build
-pnpm build && pnpm start
+# Validate the production build
+pnpm build:prod
 ```
+
+`pnpm start` runs with production validation, so the local HTTP/memory example is intentionally
+rejected. Follow `docs/PRODUCTION_SETUP.md` before starting a production process.
 
 The default dev URL is: `http://localhost:3000`.
 
@@ -300,6 +309,7 @@ Main documentation lives under `docs/` and is currently in Chinese:
 - `docs/README.md` – documentation index
 - `docs/QUICK_START.md` – quick start guide
 - `docs/PRODUCTION_SETUP.md` – production setup
+- `docs/USER_PORTAL.md` – portal Client, application directory, logout boundaries, and operations
 - `docs/APPLICATION_MANAGEMENT.md` – application management, key handling, and SQLite operations
 - `docs/ADAPTER_CONFIGURATION.md`, `docs/REDIS_ADAPTER_GUIDE.md` – adapter details
 - `docs/REVERSE_PROXY_HTTPS.md` – reverse proxy & HTTPS

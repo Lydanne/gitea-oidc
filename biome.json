@@ -8,7 +8,11 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!packages/server-core/public/admin/assets"]
+    "includes": [
+      "**",
+      "!packages/server-core/public/admin/assets",
+      "!packages/server-core/public/portal/assets"
+    ]
   },
   "formatter": {
     "enabled": true,

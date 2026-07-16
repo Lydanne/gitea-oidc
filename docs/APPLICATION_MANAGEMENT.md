@@ -95,6 +95,10 @@ export default {
 `clients[]` 和数据库之间混合查询。`clients[]` 在当前迁移期仍是 `system Client` 的部署事实源，
 不能删除管理后台所需 Client。
 
+`clients[].portal` 也会随 system Client 导入：`portal.name` 和 `portal.description` 成为应用名称
+与说明，snake_case 的 `launch_url`、`icon_url` 会转换为 `Application.portal` 的 camelCase 字段。
+门户 Client 本身如果不需要显示为卡片，应省略它的 `portal` 对象。
+
 导入后的 `system application` 会在管理台展示，但只能通过部署配置管理，管理 API 和页面不会允许
 启用或停用它们。这一约束用于保护管理后台 Client，避免管理员把自己的登录入口永久锁死。配置中
 的 Client 元数据或 Secret 发生变化时，下次启动会在同一事务内保留 Application/Client ID、递增
@@ -133,6 +137,31 @@ scope；公共 Client 不生成 Client Secret，并强制使用 PKCE S256。登�
 `disabling` 状态并撤销已有 Grant、Code 和 Token；撤销完成后才进入 `disabled`。如果进程在中途
 退出，下次启动会继续恢复未完成的撤销。system application 也使用相同的两阶段撤销和启动恢复，
 但只能由 `clients[]` 的部署配置触发，不能从管理后台手工启停。
+
+## 发布应用到用户门户
+
+创建模板应用或自定义应用时，可以启用“显示在用户门户”，并填写门户入口 URL、可选图标 URL 和
+排序值。对应的 `Application.portal` 字段为：
+
+```json
+{
+  "enabled": true,
+  "launchUrl": "https://app.example.com/",
+  "iconUrl": "https://app.example.com/icon.png",
+  "order": 20
+}
+```
+
+只有 `status=active` 且 `portal.enabled=true` 的 Application 会进入普通用户目录。卡片名称和说明
+来自 Application 自身的 `name`、`description`；`order` 越小越靠前。停用应用后，卡片随即从目录
+消失。
+
+生产和预发布环境的 `launchUrl`、`iconUrl` 必须使用 HTTPS；开发环境仅允许 loopback URL 使用
+HTTP。门户展示配置只控制导航，不改变 Client scopes、consent、Provider API 权限或 OIDC 生命周期。
+当前所有已登录用户看到同一个目录，不支持按用户、组织或团队过滤。
+
+门户服务本身的 `portal` 配置、内部 Client、静态 `clients[].portal` 以及退出回跳要求见
+[用户门户部署与使用指南](./USER_PORTAL.md)。
 
 ## 使用 Gitea 模板
 
@@ -271,8 +300,9 @@ curl https://id.example.com/oidc/.well-known/openid-configuration
 
 当前已经提供自定义应用、Gitea 版本化模板、ApplicationRepository、Secret 加密与轮换、审计、
 Client Adapter、`clientSource` 整源切换、一次性直接凭据、管理页面、Node SDK、加密 SQLite
-客户端存储、三个框架连接器和本地接入 CLI。仍未完成的能力包括：
+客户端存储、三个框架连接器、本地接入 CLI 和普通用户应用门户。仍未完成的能力包括：
 
+- Client API 代理、Client 用户 Token 获取和维护；现有代理能力只面向认证 Provider；
 - setup code 及安全的远程凭据领取协议；
 - 外部 KMS 主密钥轮换和历史密文迁移；
 - 多实例共享 ApplicationRepository；

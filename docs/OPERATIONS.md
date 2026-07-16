@@ -55,9 +55,12 @@ curl --fail --silent --show-error \
 2. 发现文档的 Issuer 和所有公开端点使用正确 HTTPS 域名。
 3. JWKS 可访问，且 `kid` 与预期一致。
 4. 管理后台可以打开并登录。
-5. 测试 Gitea Client 可以完成登录。
-6. Gitea 退出后回到已注册的 Post Logout Redirect URI。
-7. 启用 Provider API 时，使用允许的 Client 完成一次最小只读调用。
+5. 用户门户可以打开，普通用户能登录并看到预期应用，且看不到管理后台入口。
+6. 管理员能看到门户中的后台入口，但后台仍要求独立登录和权限校验。
+7. 测试 Gitea Client 可以完成登录，门户卡片能够跳转到正确入口。
+8. Gitea 退出后回到已注册的 Post Logout Redirect URI。
+9. 门户退出后回到固定的 `portal.basePath/signed-out`，受保护门户 API 再次返回 `401`。
+10. 启用 Provider API 时，使用允许的 Client 完成一次最小只读调用。
 
 ## 日志管理
 
@@ -80,6 +83,9 @@ docker compose --env-file .env.production logs --since=30m idp \
 身份审计默认启用，记录用户登录和退出、管理后台登录和退出，以及用户创建、更新和删除事件。
 在 `/admin/audit-logs` 可按用户、事件、结果和时间筛选。这里的审计记录与普通进程日志不同：它们是
 结构化业务记录，并随用户仓储持久化。
+
+门户登录和退出使用 `source=portal`，管理后台使用 `source=admin`。发布后应分别筛选两类来源，确认
+成功事件中的 Client ID 与独立的门户、后台 Client 相符，且记录中没有 Token 或 Client Secret。
 
 成功登录以 OIDC 最终授权响应为准，不以 Provider 凭据校验通过为准；已有 SSO Session 登录新
 Client 也会产生记录。没有命中本服务签发 state 的匿名 callback 请求不会写入结构化审计，应在反向
@@ -130,6 +136,9 @@ SQLite Online Backup API 或受支持的快照机制，对所有数据库获取�
 配置、环境变量、密码文件和应用主密钥也需要备份，但应与数据归档分开加密保存，并限制恢复权限。
 数据库备份没有对应的应用主密钥时，应用 Client Secret 无法解密。
 
+门户 BFF Session 和登录 state 属于可丢弃的短期状态，不是备份恢复材料。恢复或重启后要求用户
+重新登录是预期行为；需要恢复的是用户、Application、OIDC 数据、JWKS、配置和对应密钥。
+
 ## Redis 和 PostgreSQL 备份
 
 多实例部署应使用基础设施自身的备份能力：
@@ -162,8 +171,9 @@ docker compose --env-file .env.production up -d idp
 2. 管理员登录。
 3. 应用列表和用户列表读取。
 4. 测试 Gitea 登录和退出，并在后台确认对应身份审计记录。
-5. 测试管理员退出并重新登录，确认后台审计记录。
-6. Provider Token 探活（如果启用）。
+5. 测试门户登录、应用目录、管理员入口和退出，并确认 `source=portal` 的审计记录。
+6. 测试管理员退出并重新登录，确认后台审计记录。
+7. Provider Token 探活（如果启用）。
 
 至少定期在隔离环境中完成一次恢复演练，并记录恢复耗时和数据恢复点。
 
@@ -202,6 +212,7 @@ docker compose --env-file .env.production logs --tail=200 idp
 - 配置验证或数据库迁移错误。
 - 容器重启次数。
 - 登录、Token 交换和退出错误率。
+- 门户登录、应用目录、管理员入口和退出流程。
 - SQLite 文件和磁盘空间变化。
 - Redis `evicted_keys`、连接错误和持久化状态。
 
@@ -234,6 +245,10 @@ Client Secret 需要 IdP 和业务 Client 协调切换。普通应用通过后�
 更新部署配置中的 `clients[]` 并重启 IdP；启动过程会事务性替换数据库中的 Secret，随后应立即更新
 对应业务 Client。静态模式同样需要在维护窗口同步更新双方配置。
 
+门户 Client 属于配置管理的 system Client。轮换时更新部署配置中的 Portal Client Secret，保持
+`portal.clientId`、callback 和固定退出 URI 不变，然后重启全部实例并完成门户登录与退出测试。
+不要把门户 Secret 轮换成后台或业务 Client 正在使用的值。
+
 ### JWKS
 
 当前生成流程会创建新的签名 Key 集；直接替换 `jwks.json` 会使仍依赖旧公钥的 Token 无法验证。
@@ -263,6 +278,8 @@ pnpm generate-jwks
 - 发现文档可用性、延迟和证书有效期。
 - 进程或容器重启次数、退出码和内存占用。
 - 登录、Token、Callback 和退出端点的 `4xx`、`5xx` 比例。
+- 门户 `/login/start`、`/callback`、`/api/applications` 和 `/logout` 的延迟与错误率；过期 Session
+  访问 `/api/me` 返回 `401` 是正常行为，不应单独触发故障告警。
 - SQLite 数据目录容量、inode、备份成功时间和恢复演练时间。
 - PostgreSQL 连接池、慢查询、磁盘和复制状态。
 - Redis 连接数、内存、`evicted_keys`、持久化失败和复制状态。
@@ -293,6 +310,23 @@ pnpm generate-jwks
 确认错误请求中的 `client_id` 对应应用注册了完全相同的退出回跳 URI，包括末尾 `/`。详见
 [Gitea 接入指南](./GITEA_INTEGRATION.md)。
 
+### 门户启动提示 `portal_client_required`
+
+确认 `portal.clientId` 对应 Client 精确注册了 `${server.url}${portal.basePath}/callback` 和
+`${server.url}${portal.basePath}/signed-out`，并使用 `client_secret_basic` 授权码流程。门户与 Gitea
+使用不同 Client，不要把两个退出地址混在一起。
+
+### 门户多实例登录偶发失效
+
+确认每个实例使用相同的 Redis `auth.stateStore`、`portal`、`clients` 和 JWKS。memory stateStore
+无法跨实例共享门户 state 或 BFF Session。不要用门户受保护 API 代替匿名健康探针。
+
+### 门户应用目录为空
+
+静态模式检查 `clients[].portal.enabled`；数据库模式检查 Application 是否为 `active` 且
+`Application.portal.enabled=true`。两种模式都要检查入口 URL 是否满足 HTTPS 或开发环境 loopback
+规则。
+
 ### SQLite 锁定或损坏
 
 确认只有一个实例访问数据目录，且文件不位于 NFS。停止实例、保存现场，并从最近一次已验证备份
@@ -310,14 +344,16 @@ pnpm generate-jwks
 3. 启动服务，确认配置校验通过。
 4. 验证发现文档、JWKS 和 HTTPS 代理。
 5. 验证管理员登录和应用列表。
-6. 使用测试 Gitea 账号完成登录、退出和组映射。
-7. 开启监控和告警，观察一个完整业务窗口。
-8. 记录版本、配置校验和、备份点和验收结果。
+6. 使用普通账号验证门户登录、应用跳转和退出，使用管理员确认后台入口与权限。
+7. 使用测试 Gitea 账号完成登录、退出和组映射。
+8. 开启监控和告警，观察一个完整业务窗口。
+9. 记录版本、配置校验和、备份点和验收结果。
 
 ## 相关文档
 
 - [生产部署指南](./PRODUCTION_SETUP.md)
 - [Gitea 接入指南](./GITEA_INTEGRATION.md)
+- [用户门户部署与使用指南](./USER_PORTAL.md)
 - [应用管理接入指南](./APPLICATION_MANAGEMENT.md)
 - [OIDC 适配器配置指南](./ADAPTER_CONFIGURATION.md)
 - [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)

@@ -13,7 +13,7 @@
 
 ## 发布与维护
 
-- [发布流程与 CI/CD 指南](./RELEASE_AND_CI_CD.md)
+- [发布流程与 CI/CD 指南](./RELEASE_AND_CI_CD.md)：Prepare Release PR、npm OIDC、Docker 标签与失败恢复
 
 ## 草案区
 

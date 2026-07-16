@@ -672,8 +672,8 @@ export default {
   oidc: {
     issuer: 'https://oidc.example.com/oidc',
     cookieKeys: [
-      'GqNusJ6i5ZYAzchKV36xydAtAuru5VCb',
-      'gSyHGRASCLersS4Saf3NWUFCYKVBa6hR'
+      'replace-with-random-cookie-key-current',
+      'replace-with-random-cookie-key-previous'
     ],
     claims: {
       openid: ['sub'],

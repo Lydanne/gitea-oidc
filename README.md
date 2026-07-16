@@ -35,6 +35,7 @@
 - ✅ 插件化认证架构
 - ✅ 多种认证方式（本地密码、飞书、可扩展）
 - ✅ 统一登录页面
+- ✅ 内置用户门户、应用导航和管理员快捷入口
 - ✅ 可选的应用管理、Gitea 版本化模板和 Client Secret 轮换
 - ✅ Node SDK、Express、Fastify、NestJS 与 CLI 私有预览包
 - ✅ 单机生产可用的加密 SQLite 客户端 Session Store
@@ -86,7 +87,8 @@ pnpm dev
 pnpm build:prod
 ```
 
-服务器将在 `http://localhost:3000` 启动
+服务器将在 `http://localhost:3000` 启动。本地示例已启用用户门户，访问根路径会进入 `/portal`；
+管理后台位于 `/admin`。完整本地验收流程见[快速开始指南](./docs/QUICK_START.md)。
 
 `pnpm start` 会进入生产模式，本地 HTTP/memory 示例会被安全校验拒绝。正式启动方式见
 [生产部署指南](./docs/PRODUCTION_SETUP.md)。
@@ -142,6 +144,7 @@ pnpm test:coverage
 - **[OIDC 适配器配置](./docs/ADAPTER_CONFIGURATION.md)** - SQLite、Redis、memory 适配器选择
 - **[飞书认证插件](./docs/FEISHU_PLUGIN_GUIDE.md)** - 飞书 OAuth 登录配置
 - **[管理后台与 Provider API](./docs/ADMIN_AND_PROVIDER_API.md)** - 后台、审计、token 探活和 SDK 代理
+- **[用户门户](./docs/USER_PORTAL.md)** - 门户 Client、应用目录、管理员入口和退出流程
 - **[应用管理接入](./docs/APPLICATION_MANAGEMENT.md)** - 模板、自定义应用、SDK 与 SQLite 部署约束
 - **[开发者文档](./docs/dev/README.md)** - 插件开发、架构和发布维护
 
@@ -166,7 +169,8 @@ pnpm test:coverage
 gitea-oidc/
 ├── apps/
 │   ├── admin-web/              # Vue 管理台应用
-│   └── idp-server/             # 生产服务进程入口
+│   ├── idp-server/             # 生产服务进程入口
+│   └── portal-web/             # Vue 用户门户应用
 ├── packages/
 │   ├── contracts/              # 应用和连接器共用的版本化 wire contract
 │   ├── application-templates/  # 版本化 Gitea 应用模板
@@ -253,13 +257,33 @@ gitea-oidc/
     {
       "client_id": "gitea",
       "client_secret": "gitea-client-secret-change-in-production",
-      "redirect_uris": [
-        "http://localhost:3001/user/oauth2/gitea/callback",
-        "http://localhost:3000/admin/callback"
-      ],
+      "redirect_uris": ["http://localhost:3001/user/oauth2/gitea/callback"],
       "post_logout_redirect_uris": ["http://localhost:3001/"],
       "response_types": ["code"],
       "grant_types": ["authorization_code", "refresh_token"],
+      "token_endpoint_auth_method": "client_secret_basic",
+      "portal": {
+        "name": "Gitea",
+        "description": "代码托管与协作",
+        "launch_url": "http://localhost:3001/",
+        "order": 10
+      }
+    },
+    {
+      "client_id": "gitea-oidc-portal",
+      "client_secret": "portal-client-secret-change-in-production",
+      "redirect_uris": ["http://localhost:3000/portal/callback"],
+      "post_logout_redirect_uris": ["http://localhost:3000/portal/signed-out"],
+      "response_types": ["code"],
+      "grant_types": ["authorization_code"],
+      "token_endpoint_auth_method": "client_secret_basic"
+    },
+    {
+      "client_id": "gitea-oidc-admin",
+      "client_secret": "admin-client-secret-change-in-production",
+      "redirect_uris": ["http://localhost:3000/admin/callback"],
+      "response_types": ["code"],
+      "grant_types": ["authorization_code"],
       "token_endpoint_auth_method": "client_secret_basic"
     }
   ],
@@ -298,6 +322,18 @@ gitea-oidc/
         }
       }
     }
+  },
+  "admin": {
+    "enabled": true,
+    "basePath": "/admin",
+    "allowedGroups": ["gitea-oidc-admins"],
+    "sessionTtlSeconds": 3600
+  },
+  "portal": {
+    "enabled": true,
+    "basePath": "/portal",
+    "clientId": "gitea-oidc-portal",
+    "sessionTtlSeconds": 3600
   },
   "applications": {
     "enabled": false,
@@ -443,12 +479,12 @@ OIDC 数据持久化适配器配置，支持三种类型：
 `clientSource: "database"`，配置独立的 32 字节 Base64/Base64URL 主密钥，并使用单实例
 SQLite。完整配置和备份要求见[应用管理接入指南](./docs/APPLICATION_MANAGEMENT.md)。
 
-### 测试账户
+#### portal 与 clients[].portal
 
-`.htpasswd` 文件中的测试用户：
-
-- **用户名**: `admin` / **密码**: `admin123`
-- **用户名**: `testuser` / **密码**: `password`
+`portal` 配置身份中心自己的用户门户 Client、挂载路径和独立 BFF Session。静态 Client 上的
+`clients[].portal` 只负责应用名称、说明、入口、图标和排序；它不会为业务 Client 保存 Token 或
+增加 API 代理权限。完整配置、退出边界和多实例要求见
+[用户门户部署与使用指南](./docs/USER_PORTAL.md)。
 
 ## 🔗 Gitea 集成
 
@@ -486,6 +522,9 @@ docker pull lydamirror/gitea-oidc:<version>
 ```
 
 生产环境固定版本号，不使用 `latest`。最小运行结构：
+
+镜像以 UID/GID `10001:10001` 运行。挂载前需将配置、密钥和可写数据目录授权给该 UID；完整且不会
+放宽密钥权限的命令见[生产部署指南](./docs/PRODUCTION_SETUP.md)。
 
 ```bash
 docker run -d --name gitea-oidc \

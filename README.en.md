@@ -53,6 +53,8 @@ user repositories, and pluggable OIDC persistence adapters.
 - **Unified login page** combining multiple providers
 - **Optional application control plane** with custom applications, a versioned Gitea template,
   one-time credentials, and Client Secret rotation
+- **Built-in user portal** with an authenticated application directory, admin shortcut, and
+  independent BFF session
 - **Private preview integration packages** for native Node.js, SQLite session storage, Express 4/5,
   Fastify 5, NestJS 10/11, and a local setup CLI (not published to npm yet)
 - **Flexible user repositories**:
@@ -260,6 +262,10 @@ For more detailed, step-by-step instructions (Chinese), see `docs/QUICK_START.md
 The image starts with `NODE_ENV=production` and refuses to run without a valid production config.
 Pin an explicit release version instead of `latest`:
 
+The container runs as UID/GID `10001:10001`. Before bind-mounting files, grant that identity access
+to the read-only config and secrets and ownership of the writable data directory. See the production
+guide for commands that preserve restrictive secret permissions.
+
 ```bash
 docker run -d --name gitea-oidc \
   -p 127.0.0.1:3000:3000 \
@@ -275,6 +281,7 @@ See the Chinese deployment documentation for the complete, validated workflow:
 
 - `docs/PRODUCTION_SETUP.md` – topology, configuration, Compose, HTTPS, and go-live checks
 - `docs/GITEA_INTEGRATION.md` – Gitea login, logout, and claims integration
+- `docs/USER_PORTAL.md` – portal Client, application directory, logout boundaries, and operations
 - `docs/OPERATIONS.md` – health checks, backup, restore, upgrade, and rollback
 
 ---

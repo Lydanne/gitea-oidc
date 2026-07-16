@@ -1,7 +1,8 @@
 # 文档目录
 
 本目录面向使用者、部署者和运维人员。首次使用按“快速开始”验证本地流程；准备上线时按“生产
-部署 → Gitea 接入 → 生产运维”的顺序执行。开发、维护和发布文档位于 `docs/dev/`。
+部署 → 用户门户（如启用）→ Gitea 接入 → 生产运维”的顺序执行。开发、维护和发布文档位于
+`docs/dev/`。
 
 ## 入门与接入
 
@@ -19,6 +20,7 @@
 
 ## 功能配置
 
+- [用户门户部署与使用指南](./USER_PORTAL.md)：Portal Client、应用目录、管理员入口、退出边界与排障。
 - [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)
 - [应用管理接入指南](./APPLICATION_MANAGEMENT.md)
 - [飞书认证插件使用指南](./FEISHU_PLUGIN_GUIDE.md)

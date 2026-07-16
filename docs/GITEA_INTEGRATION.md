@@ -54,9 +54,11 @@ Callback URL 中的 `company-sso` 必须与 Gitea 认证源名称一致。Post L
 3. 填写 Gitea Base URL，例如 `https://git.example.com`。
 4. 填写认证源名称，例如 `company-sso`。
 5. 选择目标 Gitea 版本和环境。
-6. 按需填写 Claim、管理员/受限组和组织团队映射，并确认用户同步、认证源启用状态。
-7. 预览模板派生的 Callback URL、退出回跳地址、scopes、Gitea 字段和 CLI 命令。
-8. 创建应用，并立即把一次性显示的 Client ID 与 Client Secret 保存到 Secret Manager。
+6. 启用“显示在用户门户”，把入口 URL 设置为 Gitea 首页或会自动进入 OIDC 登录的页面，并按需
+   填写图标和排序值。
+7. 按需填写 Claim、管理员/受限组和组织团队映射，并确认用户同步、认证源启用状态。
+8. 预览模板派生的 Callback URL、退出回跳地址、scopes、Gitea 字段和 CLI 命令。
+9. 创建应用，并立即把一次性显示的 Client ID 与 Client Secret 保存到 Secret Manager。
 
 新建应用默认使用 `gitea@3`，目标版本固定为 Gitea `1.27`。需要接入 `1.24`、`1.25` 或 `1.26`
 时选择历史 `gitea@1` 或 `gitea@2`。模板会生成授权码流程、`client_secret_basic`、精确 Callback
@@ -83,7 +85,14 @@ Client Secret 明文只在创建或轮换响应中显示一次。页面关闭后
       ],
       "response_types": ["code"],
       "grant_types": ["authorization_code", "refresh_token"],
-      "token_endpoint_auth_method": "client_secret_basic"
+      "token_endpoint_auth_method": "client_secret_basic",
+      "portal": {
+        "enabled": true,
+        "name": "Gitea",
+        "description": "代码托管与协作",
+        "launch_url": "https://git.example.com/",
+        "order": 10
+      }
     }
   ]
 }
@@ -94,6 +103,20 @@ Client Secret 明文只在创建或轮换响应中显示一次。页面关闭后
 Client Secret，避免一处凭据泄露扩大影响范围。
 
 修改静态 Client 后需要重启服务。修改前先确认 Gitea 与 IdP 两侧可以在同一维护窗口内同步更新。
+
+## 在用户门户发布 Gitea
+
+数据库应用管理模式下，“显示在用户门户”、入口 URL、图标 URL 和排序值会保存到 Application。
+只有 `active` 且门户展示已启用的应用才会出现在普通用户目录。静态模式使用上例中的
+`clients[].portal`；没有该对象的 Client 不会显示。
+
+`launch_url` 是导航目标，不是 Gitea Callback URL 或 Post Logout Redirect URI。用户点击卡片后，
+门户只会打开该地址；随后仍由 Gitea 自己发起 OIDC 登录并维护 Gitea Session。为了让入口看起来像
+“一键进入”，可以填写 Gitea 首页或一个会在没有本地 Session 时自动发起 OIDC 登录的受保护页面。
+
+门户不会获取、保存或续期 Gitea 用户 Token，也不提供 Client API 代理。现有 Provider API 仅代理
+认证 Provider 的显式允许操作，与 Gitea 导航卡片无关。完整配置与边界见
+[用户门户部署与使用指南](./USER_PORTAL.md)。
 
 ## 在 Gitea 管理后台配置
 
@@ -205,6 +228,7 @@ Gitea 的组映射值应填写 `groups` 中实际返回的完整路径。管理�
 4. 在 Gitea 退出登录，确认出现退出确认页并最终回到 `https://git.example.com/`。
 5. 再次访问受保护页面，确认需要重新登录。
 6. 如果使用组映射，分别使用有权限和无权限账号验证授权结果。
+7. 如果启用用户门户，确认 Gitea 卡片只对已登录门户用户展示，并跳转到正确的 HTTPS 地址。
 
 验收时记录使用的 Gitea 版本、认证源名称、Callback URL、Post Logout Redirect URI 和 scopes，
 不要记录 Client Secret 或 Token。
@@ -252,6 +276,10 @@ error_description: post_logout_redirect_uri not registered
 
 不要为了消除错误注册通配符或不受控域名；服务端按精确 URI 校验退出回跳。
 
+这里排查的是 Gitea Client，常见退出地址为 `https://git.example.com/`。门户 Client 是另一个
+confidential Client，它的固定退出地址应为 `https://id.example.com/portal/signed-out`；不要把两者
+写到错误的 Client 上。
+
 ### `redirect_uri` 不匹配
 
 确认 Gitea 认证源名称和 Callback URL 中的路径段一致。例如认证源名为 `company-sso` 时，回调
@@ -285,6 +313,7 @@ Gitea Client 只负责 Gitea 登录。内置后台需要独立的后台 Client �
 ## 相关文档
 
 - [生产部署指南](./PRODUCTION_SETUP.md)
+- [用户门户部署与使用指南](./USER_PORTAL.md)
 - [生产运维手册](./OPERATIONS.md)
 - [应用管理接入指南](./APPLICATION_MANAGEMENT.md)
 - [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)

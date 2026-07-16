@@ -124,6 +124,12 @@ const customConfig: GiteaOidcConfig = {
     allowedGroups: ['gitea-oidc-admins'],
     sessionTtlSeconds: 3600,
   },
+  portal: {
+    enabled: false,
+    basePath: '/portal',
+    clientId: '',
+    sessionTtlSeconds: 3600,
+  },
   audit: {
     enabled: true,
     retentionDays: 30,
@@ -224,6 +230,8 @@ setupOIDC();
 - **clients**: 配置允许使用此 IdP 的客户端应用
 - **auth.providers**: 配置启用的认证方式
 - **auth.autoRedirectSingleProvider**: 只有一个可跳转登录方式时是否直接进入，默认关闭
+- **portal**: 配置内置用户门户的路径、OIDC Client 和独立 BFF Session；默认关闭
+- **clients[].portal**: 在静态 Client 模式下配置应用卡片的名称、入口、图标和顺序
 - **audit.enabled**: 是否记录登录、退出和用户资料变更审计，默认启用
 - **audit.retentionDays**: 审计记录保留天数，默认 `30`，范围 `1` 到 `3650`；超过期限的记录自动删除
 
@@ -360,5 +368,6 @@ const claims = userToClaims(user);
 ## 更多信息
 
 - [完整配置示例](../example.gitea-oidc.config.json)
+- [用户门户部署与使用指南](./USER_PORTAL.md)
 - [认证插件开发](./dev/PLUGIN_ROUTES_GUIDE.md)
 - [生产环境配置](./PRODUCTION_SETUP.md)

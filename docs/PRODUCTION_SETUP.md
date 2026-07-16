@@ -38,6 +38,9 @@ SQLite 部署，再根据容量和可用性要求评估多实例 Redis 方案。
 服务根地址: https://id.example.com
 Issuer:      https://id.example.com/oidc
 发现文档:   https://id.example.com/oidc/.well-known/openid-configuration
+用户门户:   https://id.example.com/portal
+门户回调:   https://id.example.com/portal/callback
+门户退出:   https://id.example.com/portal/signed-out
 管理后台:   https://id.example.com/admin
 ```
 
@@ -62,10 +65,15 @@ Issuer:      https://id.example.com/oidc
 创建目录并限制访问权限：
 
 ```bash
-sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/data
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0750 /srv/gitea-oidc
+sudo install -d -o 10001 -g 10001 -m 0700 /srv/gitea-oidc/data
 sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/secrets
 sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/backup
 ```
+
+生产镜像固定以 UID/GID `10001:10001` 运行。Linux bind mount 不会自动转换宿主权限，因此数据目录、
+配置文件和密码文件必须允许该 UID 访问；不要为了省事改成全局可读写权限。源码或 systemd 部署使用后文
+独立的 `gitea-oidc` 系统用户，不套用这里的数值 UID。
 
 每类密钥必须独立生成，不能互相复用：
 
@@ -73,11 +81,13 @@ sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/backup
 openssl rand -base64 48
 openssl rand -base64 48
 openssl rand -base64 48
+openssl rand -base64 48
 openssl rand -base64 32
 ```
 
-前三个结果可分别作为两个 Cookie Key 和后台 Client Secret。最后一个结果是恰好 32 字节随机值
-的 Base64 表示，可作为 `applications.secretEncryption.masterKey`。
+前四个结果可分别作为两个 Cookie Key、后台 Client Secret 和门户 Client Secret。最后一个结果是
+恰好 32 字节随机值的 Base64 表示，可作为 `applications.secretEncryption.masterKey`。门户、后台和
+业务应用必须使用不同的 Client Secret。
 
 如果使用本地密码认证，在已安装项目依赖的源码目录中生成 bcrypt 密码文件：
 
@@ -86,7 +96,10 @@ read -r -s ADMIN_PASSWORD
 export ADMIN_PASSWORD
 node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 12));" > /srv/gitea-oidc/secrets/.htpasswd
 unset ADMIN_PASSWORD
-chmod 0600 /srv/gitea-oidc/secrets/.htpasswd
+sudo chown 10001:10001 \
+  /srv/gitea-oidc/secrets \
+  /srv/gitea-oidc/secrets/.htpasswd
+sudo chmod 0600 /srv/gitea-oidc/secrets/.htpasswd
 ```
 
 不要把明文密码直接写进命令历史。本地认证适合作为首次上线的后台入口；外部认证管理员完成
@@ -95,7 +108,7 @@ chmod 0600 /srv/gitea-oidc/secrets/.htpasswd
 ## 创建生产配置
 
 生产环境推荐使用 `gitea-oidc.config.js`，由配置文件显式读取环境变量。这里使用单实例 SQLite、
-本地管理员和数据库应用管理作为完整基线：
+本地管理员、用户门户和数据库应用管理作为完整基线：
 
 ```javascript
 const requiredEnv = (name) => {
@@ -171,6 +184,15 @@ export default {
       response_types: ["code"],
       grant_types: ["authorization_code", "refresh_token"],
       token_endpoint_auth_method: "client_secret_basic"
+    },
+    {
+      client_id: "gitea-oidc-portal",
+      client_secret: requiredEnv("GITEA_OIDC_PORTAL_CLIENT_SECRET"),
+      redirect_uris: [`${publicUrl}/portal/callback`],
+      post_logout_redirect_uris: [`${publicUrl}/portal/signed-out`],
+      response_types: ["code"],
+      grant_types: ["authorization_code"],
+      token_endpoint_auth_method: "client_secret_basic"
     }
   ],
   auth: {
@@ -201,6 +223,12 @@ export default {
     enabled: true,
     basePath: "/admin",
     allowedGroups: ["gitea-oidc-admins"],
+    sessionTtlSeconds: 3600
+  },
+  portal: {
+    enabled: true,
+    basePath: "/portal",
+    clientId: "gitea-oidc-portal",
     sessionTtlSeconds: 3600
   },
   providerApi: {
@@ -245,15 +273,20 @@ GITEA_OIDC_TRUSTED_PROXY_IPS=replace-with-proxy-ip-or-cidr
 GITEA_OIDC_COOKIE_KEY_CURRENT=replace-with-first-random-value
 GITEA_OIDC_COOKIE_KEY_PREVIOUS=replace-with-second-random-value
 GITEA_OIDC_ADMIN_CLIENT_SECRET=replace-with-independent-random-value
+GITEA_OIDC_PORTAL_CLIENT_SECRET=replace-with-another-independent-random-value
 GITEA_OIDC_APPLICATION_MASTER_KEY=replace-with-base64-encoded-32-byte-key
 ```
 
 将 `x.y.z` 替换为准备上线的已发布版本，不要在生产环境使用 `latest`。将代理地址替换为服务实际
 看到的反向代理来源 IP 或最小 CIDR，而不是任意公网地址范围。
 
+生产镜像已经包含门户静态资源，不需要单独部署前端。源码部署必须使用 `pnpm build:prod`，该命令
+会同时构建并装配管理后台与用户门户产物。
+
 ```bash
 chmod 0600 /srv/gitea-oidc/.env.production
-chmod 0600 /srv/gitea-oidc/gitea-oidc.config.js
+sudo chown 10001:10001 /srv/gitea-oidc/gitea-oidc.config.js
+sudo chmod 0600 /srv/gitea-oidc/gitea-oidc.config.js
 ```
 
 ## 使用 Docker Compose 启动
@@ -431,11 +464,14 @@ curl --fail --silent --show-error \
 - `issuer` 精确等于 `https://id.example.com/oidc`。
 - 所有公开端点均为 HTTPS，且域名正确。
 - JWKS 至少包含一个签名公钥。
+- `https://id.example.com/` 重定向到用户门户，普通用户能够完成登录和退出。
 - `https://id.example.com/admin` 可以打开，并能使用初始化管理员登录。
 - 容器健康状态为 `healthy`，日志没有配置校验错误或持续重启。
 
-登录后台后，使用 Gitea 模板创建业务 Client。完整步骤见
-[Gitea 接入指南](./GITEA_INTEGRATION.md)。
+登录后台后，使用 Gitea 模板创建业务 Client，并启用“显示在用户门户”。确认普通用户能看到 Gitea
+卡片、卡片跳转到正确的 HTTPS 地址，管理员能够看到后台入口；门户退出后应回到
+`/portal/signed-out`，且 `/portal/api/me` 再次返回 `401`。完整步骤见
+[Gitea 接入指南](./GITEA_INTEGRATION.md)和[用户门户部署与使用指南](./USER_PORTAL.md)。
 
 ## 多实例 Redis 部署
 
@@ -475,6 +511,8 @@ curl --fail --silent --show-error \
 同时遵守以下约束：
 
 - 所有实例必须使用完全相同的 `clients`、Cookie Keys、Provider 配置和签名 JWKS。
+- 所有实例必须使用完全相同的 `portal` 与 `clients[].portal` 配置；Redis `auth.stateStore` 同时保存
+  门户登录 state、登录限流计数和 BFF Session。
 - 不要让每个实例首次启动时各自生成 JWKS；通过安全分发预置同一份 `jwks.json`。
 - Redis 应使用独立实例或独立受控数据库，并启用认证、持久化和 `noeviction`。OIDC 键被逐出会
   造成会话、授权码或撤销状态不一致。
@@ -498,6 +536,9 @@ curl --fail --silent --show-error \
 - [ ] 用户、OIDC、应用数据和 JWKS 都位于持久化存储。
 - [ ] 本地认证只使用 bcrypt，密码文件权限为 `0600`。
 - [ ] `admin.allowedGroups` 使用专用管理员组。
+- [ ] 门户使用独立 confidential Client，精确注册 `/portal/callback` 和
+      `/portal/signed-out`，且不复用后台或业务 Client Secret。
+- [ ] 所有门户 `launch_url` 和 `icon_url` 使用 HTTPS；卡片入口已逐一验收。
 - [ ] `server.corsOrigins` 默认为空；确需跨域时只添加精确 HTTPS Origin。
 - [ ] Provider API 默认关闭；开启时配置 Client allowlist 和最小操作集。
 - [ ] 已完成备份恢复演练和明确的版本回滚步骤。
@@ -522,6 +563,13 @@ Issuer。
 启用后台时，至少一个 Client 的 `redirect_uris` 必须包含
 `${server.url}${admin.basePath}/callback`，并使用授权码流程和 `client_secret_basic`。
 
+### 提示 `portal_client_required`
+
+确认 `portal.clientId` 指向 `clients[]` 中的 confidential Client。该 Client 必须精确注册
+`${server.url}${portal.basePath}/callback` 和 `${server.url}${portal.basePath}/signed-out`，并使用
+`response_types=["code"]`、包含 `authorization_code` 的 `grant_types` 和
+`client_secret_basic`。不要把 Gitea 首页注册成门户退出地址。
+
 ### 提示 Redis 部署缺少共享 stateStore
 
 Redis OIDC Adapter 用于多实例时，`auth.stateStore` 也必须配置为 Redis。它保存 OAuth state、
@@ -535,6 +583,7 @@ OIDC Adapter。它当前不能和多实例 Redis 模式组合。
 ## 相关文档
 
 - [Gitea 接入指南](./GITEA_INTEGRATION.md)
+- [用户门户部署与使用指南](./USER_PORTAL.md)
 - [生产运维手册](./OPERATIONS.md)
 - [反向代理 HTTPS 配置指南](./REVERSE_PROXY_HTTPS.md)
 - [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)

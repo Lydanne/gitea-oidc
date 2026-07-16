@@ -83,6 +83,12 @@ const absoluteHttpUrlSchema = exactProtocolStringSchema(2048).superRefine((value
   }
 });
 
+/**
+ * 门户展示 URL 可以携带普通 query，但只能使用 HTTP(S)，且不能携带凭据或 fragment。
+ * 是否允许 HTTP 由所属 Application 的 environment 继续约束。
+ */
+export const portalUrlSchema = absoluteHttpUrlSchema;
+
 export const issuerUrlSchema = absoluteHttpUrlSchema.superRefine((value, context) => {
   const url = parseUrl(value);
   if (!url) {

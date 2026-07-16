@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   ApplicationConsentPolicyV1Schema,
   ApplicationEnvironmentV1Schema,
+  ApplicationPortalInputV1Schema,
   ApplicationTrustLevelV1Schema,
   ApplicationV1Schema,
   OidcClientV1Schema,
@@ -32,6 +33,7 @@ export const CustomApplicationInputV1Schema = z
     slug: slugSchema.optional(),
     description: descriptionSchema.optional(),
     environment: ApplicationEnvironmentV1Schema,
+    portal: ApplicationPortalInputV1Schema.optional(),
     owner: z.string().trim().min(1).max(320).optional(),
     trustLevel: ApplicationTrustLevelV1Schema.default("third_party"),
     consentPolicy: ApplicationConsentPolicyV1Schema.default("explicit"),
@@ -104,6 +106,22 @@ export const CreateCustomApplicationRequestV1Schema = z
           );
         }
       });
+    }
+
+    if (request.application.portal !== undefined) {
+      for (const field of ["launchUrl", "iconUrl"] as const) {
+        const value = request.application.portal[field];
+        if (
+          value !== undefined &&
+          !uriAllowedForEnvironment(value, request.application.environment)
+        ) {
+          addIssue(
+            context,
+            ["application", "portal", field],
+            "生产和预发布环境必须使用 HTTPS；开发环境仅对 loopback URL 放宽 HTTP",
+          );
+        }
+      }
     }
   });
 

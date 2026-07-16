@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { ApplicationEnvironmentV1Schema, ApplicationTrustLevelV1Schema } from "./application.js";
+import {
+  ApplicationEnvironmentV1Schema,
+  ApplicationPortalInputV1Schema,
+  ApplicationTrustLevelV1Schema,
+} from "./application.js";
 import {
   CreateCustomApplicationReceiptV1Schema,
   CreateCustomApplicationResponseV1Schema,
@@ -101,6 +105,7 @@ const TemplateApplicationIdentityV1Schema = z
     name: displayNameSchema,
     slug: slugSchema.optional(),
     description: descriptionSchema.optional(),
+    portal: ApplicationPortalInputV1Schema.optional(),
   })
   .strict();
 

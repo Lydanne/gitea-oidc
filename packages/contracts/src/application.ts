@@ -6,11 +6,13 @@ import {
   displayNameSchema,
   identifierSchema,
   isoDateTimeSchema,
+  portalUrlSchema,
   redirectUriSchema,
   resourceSchema,
   scopeSchema,
   slugSchema,
   uniqueStringArraySchema,
+  uriAllowedForEnvironment,
 } from "./schemaPrimitives.js";
 import { CUSTOM_APPLICATION_SCHEMA_VERSION } from "./versions.js";
 
@@ -24,6 +26,25 @@ export const ApplicationStatusV1Schema = z.enum([
 export const ApplicationEnvironmentV1Schema = z.enum(["development", "staging", "production"]);
 export const ApplicationTrustLevelV1Schema = z.enum(["first_party", "third_party"]);
 export const ApplicationConsentPolicyV1Schema = z.enum(["explicit", "skip_for_trusted"]);
+
+export const ApplicationPortalV1Schema = z
+  .object({
+    enabled: z.boolean(),
+    launchUrl: portalUrlSchema,
+    iconUrl: portalUrlSchema.optional(),
+    order: z.number().int().min(0).max(1_000_000),
+  })
+  .strict();
+
+/** 创建请求允许省略安全默认值，持久化的 ApplicationPortalV1 始终是完整对象。 */
+export const ApplicationPortalInputV1Schema = z
+  .object({
+    enabled: z.boolean().default(true),
+    launchUrl: portalUrlSchema,
+    iconUrl: portalUrlSchema.optional(),
+    order: z.number().int().min(0).max(1_000_000).default(0),
+  })
+  .strict();
 
 export const ApplicationSourceV1Schema = z.discriminatedUnion("kind", [
   z
@@ -53,6 +74,7 @@ export const ApplicationV1Schema = z
     trustLevel: ApplicationTrustLevelV1Schema,
     consentPolicy: ApplicationConsentPolicyV1Schema,
     environment: ApplicationEnvironmentV1Schema,
+    portal: ApplicationPortalV1Schema.optional(),
     owner: z.string().trim().min(1).max(320).optional(),
     version: z.number().int().positive(),
     createdAt: isoDateTimeSchema,
@@ -69,6 +91,19 @@ export const ApplicationV1Schema = z
         ["consentPolicy"],
         "只有 first_party 应用可以使用 skip_for_trusted consent 策略",
       );
+    }
+
+    if (application.portal !== undefined) {
+      for (const field of ["launchUrl", "iconUrl"] as const) {
+        const value = application.portal[field];
+        if (value !== undefined && !uriAllowedForEnvironment(value, application.environment)) {
+          addIssue(
+            context,
+            ["portal", field],
+            "生产和预发布环境必须使用 HTTPS；开发环境仅对 loopback URL 放宽 HTTP",
+          );
+        }
+      }
     }
   });
 
@@ -124,6 +159,9 @@ export type ApplicationStatusV1 = z.infer<typeof ApplicationStatusV1Schema>;
 export type ApplicationEnvironmentV1 = z.infer<typeof ApplicationEnvironmentV1Schema>;
 export type ApplicationTrustLevelV1 = z.infer<typeof ApplicationTrustLevelV1Schema>;
 export type ApplicationConsentPolicyV1 = z.infer<typeof ApplicationConsentPolicyV1Schema>;
+export type ApplicationPortalV1 = z.infer<typeof ApplicationPortalV1Schema>;
+export type ApplicationPortalInputV1 = z.input<typeof ApplicationPortalInputV1Schema>;
+export type NormalizedApplicationPortalInputV1 = z.output<typeof ApplicationPortalInputV1Schema>;
 export type ApplicationSourceV1 = z.infer<typeof ApplicationSourceV1Schema>;
 export type ApplicationV1 = z.infer<typeof ApplicationV1Schema>;
 export type OidcClientV1 = z.infer<typeof OidcClientV1Schema>;

@@ -14,6 +14,7 @@ import {
   parseApplicationDetailsListV1,
   parseCreateCustomApplicationRequestV1,
   parseCreateTemplateApplicationRequestV1,
+  parsePortalApplicationListV1,
   parsePreviewApplicationTemplateRequestV1,
   parseRotateApplicationCredentialRequestV1,
   safeParseApplicationConnectionV1,
@@ -26,6 +27,7 @@ import {
   safeParseCreateTemplateApplicationRequestV1,
   safeParseIntegrationGuideV1,
   safeParseOidcClientV1,
+  safeParsePortalApplicationV1,
   safeParseRotateApplicationCredentialRequestV1,
   safeParseRotateApplicationCredentialResponseV1,
 } from "../index.js";
@@ -267,6 +269,9 @@ describe("custom application DTOs", () => {
       application: {
         name: "示例应用",
         environment: "development",
+        portal: {
+          launchUrl: "http://127.0.0.1:3000/?from=portal",
+        },
       },
       client: {
         clientType: "confidential",
@@ -277,6 +282,11 @@ describe("custom application DTOs", () => {
     expect(parsed.application).toMatchObject({
       trustLevel: "third_party",
       consentPolicy: "explicit",
+      portal: {
+        enabled: true,
+        launchUrl: "http://127.0.0.1:3000/?from=portal",
+        order: 0,
+      },
     });
     expect(parsed.client).toMatchObject({
       scopes: ["openid", "profile", "email"],
@@ -285,6 +295,34 @@ describe("custom application DTOs", () => {
       pkcePolicy: "required",
     });
     expect(parsed.credentialDelivery).toBe("direct");
+  });
+
+  it.each([
+    ["production HTTP launch URL", "production", { launchUrl: "http://127.0.0.1:3000" }],
+    [
+      "staging HTTP icon URL",
+      "staging",
+      { launchUrl: "https://app.example.com", iconUrl: "http://127.0.0.1/icon.png" },
+    ],
+    ["development non-loopback HTTP", "development", { launchUrl: "http://app.example.com" }],
+    ["non-HTTP launch URL", "development", { launchUrl: "javascript:alert(1)" }],
+    ["launch URL credentials", "production", { launchUrl: "https://user:pass@app.example.com" }],
+    ["launch URL fragment", "production", { launchUrl: "https://app.example.com/#private" }],
+  ])("rejects portal %s", (_name, environment, portal) => {
+    expect(
+      safeParseCreateCustomApplicationRequestV1({
+        schemaVersion: CUSTOM_APPLICATION_SCHEMA_VERSION,
+        application: { name: "示例应用", environment, portal },
+        client: {
+          clientType: "confidential",
+          redirectUris: [
+            environment === "development"
+              ? "http://127.0.0.1:3000/oidc/callback"
+              : "https://app.example.com/oidc/callback",
+          ],
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it.each([
@@ -516,6 +554,33 @@ describe("credential rotation DTOs", () => {
 });
 
 describe("ApplicationV1", () => {
+  it("keeps legacy records compatible and validates portal URLs against environment", () => {
+    expect(safeParseApplicationV1(application).success).toBe(true);
+    expect(
+      safeParseApplicationV1({
+        ...application,
+        environment: "production",
+        portal: {
+          enabled: true,
+          launchUrl: "https://app.example.com/?from=portal",
+          iconUrl: "https://cdn.example.com/app.svg",
+          order: 10,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      safeParseApplicationV1({
+        ...application,
+        environment: "production",
+        portal: {
+          enabled: true,
+          launchUrl: "http://127.0.0.1:3000",
+          order: 10,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("does not expose arbitrary template input or snapshots", () => {
     expect(
       safeParseApplicationV1({
@@ -537,7 +602,10 @@ describe("template application DTOs", () => {
     const parsed = parseCreateTemplateApplicationRequestV1({
       schemaVersion: 1,
       template: { id: "gitea", version: 1 },
-      application: { name: "研发 Gitea" },
+      application: {
+        name: "研发 Gitea",
+        portal: { launchUrl: "https://git.example.com", order: 20 },
+      },
       templateInput: {
         giteaBaseUrl: "https://git.example.com",
         targetVersion: "1.26",
@@ -546,6 +614,9 @@ describe("template application DTOs", () => {
 
     expect(parsed).toMatchObject({
       template: { id: "gitea", version: 1 },
+      application: {
+        portal: { enabled: true, launchUrl: "https://git.example.com", order: 20 },
+      },
       credentialDelivery: "direct",
     });
     expect(
@@ -643,6 +714,44 @@ describe("template application DTOs", () => {
         connection,
         credentialDelivery: { kind: "direct", credential },
         integrationGuide,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("PortalApplicationV1", () => {
+  it("returns a strict readonly minimal projection", () => {
+    const parsed = parsePortalApplicationListV1([
+      {
+        id: "app_01",
+        name: "示例应用",
+        description: "门户描述",
+        iconUrl: "https://cdn.example.com/app.svg",
+        launchUrl: "https://app.example.com/?from=portal",
+        order: 10,
+      },
+    ]);
+
+    expect(Object.isFrozen(parsed)).toBe(true);
+    expect(Object.isFrozen(parsed[0])).toBe(true);
+    expect(parsed[0]).toEqual({
+      id: "app_01",
+      name: "示例应用",
+      description: "门户描述",
+      iconUrl: "https://cdn.example.com/app.svg",
+      launchUrl: "https://app.example.com/?from=portal",
+      order: 10,
+    });
+    expect(
+      safeParsePortalApplicationV1({
+        ...parsed[0],
+        clientId: "must-not-leak",
+      }).success,
+    ).toBe(false);
+    expect(
+      safeParsePortalApplicationV1({
+        ...parsed[0],
+        launchUrl: "http://app.example.com",
       }).success,
     ).toBe(false);
   });

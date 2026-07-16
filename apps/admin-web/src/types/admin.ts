@@ -35,7 +35,7 @@ export interface AuditLogRecord {
   id: string;
   eventType: AuditEventType;
   outcome: AuditOutcome;
-  source: "admin" | "provider" | "oidc" | "system";
+  source: "admin" | "portal" | "provider" | "oidc" | "system";
   userId?: string;
   actorUserId?: string;
   username?: string;
@@ -172,6 +172,14 @@ export interface AdminSession {
 export type ApplicationDetails = ApplicationDetailsV1;
 export type ApplicationSecretSummary = ApplicationSecretSummaryV1;
 
+/** 应用在普通用户门户中的展示配置。 */
+export interface ApplicationPortalForm {
+  enabled: boolean;
+  launchUrl: string;
+  iconUrl: string;
+  order: number;
+}
+
 /** 自定义应用创建表单，仅包含当前管理台开放的配置。 */
 export interface ApplicationForm {
   name: string;
@@ -182,6 +190,7 @@ export interface ApplicationForm {
   postLogoutRedirectUris: string;
   scopes: string;
   refreshToken: boolean;
+  portal: ApplicationPortalForm;
 }
 
 /** 由模板 form descriptor 驱动的通用创建表单。 */
@@ -190,6 +199,7 @@ export interface TemplateApplicationForm {
   slug: string;
   templateKey: string;
   templateInput: Record<string, string | boolean>;
+  portal: ApplicationPortalForm;
 }
 
 export type CreateApplicationOutcomeResponse =

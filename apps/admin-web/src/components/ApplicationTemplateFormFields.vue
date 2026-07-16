@@ -5,6 +5,7 @@ import Select from "primevue/select";
 import Textarea from "primevue/textarea";
 import { computed, watch } from "vue";
 import type { ApplicationTemplateSummaryV1, TemplateApplicationForm } from "../types/admin";
+import ApplicationPortalFormFields from "./ApplicationPortalFormFields.vue";
 
 const props = defineProps<{ templates: ApplicationTemplateSummaryV1[] }>();
 const model = defineModel<TemplateApplicationForm>({ required: true });
@@ -149,5 +150,7 @@ watch(
         <small v-if="field.description" class="field-help">{{ field.description }}</small>
       </template>
     </div>
+
+    <ApplicationPortalFormFields v-model="model.portal" />
   </form>
 </template>

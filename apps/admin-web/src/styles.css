@@ -449,6 +449,7 @@ select {
 }
 
 .application-form .p-inputtext,
+.application-form .p-inputnumber,
 .application-form .p-select,
 .application-form .p-textarea {
   width: 100%;
@@ -480,6 +481,23 @@ select {
 
 .text-break {
   overflow-wrap: anywhere;
+}
+
+.portal-launch-link {
+  color: var(--focus);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.portal-launch-link:hover {
+  text-decoration: underline;
+}
+
+.portal-launch-link:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .credential-panel {

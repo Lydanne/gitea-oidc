@@ -4,6 +4,7 @@ import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import Textarea from "primevue/textarea";
 import type { ApplicationForm } from "../types/admin";
+import ApplicationPortalFormFields from "./ApplicationPortalFormFields.vue";
 
 const model = defineModel<ApplicationForm>({ required: true });
 
@@ -128,5 +129,7 @@ const clientTypeOptions = [
         <small class="field-help">提交时会自动加入 <code>offline_access</code> scope</small>
       </label>
     </div>
+
+    <ApplicationPortalFormFields v-model="model.portal" />
   </form>
 </template>

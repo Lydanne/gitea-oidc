@@ -41,7 +41,11 @@ import type {
   TagSeverity,
   TemplateApplicationForm,
 } from "../types/admin";
-import { buildCustomApplicationRequest } from "../utils/applicationForm";
+import {
+  buildCustomApplicationRequest,
+  buildTemplateApplicationRequest,
+  toSafePortalLaunchUrl,
+} from "../utils/applicationForm";
 
 type ApplicationEnvironment = "development" | "staging" | "production";
 type ApplicationCreateMode = "template" | "custom";
@@ -61,6 +65,7 @@ const createBlankForm = (): ApplicationForm => ({
   postLogoutRedirectUris: "",
   scopes: "openid profile email",
   refreshToken: false,
+  portal: { enabled: false, launchUrl: "", iconUrl: "", order: 0 },
 });
 
 const createBlankTemplateForm = (
@@ -77,6 +82,7 @@ const createBlankTemplateForm = (
     templateInput: Object.fromEntries(
       (template?.form.fields ?? []).map((field) => [field.name, field.defaultValue ?? ""]),
     ),
+    portal: { enabled: false, launchUrl: "", iconUrl: "", order: 0 },
   };
 };
 
@@ -129,6 +135,7 @@ const visibleApplications = computed(() => {
       application.name,
       application.slug,
       application.status,
+      application.portal?.launchUrl ?? "",
       ...clients.map((client) => client.clientId),
     ].some((value) => value.toLowerCase().includes(query)),
   );
@@ -158,37 +165,7 @@ const buildCreatePayload = (): CreateCustomApplicationRequestV1 => {
 const buildTemplateCreatePayload = (): CreateTemplateApplicationRequestV1 => {
   const template = selectedTemplate.value;
   if (!template) throw new Error("请选择一个可用的应用模板");
-
-  const name = templateForm.value.name.trim();
-  const slug = templateForm.value.slug.trim();
-  if (!name) throw new Error("应用名称不能为空");
-  if (name.length > 120) throw new Error("应用名称不能超过 120 个字符");
-  if (slug && (slug.length > 80 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(slug))) {
-    throw new Error("slug 只能包含小写字母、数字和单个连字符");
-  }
-
-  const templateInput: Record<string, string | boolean> = {};
-  for (const field of template.form.fields) {
-    if (field.kind === "checkbox") {
-      templateInput[field.name] = templateForm.value.templateInput[field.name] === true;
-      continue;
-    }
-
-    const rawValue = templateForm.value.templateInput[field.name];
-    const value = typeof rawValue === "string" ? rawValue.trim() : "";
-    if (field.required && !value) {
-      throw new Error(`${field.label}不能为空`);
-    }
-    if (value) templateInput[field.name] = value;
-  }
-
-  return {
-    schemaVersion: 1,
-    template: template.reference,
-    application: { name, ...(slug ? { slug } : {}) },
-    templateInput,
-    credentialDelivery: "direct",
-  };
+  return buildTemplateApplicationRequest(templateForm.value, template);
 };
 
 const previewTemplateApplication = async () => {
@@ -525,6 +502,18 @@ const getSourceLabel = (application: ApplicationDetails["application"]) => {
   return application.source.kind === "custom" ? "自定义" : "系统配置";
 };
 
+const getPortalStatus = (application: ApplicationDetails["application"]) => {
+  if (!application.portal) return { label: "未配置", severity: "secondary" as const };
+  if (!application.portal.enabled) return { label: "已隐藏", severity: "secondary" as const };
+  if (application.status !== "active") return { label: "等待应用启用", severity: "warn" as const };
+  return { label: "已显示", severity: "success" as const };
+};
+
+const getPortalLaunchUrl = (application: ApplicationDetails["application"]): string | null =>
+  application.portal?.enabled
+    ? toSafePortalLaunchUrl(application.portal.launchUrl, application.environment)
+    : null;
+
 onMounted(() => {
   void Promise.all([loadApplications(), loadTemplates()]);
 });
@@ -564,7 +553,7 @@ onMounted(() => {
       :loading="loading"
       striped-rows
       scrollable
-      table-style="min-width: 74rem"
+      table-style="min-width: 86rem"
     >
       <Column header="应用" sortable sort-field="application.name" style="min-width: 15rem">
         <template #body="{ data }">
@@ -601,6 +590,26 @@ onMounted(() => {
       <Column header="Scopes" style="min-width: 15rem">
         <template #body="{ data }">
           {{ data.clients[0]?.allowedScopes.join(" ") || "-" }}
+        </template>
+      </Column>
+      <Column header="用户门户" style="min-width: 10rem">
+        <template #body="{ data }">
+          <div class="stacked-cell">
+            <StatusTag
+              :value="getPortalStatus(data.application).label"
+              :severity="getPortalStatus(data.application).severity"
+            />
+            <a
+              v-if="getPortalLaunchUrl(data.application)"
+              class="portal-launch-link"
+              :href="getPortalLaunchUrl(data.application) ?? undefined"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              打开入口
+              <span class="sr-only">：{{ data.application.name }}</span>
+            </a>
+          </div>
         </template>
       </Column>
       <Column header="状态" sortable sort-field="application.status" style="min-width: 8rem">

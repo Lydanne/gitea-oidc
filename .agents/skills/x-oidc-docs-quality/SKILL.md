@@ -40,3 +40,4 @@ or documentation embedded in examples.
 - No real secrets, personal domains, local IPs, or one-off debugging logs remain.
 - Index pages and cross-links point to existing files.
 - `pnpm lint:md` passes, or the final response explains why it could not run.
+- Completed documentation changes are committed unless the user explicitly requested no commit.

@@ -125,7 +125,7 @@ jobs:
             esac
           done
           git add -- CHANGELOG.md package.json apps/*/package.json packages/*/package.json
-          git commit --message "chore(server-core): 准备发布 v$NEXT_VERSION"
+          git commit --message "chore(x-oidc): 准备发布 v$NEXT_VERSION"
           test "$(git status --porcelain)" = ""
 
       - name: Push release branch
@@ -153,7 +153,7 @@ jobs:
             pr_url=$(gh pr create \
               --base main \
               --head "$RELEASE_BRANCH" \
-              --title "chore(server-core): 准备发布 v$NEXT_VERSION" \
+              --title "chore(x-oidc): 准备发布 v$NEXT_VERSION" \
               --body "自动生成版本、更新变更日志并同步全部 workspace 包版本。合并后由 release.yml 发布不可变产物。")
           fi
           echo "Release pull request: $pr_url"

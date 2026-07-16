@@ -22,6 +22,8 @@ change touches their area.
 4. Choose the narrowest implementation that preserves current contracts.
 5. Update tests and docs in the same change when behavior, config, or user workflow changes.
 6. Run focused validation first, then broaden only when shared contracts changed.
+7. For completed write tasks, stage only in-scope changes and create the required commit unless
+   the user explicitly requested no commit.
 
 ## Pull In Specialized Skills
 
@@ -38,6 +40,7 @@ change touches their area.
 - Read `references/change-playbook.md` when implementing a feature, bug fix, or refactor.
 - Read `references/quality-rubric.md` before finishing non-trivial code changes.
 - Read `references/testing-strategy.md` when choosing which tests or commands to run.
+- Read `references/commit-workflow.md` before staging or committing changes.
 
 ## Definition Of Done
 
@@ -45,4 +48,5 @@ change touches their area.
 - Runtime errors are explicit and useful; secrets are never logged.
 - Types, schema, examples, docs, and tests stay synchronized.
 - Focused tests pass, and broader checks are run when the blast radius warrants it.
+- Completed in-scope changes are committed; unrelated worktree changes remain untouched.
 - The final response names any validation that could not be run.

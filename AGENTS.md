@@ -103,5 +103,23 @@
 
 - 使用 Conventional Commits：`type(scope): 中文主题描述`。
 - 允许的 type：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`chore`、`build`、`ci`、`revert`。
-- 主题用中文祈使语气，50 字以内，不加句号。
+- scope 必须填写；单包变更使用最近 `package.json` 所在目录名，根级或不可拆分的跨包变更使用
+  `x-oidc`。
+- 主题用中文祈使语气，完整标题不超过 50 字，结尾不加标点。
 - 本仓库根级文件的 scope 使用 `x-oidc`，例如：`docs(x-oidc): 新增项目代理指南`。
+
+## 自动提交与交付
+
+- 对任何经用户授权且实际修改仓库文件的任务，实现完成并通过适当验证后，必须自动暂存本任务变更并
+  创建提交，不再等待用户再次要求“提交”。
+- 仅当用户明确要求不暂存或不提交、任务仍未完成、验证发现已知错误，或当前请求只是审查、诊断、
+  解释和方案时跳过提交；不得创建空提交或把未完成代码包装成已完成提交。
+- 暂存前必须检查 `git status --short`、`git diff` 和 `git diff --cached`。只能用显式路径或明确的 hunk
+  暂存本任务变更，禁止使用 `git add .`、`git add -A`，不得带入无关的 staged、unstaged 或 untracked 文件。
+- 同一文件混有无关改动时必须拆分暂存；无法安全拆分，或索引中已有无法隔离的无关变更时，停止提交并
+  向用户说明阻塞原因。
+- 提交前必须检查完整 staged diff、运行 `git diff --cached --check`，并确认没有敏感信息。禁止使用
+  `--no-verify` 绕过 Husky、lint-staged 或 commitlint。
+- 可独立审查和回滚的多包变更应按 package scope 拆分提交；无法拆分的原子跨包变更使用 `x-oidc` scope。
+- 提交后必须核对 `git status --short`，在最终回复中报告 commit hash 和剩余未提交变更。
+- 自动提交不包含自动 push、创建 tag、发布或创建 PR；这些外部操作仍需用户明确授权。

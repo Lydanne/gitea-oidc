@@ -19,6 +19,8 @@ Use this skill for build, release, Docker, CI, and pre-publish validation work.
    of commits unless the repo explicitly tracks them.
 4. Keep README, docs, and examples consistent with CLI scripts and package behavior.
 5. Commit messages use Conventional Commits with scope `x-oidc` for root package files.
+6. For completed write tasks, follow the engineering skill's commit workflow and do not leave
+   validated release changes uncommitted unless the user explicitly requested that boundary.
 
 ## Local References
 

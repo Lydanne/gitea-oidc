@@ -254,7 +254,7 @@ pnpm release:pack
 - `pnpm release:verify` 会执行发布前完整质量门禁，耗时明显长于普通 lint。
 - `pnpm release:pack` 将唯一 npm tarball 和 `SHA256SUMS` 写入 `artifacts/npm/`，不会发布到 npm。
 - `pnpm release:prepare` 只修改版本和变更日志，不自行提交；准备工作流会在校验变更范围后创建提交。
-  该命令不属于只读验证命令。
+  该命令不属于只读验证命令。“命令本身不提交”不改变 Agent 完成写入任务后必须自动提交的仓库规则。
 
 本地不得使用 `npm publish`、`docker push` 或手工 `git tag` 代替 GitHub Actions 发布。
 

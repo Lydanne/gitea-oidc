@@ -49,6 +49,7 @@
     "check:boundaries": "node scripts/check-workspace-boundaries.mjs",
     "lint": "biome check . && pnpm check:boundaries",
     "lint:fix": "biome check --write .",
+    "lint:commits": "node scripts/check-commit-range.mjs",
     "format": "biome format --write .",
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"!**/node_modules/**\" \"!**/dist/**\" \"!**/coverage/**\"",
     "lint:md:fix": "markdownlint-cli2 --fix \"**/*.md\" \"!**/node_modules/**\" \"!**/dist/**\" \"!**/coverage/**\"",

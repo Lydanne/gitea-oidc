@@ -34,5 +34,9 @@
 
 - Use the directory name containing the nearest `package.json`, such as `server-core`, `admin-web`,
   or `idp-server`.
-- For root workspace files, use scope `x-oidc`.
+- For root workspace files and atomic cross-package changes, use scope `x-oidc`.
 - Subject should be Chinese, imperative, concise, and without trailing punctuation.
+- Before committing, inspect the staged diff, run `git diff --cached --check`, and confirm the
+  sensitive-file check still passes for release-facing changes.
+- Never bypass repository hooks with `--no-verify`; automated release commits must satisfy the
+  same commitlint rules as human and Agent commits.

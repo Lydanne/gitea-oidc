@@ -67,7 +67,8 @@ export type ApplicationAuditEventType =
   | "application.enabled"
   | "application.disabled"
   | "client_secret.created"
-  | "client_secret.rotated";
+  | "client_secret.rotated"
+  | "client_secret.revoked";
 
 export interface ApplicationAuditActor {
   type: "system" | "user";

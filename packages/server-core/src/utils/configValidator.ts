@@ -5,7 +5,7 @@
  */
 
 import { ZodError } from "zod";
-import { type GiteaOidcConfig, resolveApplicationsConfig } from "../config.js";
+import { type ResolvedGiteaOidcConfig, resolveApplicationsConfig } from "../config.js";
 import { GiteaOidcConfigSchema } from "../schemas/configSchema.js";
 import {
   findAdminClient,
@@ -57,7 +57,7 @@ export interface ConfigValidationResult {
   warnings: string[];
 
   /** 验证后的配置（如果验证通过） */
-  config?: GiteaOidcConfig;
+  config?: ResolvedGiteaOidcConfig;
 }
 
 /**
@@ -67,7 +67,7 @@ export function validateConfig(config: unknown): ConfigValidationResult {
   const result = GiteaOidcConfigSchema.safeParse(config);
 
   if (result.success) {
-    const parsedConfig = result.data as unknown as GiteaOidcConfig;
+    const parsedConfig = result.data as unknown as ResolvedGiteaOidcConfig;
     const errors = [
       ...checkRuntimeConfigErrors(parsedConfig),
       ...checkProductionErrors(parsedConfig),
@@ -102,7 +102,7 @@ export function validateConfig(config: unknown): ConfigValidationResult {
   };
 }
 
-function checkRuntimeConfigErrors(config: GiteaOidcConfig): ConfigValidationError[] {
+function checkRuntimeConfigErrors(config: ResolvedGiteaOidcConfig): ConfigValidationError[] {
   const errors: ConfigValidationError[] = [];
   const applications = resolveApplicationsConfig(config);
   addPublicUrlBoundaryErrors(errors, "server.url", config.server.url);
@@ -150,7 +150,7 @@ function checkRuntimeConfigErrors(config: GiteaOidcConfig): ConfigValidationErro
   return errors;
 }
 
-function checkProductionErrors(config: GiteaOidcConfig): ConfigValidationError[] {
+function checkProductionErrors(config: ResolvedGiteaOidcConfig): ConfigValidationError[] {
   if (!isProductionRuntime()) {
     return [];
   }
@@ -588,7 +588,7 @@ function addCorsOriginBoundaryErrors(
 
 function addProviderApiBaseUrlBoundaryErrors(
   errors: ConfigValidationError[],
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
 ): void {
   if (!config.providerApi.enabled) {
     return;

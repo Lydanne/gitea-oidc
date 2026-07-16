@@ -50,9 +50,10 @@ export const defaultApplicationsConfig: ApplicationsConfig = {
 };
 
 /**
- * Gitea OIDC IdP 完整配置接口
+ * Gitea OIDC IdP 配置输入接口
  *
- * 包含所有可配置的选项，涵盖服务器、日志、OIDC Provider、客户端和认证系统设置
+ * 包含所有可配置的选项。带默认值的新字段保持可选，确保旧版 TypeScript 配置可直接升级；
+ * 服务启动前会通过 Schema 解析为 `ResolvedGiteaOidcConfig`。
  */
 export interface GiteaOidcConfig {
   /**
@@ -70,7 +71,7 @@ export interface GiteaOidcConfig {
     trustProxy: boolean;
     /** 受信任反向代理的 IP/CIDR 列表；生产环境启用 trustProxy 时必填。 */
     trustedProxyIps?: string[];
-    corsOrigins: string[];
+    corsOrigins?: string[];
   };
 
   /**
@@ -209,12 +210,12 @@ export interface GiteaOidcConfig {
   /**
    * 内置后台管理配置
    */
-  admin: AdminConfig;
+  admin?: AdminConfig;
 
   /**
    * 统一 Provider API 配置
    */
-  providerApi: ProviderApiRuntimeConfig;
+  providerApi?: ProviderApiRuntimeConfig;
 
   /**
    * 管理端应用控制面配置。
@@ -253,6 +254,13 @@ export interface GiteaOidcConfig {
   };
 }
 
+/** 已经完成默认值填充和校验、可供服务内部安全使用的配置。 */
+export type ResolvedGiteaOidcConfig = Omit<GiteaOidcConfig, "server" | "admin" | "providerApi"> & {
+  server: Omit<GiteaOidcConfig["server"], "corsOrigins"> & { corsOrigins: string[] };
+  admin: AdminConfig;
+  providerApi: ProviderApiRuntimeConfig;
+};
+
 /**
  * 配置模块类型定义
  * 支持两种导出方式：
@@ -278,7 +286,7 @@ export const DEFAULT_AUDIT_CONFIG: AuditConfig = {
   retentionDays: 30,
 };
 
-const defaultConfig: GiteaOidcConfig = {
+const defaultConfig: ResolvedGiteaOidcConfig = {
   server: {
     host: "0.0.0.0",
     port: 3000,
@@ -360,7 +368,7 @@ const defaultConfig: GiteaOidcConfig = {
   },
 
   admin: {
-    enabled: true,
+    enabled: false,
     basePath: "/admin",
     allowedGroups: ["gitea-oidc-admins"],
     sessionTtlSeconds: 3600,
@@ -441,12 +449,12 @@ export function resolveApplicationsConfig(config: GiteaOidcConfig): Applications
  *
  * @returns {GiteaOidcConfig} 合并后的完整配置对象
  */
-export async function loadConfig(): Promise<GiteaOidcConfig> {
+export async function loadConfig(): Promise<ResolvedGiteaOidcConfig> {
   const jsConfigPath = join(process.cwd(), "gitea-oidc.config.js");
   const jsonConfigPath = join(process.cwd(), "gitea-oidc.config.json");
 
   let configPath = "";
-  let userConfig: Partial<GiteaOidcConfig> = {};
+  let userConfig: Partial<ResolvedGiteaOidcConfig> = {};
 
   // 优先查找 .js 配置文件
   if (existsSync(jsConfigPath)) {
@@ -489,7 +497,9 @@ export async function loadConfig(): Promise<GiteaOidcConfig> {
   return validateLoadedConfig(mergedConfig);
 }
 
-async function validateLoadedConfig(config: GiteaOidcConfig): Promise<GiteaOidcConfig> {
+async function validateLoadedConfig(
+  config: ResolvedGiteaOidcConfig,
+): Promise<ResolvedGiteaOidcConfig> {
   // 使用 Zod 验证配置
   const { validateConfig: zodValidateConfig, printValidationResult } = await import(
     "./utils/configValidator"

@@ -1,17 +1,17 @@
-import type { GiteaOidcConfig } from "../config.js";
+import type { ResolvedGiteaOidcConfig } from "../config.js";
 
 export function normalizeAdminBasePath(basePath: string): string {
   return basePath.replace(/\/+$/, "") || "/admin";
 }
 
-export function getAdminRedirectUri(config: GiteaOidcConfig, basePath: string): string {
+export function getAdminRedirectUri(config: ResolvedGiteaOidcConfig, basePath: string): string {
   return `${config.server.url.replace(/\/+$/, "")}${normalizeAdminBasePath(basePath)}/callback`;
 }
 
 export function findAdminClient(
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   basePath: string,
-): GiteaOidcConfig["clients"][number] | undefined {
+): ResolvedGiteaOidcConfig["clients"][number] | undefined {
   const redirectUri = getAdminRedirectUri(config, basePath);
   return config.clients.find(
     (candidate) =>

@@ -229,8 +229,10 @@ docker compose --env-file .env.production logs --tail=200 idp
 
 ### Client Secret
 
-Client Secret 需要 IdP 和业务 Client 协调切换。应用管理模式通过后台轮换后，新 Secret 只显示
-一次；保存后立即更新 Gitea，并完成登录和退出测试。静态模式需要在维护窗口同步更新双方配置。
+Client Secret 需要 IdP 和业务 Client 协调切换。普通应用通过后台轮换后，新 Secret 只显示一次；
+保存后立即更新 Gitea，并完成登录和退出测试。`system application` 不能从后台轮换，应在维护窗口
+更新部署配置中的 `clients[]` 并重启 IdP；启动过程会事务性替换数据库中的 Secret，随后应立即更新
+对应业务 Client。静态模式同样需要在维护窗口同步更新双方配置。
 
 ### JWKS
 

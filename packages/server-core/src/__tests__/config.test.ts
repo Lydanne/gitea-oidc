@@ -71,6 +71,41 @@ describe("loadConfig", () => {
     expect(result).toBe(validated.config);
   });
 
+  it("旧版配置省略 admin 时默认关闭且不注入后台 callback", async () => {
+    const jsonConfig = {
+      clients: [
+        {
+          client_id: "gitea",
+          client_secret: "legacy-client-secret",
+          redirect_uris: ["http://localhost:3001/user/oauth2/gitea/callback"],
+          response_types: ["code"],
+          grant_types: ["authorization_code", "refresh_token"],
+          token_endpoint_auth_method: "client_secret_basic",
+        },
+      ],
+    };
+    writeFileSync(join(tempDir, "gitea-oidc.config.json"), JSON.stringify(jsonConfig));
+    mockValidateConfig.mockImplementation((config) => ({
+      valid: true,
+      warnings: [],
+      errors: [],
+      config,
+    }));
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(result.admin).toEqual({
+      enabled: false,
+      basePath: "/admin",
+      allowedGroups: ["gitea-oidc-admins"],
+      sessionTtlSeconds: 3600,
+    });
+    expect(result.clients[0].redirect_uris).toEqual([
+      "http://localhost:3001/user/oauth2/gitea/callback",
+    ]);
+  });
+
   it("falls back to default config when no file found", async () => {
     const validated = {
       valid: true,

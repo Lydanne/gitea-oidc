@@ -2,10 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { GiteaOidcConfig } from "../../config.js";
+import type { ResolvedGiteaOidcConfig } from "../../config.js";
 import { createApplicationRuntime } from "../applicationRuntime.js";
 
-function createRuntimeConfig(tempDir: string): GiteaOidcConfig {
+function createRuntimeConfig(tempDir: string): ResolvedGiteaOidcConfig {
   const masterKey = Buffer.from(Array.from({ length: 32 }, (_, index) => index + 41));
   return {
     server: { url: "https://id.example.com" },
@@ -37,7 +37,7 @@ function createRuntimeConfig(tempDir: string): GiteaOidcConfig {
         masterKey: masterKey.toString("base64url"),
       },
     },
-  } as GiteaOidcConfig;
+  } as ResolvedGiteaOidcConfig;
 }
 
 describe("createApplicationRuntime", () => {
@@ -104,6 +104,73 @@ describe("createApplicationRuntime", () => {
     } finally {
       await firstRuntime?.close();
       await secondRuntime?.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("配置删除 system Client 后撤销 OIDC Artifact，重新加入时解除栅栏", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-system-client-runtime-"));
+    const configured = createRuntimeConfig(tempDir);
+    const workerClient = {
+      ...configured.clients[0]!,
+      client_id: "system-worker",
+      client_secret: "system-worker-secret-value",
+      redirect_uris: ["https://worker.example.com/callback"],
+    };
+    const configuredWithWorker = {
+      ...configured,
+      clients: [...configured.clients, workerClient],
+    };
+    let runtime: Awaited<ReturnType<typeof createApplicationRuntime>>;
+
+    try {
+      runtime = await createApplicationRuntime(configuredWithWorker);
+      const imported = ((await runtime!.applicationService.listApplicationDetails()) as any[]).find(
+        (details) => details.clients[0]?.clientId === workerClient.client_id,
+      );
+      const applicationId = imported.application.id as string;
+      await runtime!.close();
+      runtime = undefined;
+
+      runtime = await createApplicationRuntime(configured);
+      const staged = (await runtime!.applicationService.getApplication(applicationId)) as any;
+      expect(staged.application).toMatchObject({ status: "disabling", version: 2 });
+      const failedRevoke = vi.fn().mockRejectedValue(new Error("OIDC store unavailable"));
+      await expect(runtime!.recoverPendingDisables(failedRevoke)).rejects.toThrow(
+        "OIDC store unavailable",
+      );
+      expect(failedRevoke).toHaveBeenCalledWith(workerClient.client_id);
+      expect(
+        ((await runtime!.applicationService.getApplication(applicationId)) as any).application,
+      ).toMatchObject({ status: "disabling", version: 2 });
+      await runtime!.close();
+      runtime = undefined;
+
+      runtime = await createApplicationRuntime(configuredWithWorker);
+      expect(
+        ((await runtime!.applicationService.getApplication(applicationId)) as any).application,
+      ).toMatchObject({ status: "disabling", version: 2 });
+      const revoke = vi.fn().mockResolvedValue(undefined);
+      const allow = vi.fn();
+      await runtime!.recoverPendingDisables(revoke, allow);
+      expect(revoke).toHaveBeenCalledWith(workerClient.client_id);
+      expect(allow).toHaveBeenCalledWith(workerClient.client_id);
+      const restored = (await runtime!.applicationService.getApplication(applicationId)) as any;
+      expect(restored.application).toMatchObject({ status: "active", version: 4 });
+      expect(
+        ((await runtime!.applicationService.listAuditEvents(applicationId)) as any[]).map(
+          (event) => event.type,
+        ),
+      ).toEqual([
+        "application.imported",
+        "application.disable_started",
+        "client_secret.revoked",
+        "application.disabled",
+        "application.imported",
+        "client_secret.rotated",
+      ]);
+    } finally {
+      await runtime?.close();
       await rm(tempDir, { force: true, recursive: true });
     }
   });

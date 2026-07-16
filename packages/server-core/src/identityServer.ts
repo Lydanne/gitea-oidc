@@ -14,6 +14,7 @@ import {
   DEFAULT_AUDIT_CONFIG,
   type GiteaOidcConfig,
   loadConfig,
+  type ResolvedGiteaOidcConfig,
   resolveApplicationsConfig,
 } from "./config.js";
 // 认证系统导入
@@ -111,7 +112,7 @@ export async function createIdentityServer(
 }
 
 async function createIdentityServerFromConfig(
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   options: IdentityServerOptions,
 ): Promise<FastifyInstance> {
   const publicDir = path.resolve(options.publicDir ?? DEFAULT_PUBLIC_DIR);
@@ -253,8 +254,9 @@ async function createIdentityServerFromConfig(
       Logger.warn("[适配器] 未配置适配器,使用默认 SQLite");
       OidcAdapterFactory.configure({ type: "sqlite" });
     }
-    await applicationRuntime?.recoverPendingDisables((clientId) =>
-      OidcAdapterFactory.revokeByClientId(clientId),
+    await applicationRuntime?.recoverPendingDisables(
+      (clientId) => OidcAdapterFactory.revokeByClientId(clientId),
+      (clientId) => OidcAdapterFactory.allowClientId(clientId),
     );
 
     // 加载或生成 JWKS
@@ -767,7 +769,9 @@ export async function start(
   return app;
 }
 
-async function resolveRuntimeConfig(customConfig?: GiteaOidcConfig): Promise<GiteaOidcConfig> {
+async function resolveRuntimeConfig(
+  customConfig?: GiteaOidcConfig,
+): Promise<ResolvedGiteaOidcConfig> {
   return customConfig === undefined ? loadConfig() : validateRuntimeConfig(customConfig);
 }
 
@@ -777,7 +781,7 @@ async function resolveRuntimeConfig(customConfig?: GiteaOidcConfig): Promise<Git
  * `loadConfig()` 已经会验证配置文件；这里覆盖 `start(customConfig)` 路径，避免集成方
  * 直接传配置时绕过生产环境安全校验。
  */
-export function validateRuntimeConfig(config: GiteaOidcConfig): GiteaOidcConfig {
+export function validateRuntimeConfig(config: GiteaOidcConfig): ResolvedGiteaOidcConfig {
   const validation = validateConfig(config);
   printValidationResult(validation);
 
@@ -803,7 +807,7 @@ function assertStrongProviderTokenKey(tokenEncryptionKey: string): void {
 }
 
 function createStateStore(
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
 ): StateStore & { destroy?: () => Promise<void> | void } {
   const stateStoreConfig = config.auth.stateStore ?? { type: "memory" as const };
   if (stateStoreConfig.type === "redis") {
@@ -819,7 +823,7 @@ function createStateStore(
   });
 }
 
-function toLogLevel(level: GiteaOidcConfig["logging"]["level"]): LogLevel {
+function toLogLevel(level: ResolvedGiteaOidcConfig["logging"]["level"]): LogLevel {
   return {
     debug: LogLevel.DEBUG,
     info: LogLevel.INFO,
@@ -892,7 +896,7 @@ function readRequestedScopes(params: unknown): string[] {
 
 function isTrustedInteractionPost(
   request: { headers: Record<string, unknown> },
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   uid: string,
 ): boolean {
   const contentType = request.headers["content-type"];

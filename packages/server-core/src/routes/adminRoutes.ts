@@ -20,7 +20,7 @@ import {
   type AdminSessionStoreLike,
   DistributedAdminSessionStore,
 } from "../admin/AdminSessionStore.js";
-import type { GiteaOidcConfig } from "../config.js";
+import type { ResolvedGiteaOidcConfig } from "../config.js";
 import { AuthCoordinator } from "../core/AuthCoordinator.js";
 import { ProviderApiService } from "../provider-api/ProviderApiService.js";
 import { NoopAuditLogRepository } from "../repositories/NoopAuditLogRepository.js";
@@ -161,7 +161,7 @@ export interface AdminRoutesOptions {
   app: FastifyInstance;
 
   /** 完整配置 */
-  config: GiteaOidcConfig;
+  config: ResolvedGiteaOidcConfig;
 
   /** OIDC Provider 实例 */
   oidcProvider: Provider;
@@ -1166,7 +1166,7 @@ function matchesAdminLoginBinding(expectedHash: string, binding: string): boolea
 }
 
 function buildAdminCookie(
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   basePath: string,
   value: string,
   maxAge: number,
@@ -1183,7 +1183,7 @@ function buildAdminCookie(
 }
 
 function buildAdminLoginCookie(
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   basePath: string,
   value: string,
   maxAge: number,
@@ -1201,7 +1201,7 @@ function buildAdminLoginCookie(
 
 function isAdminMutationRequestAllowed(
   request: FastifyRequest,
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   basePath: string,
 ): boolean {
   return (
@@ -1227,7 +1227,7 @@ function isJsonRequest(request: FastifyRequest): boolean {
 
 function isTrustedAdminRequestSource(
   request: FastifyRequest,
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   basePath: string,
 ): boolean {
   const expectedOrigin = new URL(config.server.url).origin;
@@ -1731,9 +1731,9 @@ function normalizeAdminReturnPath(basePath: string, value?: string): string {
 }
 
 function resolveAdminClient(
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   basePath: string,
-): GiteaOidcConfig["clients"][number] {
+): ResolvedGiteaOidcConfig["clients"][number] {
   const client = findAdminClient(config, basePath);
 
   if (!client) {
@@ -1747,9 +1747,9 @@ function resolveAdminClient(
 }
 
 async function exchangeAdminCode(
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   basePath: string,
-  client: GiteaOidcConfig["clients"][number],
+  client: ResolvedGiteaOidcConfig["clients"][number],
   code: string,
 ): Promise<{ access_token: string }> {
   const body = new URLSearchParams({

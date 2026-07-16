@@ -36,11 +36,19 @@ describe("GiteaTemplateV3", () => {
     const targetVersion = GITEA_TEMPLATE_V3_FORM.fields.find(
       (field) => field.name === "targetVersion",
     );
+    const externalIdClaimName = GITEA_TEMPLATE_V3_FORM.fields.find(
+      (field) => field.name === "externalIdClaimName",
+    );
 
     expect(targetVersion).toMatchObject({
       kind: "select",
       defaultValue: "1.27",
       options: [{ label: "Gitea 1.27", value: "1.27" }],
+    });
+    expect(externalIdClaimName).toMatchObject({
+      kind: "text",
+      label: "外部 ID Claim 名称（可选，仅支持 sub）",
+      placeholder: "sub",
     });
     expect(GiteaTemplateInputV3Schema.safeParse(productionInput).success).toBe(true);
     expect(
@@ -76,41 +84,48 @@ describe("GiteaTemplateV3", () => {
     expect(Object.isFrozen(result.snapshot)).toBe(true);
   });
 
-  it("adds the external identity scope and omits the incomplete CLI shortcut", () => {
+  it("allows explicit sub without changing the identity scope and omits the CLI shortcut", () => {
     const result = GiteaTemplateV3.resolve(
-      { ...productionInput, externalIdClaimName: "employee_id" },
-      context,
+      { ...productionInput, externalIdClaimName: "sub" },
+      { issuer: context.issuer },
     );
 
-    expect(result.resolution.target.configuration.externalIdClaimName).toBe("employee_id");
-    expect(result.resolution.client.allowedScopes).toEqual([
-      "openid",
-      "profile",
-      "email",
-      "identity",
-    ]);
+    expect(result.normalizedInput.externalIdClaimName).toBe("sub");
+    expect(result.resolution.target.configuration.externalIdClaimName).toBe("sub");
+    expect(result.resolution.client.allowedScopes).toEqual(["openid", "profile", "email"]);
     expect(findCli(result.resolution.integrationGuide.nodes)).toBe("");
     expect(result.resolution.integrationGuide.nodes).toContainEqual({
       kind: "field",
       label: "附加授权范围（Scopes）",
-      value: "openid,profile,email,identity",
+      value: "openid,profile,email",
       copyable: true,
     });
-    expect(result.resolution.warnings.join(" ")).toContain("已有认证源");
+    expect(result.resolution.integrationGuide.nodes).toContainEqual({
+      kind: "field",
+      label: "外部 ID Claim 名称（可选）",
+      value: "sub",
+      copyable: true,
+    });
+    expect(result.resolution.warnings.join(" ")).toContain("账号关联语义等价");
     expect(result.resolution.warnings.join(" ")).toContain("首次登录前");
+    expect(result.snapshot.normalizedInput.externalIdClaimName).toBe("sub");
+    expect(result.snapshot.resolution.target.configuration.externalIdClaimName).toBe("sub");
+    expect(Object.isFrozen(result.snapshot)).toBe(true);
   });
 
   it.each([
-    ["explicit default sub", { ...productionInput, externalIdClaimName: "sub" }],
+    ["employee ID claim", { ...productionInput, externalIdClaimName: "employee_id" }],
+    ["shared status claim", { ...productionInput, externalIdClaimName: "status" }],
+    ["array groups claim", { ...productionInput, externalIdClaimName: "groups" }],
     ["unsafe claim", { ...productionInput, externalIdClaimName: "employee$(id)" }],
     ["unknown field", { ...productionInput, unexpected: true }],
   ])("rejects %s", (_name, input) => {
     expect(GiteaTemplateInputV3Schema.safeParse(input).success).toBe(false);
   });
 
-  it("rejects an external identity claim that the deployment does not expose", () => {
+  it("rejects another external identity claim even when the deployment exposes it", () => {
     expect(() =>
-      GiteaTemplateV3.resolve({ ...productionInput, externalIdClaimName: "missing" }, context),
+      GiteaTemplateV3.resolve({ ...productionInput, externalIdClaimName: "employee_id" }, context),
     ).toThrow();
   });
 

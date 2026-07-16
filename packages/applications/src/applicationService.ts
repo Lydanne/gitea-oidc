@@ -17,7 +17,11 @@ import {
   ApplicationVersionConflictError,
   IdempotencyConflictError,
 } from "./errors.js";
-import type { ApplicationRepository, ApplicationRepositoryReader } from "./repository.js";
+import type {
+  ApplicationRepository,
+  ApplicationRepositoryReader,
+  ApplicationRepositoryTransaction,
+} from "./repository.js";
 import type {
   ApplicationAuditActor,
   ApplicationAuditEvent,
@@ -486,33 +490,34 @@ export class ApplicationService {
     });
   }
 
-  /** 把配置文件 Client 事务性导入为 system Application，供单源 database 模式启动。 */
+  /** 把配置文件 Client 事务性导入或协调为 system Application，供单源 database 模式启动。 */
   public async importSystemClients(
     inputs: SystemClientImportInput[],
   ): Promise<ApplicationDetailsV1[]> {
     if (new Set(inputs.map((input) => input.clientId)).size !== inputs.length) {
       throw new ApplicationConflictError("配置中存在重复的 OIDC client_id");
     }
+    for (const input of inputs) {
+      this.validateSystemClientImport(input);
+    }
 
     return this.repository.transaction(async (transaction) => {
       const imported: ApplicationDetailsV1[] = [];
       for (const input of inputs) {
-        this.validateSystemClientImport(input);
         const existing = await transaction.findByClientId(input.clientId);
         if (existing) {
-          this.assertSystemClientMatches(existing, input);
-          imported.push(toApplicationDetails(existing));
+          imported.push(
+            toApplicationDetails(await this.reconcileSystemClient(transaction, existing, input)),
+          );
           continue;
         }
 
-        const digest = hash(input.clientId);
-        const applicationId = `system-app-${digest.slice(0, 24)}`;
-        const oidcClientId = `system-client-${digest.slice(0, 24)}`;
+        const { applicationId, oidcClientId, slug } = this.systemClientIdentity(input.clientId);
         const now = this.now().toISOString();
         const application: ApplicationV1 = {
           id: applicationId,
           name: input.name,
-          slug: `system-${digest.slice(0, 20)}`,
+          slug,
           status: "active",
           source: { kind: "system" },
           trustLevel: "first_party",
@@ -559,6 +564,17 @@ export class ApplicationService {
           occurredAt: now,
         });
         imported.push(toApplicationDetails(aggregate));
+      }
+
+      const configuredClientIds = new Set(inputs.map((input) => input.clientId));
+      for (const aggregate of await transaction.list()) {
+        if (aggregate.application.source.kind !== "system") {
+          continue;
+        }
+        const client = this.requireManagedSystemClient(aggregate);
+        if (!configuredClientIds.has(client.clientId)) {
+          await this.disableMissingSystemClient(transaction, aggregate, client);
+        }
       }
       return imported;
     });
@@ -735,7 +751,12 @@ export class ApplicationService {
       if (current.application.status === "deleted") {
         throw new ApplicationConflictError("已删除的应用不能变更状态");
       }
-      if (current.application.source.kind === "system") {
+      const systemDisableCompletion =
+        current.application.source.kind === "system" &&
+        current.application.status === "disabling" &&
+        status === "disabled" &&
+        context.actor?.type === "system";
+      if (current.application.source.kind === "system" && !systemDisableCompletion) {
         throw new ApplicationConflictError("system Application 只能通过服务配置管理状态");
       }
       const transition = `${current.application.status}->${status}`;
@@ -952,63 +973,262 @@ export class ApplicationService {
     });
   }
 
-  private assertSystemClientMatches(
+  private async reconcileSystemClient(
+    transaction: ApplicationRepositoryTransaction,
     aggregate: StoredApplicationAggregate,
     input: SystemClientImportInput,
-  ): void {
-    const client = aggregate.clients.find((candidate) => candidate.clientId === input.clientId);
-    const secret = client
-      ? aggregate.secrets.find(
-          (candidate) => candidate.oidcClientId === client.id && candidate.status === "active",
-        )
-      : undefined;
-    if (
-      aggregate.application.source.kind !== "system" ||
-      aggregate.application.status !== "active" ||
-      !client ||
-      client.status !== "active" ||
-      !secret ||
-      stableJson({
-        issuer: aggregate.connectionIssuer,
-        name: aggregate.application.name,
-        environment: aggregate.application.environment,
-        redirectUris: client.redirectUris,
-        postLogoutRedirectUris: client.postLogoutRedirectUris,
-        responseTypes: client.responseTypes,
-        grantTypes: client.grantTypes,
-        tokenEndpointAuthMethod: client.tokenEndpointAuthMethod,
-        allowedScopes: client.allowedScopes,
-        pkcePolicy: client.pkcePolicy,
-        providerApi: client.capabilities.providerApi,
-      }) !==
-        stableJson({
-          issuer: this.issuer,
-          name: input.name,
-          environment: input.environment,
-          redirectUris: input.redirectUris,
-          postLogoutRedirectUris: input.postLogoutRedirectUris,
-          responseTypes: input.responseTypes,
-          grantTypes: input.grantTypes,
-          tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
-          allowedScopes: input.allowedScopes,
-          pkcePolicy: input.pkcePolicy,
-          providerApi: input.providerApi,
-        })
-    ) {
-      throw new ApplicationConflictError(
-        `system Client ${input.clientId} 与已导入快照不一致，必须显式迁移`,
-      );
+  ): Promise<StoredApplicationAggregate> {
+    const client = this.requireManagedSystemClient(aggregate, input.clientId);
+    // 上一次启动若在 OIDC Artifact 撤销前中断，必须先完成停用，不能直接恢复 Client。
+    if (aggregate.application.status === "disabling") {
+      return aggregate;
+    }
+    const currentMetadata = this.systemClientMetadata(aggregate, client);
+    const desiredMetadata = {
+      issuer: this.issuer,
+      name: input.name,
+      applicationStatus: "active",
+      trustLevel: "first_party",
+      consentPolicy: "skip_for_trusted",
+      environment: input.environment,
+      clientType: "confidential",
+      clientStatus: "active",
+      redirectUris: input.redirectUris,
+      postLogoutRedirectUris: input.postLogoutRedirectUris,
+      responseTypes: input.responseTypes,
+      grantTypes: input.grantTypes,
+      tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
+      allowedScopes: input.allowedScopes,
+      allowedResources: [],
+      pkcePolicy: input.pkcePolicy,
+      providerApi: input.providerApi,
+    };
+    const metadataChanged = stableJson(currentMetadata) !== stableJson(desiredMetadata);
+    const activeSecrets = aggregate.secrets
+      .filter((candidate) => candidate.oidcClientId === client.id && candidate.status === "active")
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const secretChanged =
+      activeSecrets.length !== 1 || !this.systemClientSecretMatches(activeSecrets[0], input);
+    if (!metadataChanged && !secretChanged) {
+      return aggregate;
     }
 
-    const storedSecret = Buffer.from(this.secretEncryptor.decrypt(secret), "utf8");
-    const configuredSecret = Buffer.from(input.clientSecret, "utf8");
+    const now = this.now().toISOString();
+    const createdSecret = secretChanged
+      ? this.secretEncryptor.encryptSecret({
+          plaintext: input.clientSecret,
+          oidcClientId: client.id,
+          now: new Date(now),
+        }).encrypted
+      : undefined;
+    const updatedClient: OidcClientV1 = {
+      ...client,
+      clientType: "confidential",
+      tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
+      grantTypes: input.grantTypes,
+      responseTypes: input.responseTypes,
+      redirectUris: input.redirectUris,
+      postLogoutRedirectUris: input.postLogoutRedirectUris,
+      allowedScopes: input.allowedScopes,
+      allowedResources: [],
+      pkcePolicy: input.pkcePolicy,
+      capabilities: { providerApi: input.providerApi },
+      status: "active",
+    };
+    const updated: StoredApplicationAggregate = {
+      ...aggregate,
+      application: {
+        ...aggregate.application,
+        name: input.name,
+        status: "active",
+        trustLevel: "first_party",
+        consentPolicy: "skip_for_trusted",
+        environment: input.environment,
+        version: aggregate.application.version + 1,
+        updatedAt: now,
+      },
+      connectionIssuer: this.issuer,
+      clients: [updatedClient],
+      secrets:
+        createdSecret === undefined
+          ? aggregate.secrets
+          : [
+              ...aggregate.secrets.map((secret) =>
+                secret.oidcClientId === client.id && secret.status === "active"
+                  ? { ...secret, status: "revoked" as const }
+                  : secret,
+              ),
+              createdSecret,
+            ],
+    };
+    await transaction.update(updated, aggregate.application.version);
+    if (metadataChanged) {
+      await transaction.appendAuditEvent({
+        id: randomUUID(),
+        applicationId: aggregate.application.id,
+        type: "application.imported",
+        actor: { type: "system" },
+        before: { application: aggregate.application, clients: aggregate.clients },
+        after: { application: updated.application, clients: updated.clients },
+        occurredAt: now,
+      });
+    }
+    if (createdSecret !== undefined) {
+      await transaction.appendAuditEvent({
+        id: randomUUID(),
+        applicationId: aggregate.application.id,
+        type: "client_secret.rotated",
+        actor: { type: "system" },
+        ...(activeSecrets[0] === undefined
+          ? {}
+          : { before: { secret: toSecretSummary(activeSecrets[0]) } }),
+        after: { secret: toSecretSummary(createdSecret) },
+        occurredAt: now,
+      });
+    }
+    return updated;
+  }
+
+  private async disableMissingSystemClient(
+    transaction: ApplicationRepositoryTransaction,
+    aggregate: StoredApplicationAggregate,
+    client: OidcClientV1,
+  ): Promise<void> {
+    const activeSecrets = aggregate.secrets.filter(
+      (candidate) => candidate.oidcClientId === client.id && candidate.status === "active",
+    );
     if (
-      storedSecret.byteLength !== configuredSecret.byteLength ||
-      !timingSafeEqual(storedSecret, configuredSecret)
+      new Set(["disabling", "disabled"]).has(aggregate.application.status) &&
+      aggregate.clients.every((candidate) => candidate.status === "disabled") &&
+      activeSecrets.length === 0
+    ) {
+      return;
+    }
+
+    const now = this.now().toISOString();
+    const updated: StoredApplicationAggregate = {
+      ...aggregate,
+      application: {
+        ...aggregate.application,
+        status: "disabling",
+        version: aggregate.application.version + 1,
+        updatedAt: now,
+      },
+      clients: aggregate.clients.map((candidate) => ({
+        ...candidate,
+        status: "disabled" as const,
+      })),
+      secrets: aggregate.secrets.map((secret) =>
+        secret.status === "active" ? { ...secret, status: "revoked" as const } : secret,
+      ),
+    };
+    await transaction.update(updated, aggregate.application.version);
+    await transaction.appendAuditEvent({
+      id: randomUUID(),
+      applicationId: aggregate.application.id,
+      type: "application.disable_started",
+      actor: { type: "system" },
+      before: { application: aggregate.application, clients: aggregate.clients },
+      after: { application: updated.application, clients: updated.clients },
+      occurredAt: now,
+    });
+    for (const activeSecret of activeSecrets) {
+      await transaction.appendAuditEvent({
+        id: randomUUID(),
+        applicationId: aggregate.application.id,
+        type: "client_secret.revoked",
+        actor: { type: "system" },
+        before: { secret: toSecretSummary(activeSecret) },
+        after: { secret: toSecretSummary({ ...activeSecret, status: "revoked" }) },
+        occurredAt: now,
+      });
+    }
+  }
+
+  private requireManagedSystemClient(
+    aggregate: StoredApplicationAggregate,
+    expectedClientId?: string,
+  ): OidcClientV1 {
+    const client = aggregate.clients[0];
+    const clientId = expectedClientId ?? client?.clientId;
+    if (clientId === undefined) {
+      throw new ApplicationConflictError("system Application 缺少 OIDC Client");
+    }
+    const identity = this.systemClientIdentity(clientId);
+    if (
+      aggregate.application.source.kind !== "system" ||
+      aggregate.application.id !== identity.applicationId ||
+      aggregate.application.slug !== identity.slug ||
+      !new Set(["active", "disabling", "disabled"]).has(aggregate.application.status) ||
+      aggregate.clients.length !== 1 ||
+      client === undefined ||
+      client.id !== identity.oidcClientId ||
+      client.applicationId !== aggregate.application.id ||
+      client.clientId !== clientId ||
+      !new Set(["active", "disabled"]).has(client.status)
     ) {
       throw new ApplicationConflictError(
-        `system Client ${input.clientId} 的密钥已变化，必须通过轮换流程迁移`,
+        `OIDC client_id 已由非托管 system Application 占用: ${clientId}`,
       );
+    }
+    return client;
+  }
+
+  private systemClientIdentity(clientId: string): {
+    applicationId: string;
+    oidcClientId: string;
+    slug: string;
+  } {
+    const digest = hash(clientId);
+    return {
+      applicationId: `system-app-${digest.slice(0, 24)}`,
+      oidcClientId: `system-client-${digest.slice(0, 24)}`,
+      slug: `system-${digest.slice(0, 20)}`,
+    };
+  }
+
+  private systemClientMetadata(
+    aggregate: StoredApplicationAggregate,
+    client: OidcClientV1,
+  ): Record<string, unknown> {
+    return {
+      issuer: aggregate.connectionIssuer,
+      name: aggregate.application.name,
+      applicationStatus: aggregate.application.status,
+      trustLevel: aggregate.application.trustLevel,
+      consentPolicy: aggregate.application.consentPolicy,
+      environment: aggregate.application.environment,
+      clientType: client.clientType,
+      clientStatus: client.status,
+      redirectUris: client.redirectUris,
+      postLogoutRedirectUris: client.postLogoutRedirectUris,
+      responseTypes: client.responseTypes,
+      grantTypes: client.grantTypes,
+      tokenEndpointAuthMethod: client.tokenEndpointAuthMethod,
+      allowedScopes: client.allowedScopes,
+      allowedResources: client.allowedResources,
+      pkcePolicy: client.pkcePolicy,
+      providerApi: client.capabilities.providerApi,
+    };
+  }
+
+  private systemClientSecretMatches(
+    secret: StoredApplicationAggregate["secrets"][number] | undefined,
+    input: SystemClientImportInput,
+  ): boolean {
+    if (secret === undefined) {
+      return false;
+    }
+    const storedSecret = Buffer.from(this.secretEncryptor.decrypt(secret), "utf8");
+    const configuredSecret = Buffer.from(input.clientSecret, "utf8");
+    try {
+      return (
+        storedSecret.byteLength === configuredSecret.byteLength &&
+        timingSafeEqual(storedSecret, configuredSecret)
+      );
+    } finally {
+      storedSecret.fill(0);
+      configuredSecret.fill(0);
     }
   }
 

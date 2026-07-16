@@ -1,7 +1,7 @@
 import { applicationTemplateCatalog } from "@gitea-oidc/application-templates";
 import { describe, expect, it } from "vitest";
 import { ApplicationSecretEncryptor } from "../applicationSecretEncryptor.js";
-import { ApplicationService } from "../applicationService.js";
+import { ApplicationService, type SystemClientImportInput } from "../applicationService.js";
 import {
   ApplicationConflictError,
   ApplicationValidationError,
@@ -43,7 +43,22 @@ const templateRequest: CreateTemplateApplicationRequestV1 = {
   credentialDelivery: "direct",
 };
 
-function createFixture() {
+const systemClientInput: SystemClientImportInput = {
+  name: "System Client (admin)",
+  clientId: "admin-client",
+  clientSecret: "existing-client-secret",
+  redirectUris: ["https://id.example.com/admin/callback"],
+  postLogoutRedirectUris: [],
+  responseTypes: ["code"],
+  grantTypes: ["authorization_code"],
+  tokenEndpointAuthMethod: "client_secret_basic",
+  allowedScopes: ["openid", "profile", "email"],
+  environment: "production",
+  pkcePolicy: "optional",
+  providerApi: false,
+};
+
+function createFixture(now: () => Date = () => new Date("2026-07-10T00:00:00.000Z")) {
   const repository = new MemoryApplicationRepository();
   const secretEncryptor = new ApplicationSecretEncryptor({
     keyId: "applications-v1",
@@ -59,7 +74,7 @@ function createFixture() {
       profile: ["name", "email", "groups"],
       email: ["email", "email_verified"],
     },
-    now: () => new Date("2026-07-10T00:00:00.000Z"),
+    now,
   });
   return { repository, secretEncryptor, service };
 }
@@ -603,39 +618,198 @@ describe("ApplicationService", () => {
     ).resolves.toMatchObject({ replayed: false });
   });
 
-  it("事务性导入 system Client，并拒绝配置漂移和重复明文交付", async () => {
-    const { service } = createFixture();
-    const input = {
-      name: "System Client (admin)",
-      clientId: "admin-client",
-      clientSecret: "existing-client-secret",
-      redirectUris: ["https://id.example.com/admin/callback"],
-      postLogoutRedirectUris: [] as string[],
-      responseTypes: ["code"] as ["code"],
-      grantTypes: ["authorization_code"] as Array<"authorization_code" | "refresh_token">,
-      tokenEndpointAuthMethod: "client_secret_basic" as const,
-      allowedScopes: ["openid", "profile", "email"],
-      environment: "production" as const,
-      pkcePolicy: "optional" as const,
-      providerApi: false,
-    };
+  it("事务性导入 system Client，并幂等协调元数据和部署密钥", async () => {
+    let now = "2026-07-10T00:00:00.000Z";
+    const { repository, secretEncryptor, service } = createFixture(() => new Date(now));
+    const projector = new OidcClientProjector(repository, secretEncryptor);
 
-    const first = await service.importSystemClients([input]);
-    const replay = await service.importSystemClients([input]);
+    const first = await service.importSystemClients([systemClientInput]);
+    const replay = await service.importSystemClients([systemClientInput]);
     expect(first).toHaveLength(1);
     expect(replay).toEqual(first);
     expect(first[0]?.application).toMatchObject({
       source: { kind: "system" },
       trustLevel: "first_party",
       consentPolicy: "skip_for_trusted",
+      version: 1,
     });
-    expect(JSON.stringify(first)).not.toContain(input.clientSecret);
+    expect(JSON.stringify(first)).not.toContain(systemClientInput.clientSecret);
     await expect(
       service.disableApplication(first[0]!.application.id, { expectedVersion: 1 }),
     ).rejects.toThrow(/system Application/);
+
+    const metadataUpdate: SystemClientImportInput = {
+      ...systemClientInput,
+      name: "System Client (admin v2)",
+      redirectUris: ["https://id.example.com/admin/v2/callback"],
+      postLogoutRedirectUris: ["https://id.example.com/admin/signed-out"],
+      environment: "staging",
+      pkcePolicy: "required",
+    };
+    now = "2026-07-10T01:00:00.000Z";
+    const [metadataUpdated] = await service.importSystemClients([metadataUpdate]);
+    expect(metadataUpdated).toMatchObject({
+      application: {
+        id: first[0]!.application.id,
+        name: metadataUpdate.name,
+        environment: "staging",
+        version: 2,
+        updatedAt: now,
+      },
+      clients: [
+        {
+          id: first[0]!.clients[0]!.id,
+          redirectUris: metadataUpdate.redirectUris,
+          postLogoutRedirectUris: metadataUpdate.postLogoutRedirectUris,
+          pkcePolicy: "required",
+        },
+      ],
+    });
+    await expect(projector.findByClientId(systemClientInput.clientId)).resolves.toMatchObject({
+      client_id: systemClientInput.clientId,
+      client_secret: systemClientInput.clientSecret,
+      client_name: metadataUpdate.name,
+      redirect_uris: metadataUpdate.redirectUris,
+      application_version: 2,
+      pkce_policy: "required",
+    });
+
+    now = "2026-07-10T02:00:00.000Z";
+    const [rotated] = await service.importSystemClients([
+      { ...metadataUpdate, clientSecret: "rotated-deployment-secret" },
+    ]);
+    expect(rotated?.application).toMatchObject({ version: 3, updatedAt: now });
+    await expect(projector.findByClientId(systemClientInput.clientId)).resolves.toMatchObject({
+      client_secret: "rotated-deployment-secret",
+      application_version: 3,
+    });
+    const stored = await repository.read((reader) => reader.findById(first[0]!.application.id));
+    expect(stored?.secrets.filter((secret) => secret.status === "active")).toHaveLength(1);
+    expect(stored?.secrets.filter((secret) => secret.status === "revoked")).toHaveLength(1);
+
+    const stableReplay = await service.importSystemClients([
+      { ...metadataUpdate, clientSecret: "rotated-deployment-secret" },
+    ]);
+    expect(stableReplay[0]?.application.version).toBe(3);
+    const audit = await service.listAuditEvents(first[0]!.application.id);
+    expect(audit.map((event) => event.type)).toEqual([
+      "application.imported",
+      "application.imported",
+      "client_secret.rotated",
+    ]);
+    expect(audit[1]).toMatchObject({
+      actor: { type: "system" },
+      before: { application: { version: 1 } },
+      after: { application: { version: 2 } },
+    });
+    expect(audit[2]).toMatchObject({
+      actor: { type: "system" },
+      before: { secret: { status: "active" } },
+      after: { secret: { status: "active" } },
+    });
+    expect(JSON.stringify(audit)).not.toContain(systemClientInput.clientSecret);
+    expect(JSON.stringify(audit)).not.toContain("rotated-deployment-secret");
+  });
+
+  it("配置删除时分阶段停用 system Client 并审计密钥撤销，重新加入时原位恢复", async () => {
+    const { repository, secretEncryptor, service } = createFixture();
+    const projector = new OidcClientProjector(repository, secretEncryptor);
+    const [imported] = await service.importSystemClients([systemClientInput]);
+    const custom = await service.createCustomApplication(request, {
+      idempotencyKey: "custom-survives-system-reconcile",
+    });
+    if (custom.replayed) throw new Error("expected fresh custom application");
+
+    await service.importSystemClients([]);
+    const disabled = await service.getApplication(imported!.application.id);
+    expect(disabled).toMatchObject({
+      application: {
+        id: imported!.application.id,
+        status: "disabling",
+        version: 2,
+      },
+      clients: [{ id: imported!.clients[0]!.id, status: "disabled" }],
+      secrets: [{ status: "revoked" }],
+    });
+    await expect(projector.findByClientId(systemClientInput.clientId)).resolves.toBeUndefined();
+    await expect(projector.findByClientId(custom.response.client.clientId)).resolves.toBeDefined();
+
+    await service.importSystemClients([]);
+    expect((await service.getApplication(imported!.application.id)).application.version).toBe(2);
+
     await expect(
-      service.importSystemClients([{ ...input, redirectUris: ["https://evil.example.com/cb"] }]),
-    ).rejects.toThrow(/显式迁移/);
+      service.completeDisableApplication(imported!.application.id, {
+        expectedVersion: 2,
+        actor: { type: "user", id: "admin-1" },
+      }),
+    ).rejects.toThrow(/system Application/);
+    const completed = await service.completeDisableApplication(imported!.application.id, {
+      expectedVersion: 2,
+      actor: { type: "system" },
+    });
+    expect(completed.application).toMatchObject({ status: "disabled", version: 3 });
+
+    const [restored] = await service.importSystemClients([systemClientInput]);
+    expect(restored).toMatchObject({
+      application: {
+        id: imported!.application.id,
+        status: "active",
+        version: 4,
+      },
+      clients: [{ id: imported!.clients[0]!.id, status: "active" }],
+    });
+    await expect(projector.findByClientId(systemClientInput.clientId)).resolves.toMatchObject({
+      client_secret: systemClientInput.clientSecret,
+      application_version: 4,
+    });
+    const audit = await service.listAuditEvents(imported!.application.id);
+    expect(audit.map((event) => event.type)).toEqual([
+      "application.imported",
+      "application.disable_started",
+      "client_secret.revoked",
+      "application.disabled",
+      "application.imported",
+      "client_secret.rotated",
+    ]);
+    expect(audit[2]).toMatchObject({
+      actor: { type: "system" },
+      before: { secret: { status: "active" } },
+      after: { secret: { status: "revoked" } },
+    });
+    expect(JSON.stringify(audit)).not.toContain(systemClientInput.clientSecret);
+  });
+
+  it("拒绝把占用相同 client_id 的 custom Application 当作 system Client 协调", async () => {
+    const { repository, secretEncryptor, service } = createFixture();
+    const custom = await service.createCustomApplication(request, {
+      idempotencyKey: "custom-client-id-conflict",
+    });
+    if (custom.replayed) throw new Error("expected fresh custom application");
+    const stored = await repository.read((reader) =>
+      reader.findById(custom.response.application.id),
+    );
+    if (stored === undefined) throw new Error("expected stored custom application");
+    const collisionRepository = new MemoryApplicationRepository({
+      aggregates: [
+        {
+          ...stored,
+          clients: [{ ...stored.clients[0]!, clientId: systemClientInput.clientId }],
+        },
+      ],
+    });
+    const collisionService = new ApplicationService({
+      repository: collisionRepository,
+      secretEncryptor,
+      issuer: "https://id.example.com",
+      now: () => new Date("2026-07-10T00:00:00.000Z"),
+    });
+
+    await expect(collisionService.importSystemClients([systemClientInput])).rejects.toThrow(
+      /非托管 system Application/,
+    );
+    await expect(
+      collisionRepository.read((reader) => reader.findById(stored.application.id)),
+    ).resolves.toMatchObject({ application: { source: { kind: "custom" }, version: 1 } });
   });
 });
 

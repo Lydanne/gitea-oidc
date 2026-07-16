@@ -10,7 +10,8 @@
 启用应用管理时，以下配置必须同时满足：
 
 - `applications.enabled` 为 `true`，且 `applications.clientSource` 为 `database`。
-- `applications.repository.type` 为 `sqlite`。`memory` 仅供开发和测试，生产环境会拒绝启动。
+- `applications.repository.type` 为 `sqlite`。数据库 Client 模式在所有环境都拒绝内存应用仓储，
+  避免进程重启后丢失 system Client 的删除状态和 OIDC Artifact 撤销任务。
 - `adapter.type` 为 `sqlite`。当前应用管理模式只支持单实例，不能与 Redis OIDC Adapter 混用。
 - `oidc.features.registration.enabled` 为 `false`，避免公共动态注册绕过 `ApplicationService`。
 - `applications.secretEncryption.masterKey` 是 Base64 或 Base64URL 编码的恰好 32 字节随机密钥。
@@ -89,14 +90,22 @@ export default {
 | 静态兼容模式 | `enabled: false`、`clientSource: "config"` | 直接读取 `clients[]` | 不可用，API 返回 `503` |
 | 数据库模式 | `enabled: true`、`clientSource: "database"` | 只读取 ApplicationRepository | 可用 |
 
-数据库模式启动时，服务会把 `clients[]` 幂等导入为 system application，然后向
+数据库模式启动时，服务会把 `clients[]` 导入或协调为 `system application`，然后向
 `oidc-provider` 传入空的静态 Client 列表。后续认证只查询 ApplicationRepository，不会在
-`clients[]` 和数据库之间混合查询或双写。`clients[]` 在当前迁移期仍是系统 Client 的启动导入
-源，不能删除管理后台所需 Client。
+`clients[]` 和数据库之间混合查询。`clients[]` 在当前迁移期仍是 `system Client` 的部署事实源，
+不能删除管理后台所需 Client。
 
-导入后的 system application 会在管理台展示，但只能通过部署配置管理，管理 API 和页面不会允许
+导入后的 `system application` 会在管理台展示，但只能通过部署配置管理，管理 API 和页面不会允许
 启用或停用它们。这一约束用于保护管理后台 Client，避免管理员把自己的登录入口永久锁死。配置中
-的 Client 元数据或 Secret 与已导入快照不一致时，服务会 fail closed，要求先执行显式迁移。
+的 Client 元数据或 Secret 发生变化时，下次启动会在同一事务内保留 Application/Client ID、递增
+版本、替换配置和轮换 Secret，并写入 system 审计；配置未变化时不会产生新版本。若 `client_id`
+已被非 `system application` 占用，服务仍会 fail closed，不会覆盖业务应用。
+
+从 `clients[]` 删除非后台 `system Client` 后，下次启动会先进入 `disabling`、撤销 active Secret
+并记录脱敏指纹，再清理关联的 Grant、Code、Access Token 和 Refresh Token；全部成功后才进入
+`disabled`。进程中断时下次启动会继续该流程。重新加入相同 `client_id` 时会先完成遗留撤销，再保留
+原 ID、重新启用并写入新的加密 Secret。启用后台时，配置验证会继续阻止删除后台 callback 所依赖的
+Client。
 
 ## 在管理后台创建应用
 
@@ -122,7 +131,8 @@ scope；公共 Client 不生成 Client Secret，并强制使用 PKCE S256。登�
 
 禁用非 system 应用（自定义或模板）时，服务会先封锁关联 Client 的新授权记录写入，再持久化
 `disabling` 状态并撤销已有 Grant、Code 和 Token；撤销完成后才进入 `disabled`。如果进程在中途
-退出，下次启动会继续恢复未完成的撤销。system application 不参与该管理流程。
+退出，下次启动会继续恢复未完成的撤销。system application 也使用相同的两阶段撤销和启动恢复，
+但只能由 `clients[]` 的部署配置触发，不能从管理后台手工启停。
 
 ## 使用 Gitea 模板
 
@@ -135,14 +145,14 @@ scope；公共 Client 不生成 Client Secret，并强制使用 PKCE S256。登�
 - 与当前部署 claim 配置一致的 OIDC scopes；
 - Gitea 的 PKCE 兼容策略；
 - 图标、2FA、全名/SSH/Required Claim、管理员/受限组和组织团队映射；
-- Gitea 1.27 可选的 External ID Claim 及其实际承载 scope；
+- Gitea 1.27 可选的 External ID Claim；当前只允许留空或显式 `sub`；
 - 管理后台字段、discovery URL 和目标版本支持的 `gitea admin auth add-oauth` 命令说明。
 
 Gitea 1.24 不支持全名与 SSH 公钥 Claim，模板会拒绝这种组合；1.25 及以上支持。已有认证源升级到
-1.27 时 External ID Claim 应留空，继续使用稳定的 `sub`。Gitea 1.27 的 `add-oauth` 仍没有
-External ID Claim 参数；填写其他 Claim 时模板不会生成不完整的 CLI 命令，而是要求在首次登录前
-通过后台创建认证源。`add-oauth` 也没有用户同步参数且总是创建启用状态的认证源，因此模板会要求在
-后台确认用户同步；选择不启用认证源时同样不会生成 CLI 命令。
+1.27 时 External ID Claim 应留空，继续使用稳定的 `sub`。模板也接受显式 `sub`，但 Gitea 1.27
+的 `add-oauth` 仍没有对应参数，此时模板不会生成不完整的 CLI 命令，而是要求在首次登录前通过后台
+创建认证源。其他 Claim 会被模板拒绝。`add-oauth` 也没有用户同步参数且总是创建启用状态的认证源，
+因此模板会要求在后台确认用户同步；选择不启用认证源时同样不会生成 CLI 命令。
 
 创建时会把模板解析结果保存为不可变版本快照。即使模板目录以后升级或移除，应用的公开 connection
 和接入说明仍从创建时快照重复生成，不会静默漂移。模板只生成结构化纯文本说明，不保存或拼接真实
@@ -164,7 +174,9 @@ confidential Client 的明文 Client Secret 只出现在首次创建响应中。
 
 轮换使用乐观版本号，并与同一应用的启用、禁用操作串行执行。如果轮换请求的网络响应丢失，先刷新
 应用列表获取当前 version，再执行一次轮换即可恢复；不要从 `applications.db`、审计或管理 API
-读取密文。system application 只能通过部署配置轮换，public Client 不使用 Client Secret。
+读取密文。`system application` 只能通过部署配置轮换：在维护窗口同时准备 IdP 和业务 Client 的新
+Secret，更新 `clients[]` 后重启 IdP，再立即切换业务 Client。启动过程会事务性替换数据库中的 active
+Secret；public Client 不使用 Client Secret。
 
 公开 connection 不属于一次性凭据。管理员可以随时在应用列表点击“配置”重新下载，服务端通过
 `GET ${admin.basePath}/api/applications/:id/connection` 从当前 Application/Client 状态重新生成；

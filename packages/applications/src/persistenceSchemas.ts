@@ -153,6 +153,7 @@ export const ApplicationAuditEventSchema = z
       "application.disabled",
       "client_secret.created",
       "client_secret.rotated",
+      "client_secret.revoked",
     ]),
     actor: z
       .object({

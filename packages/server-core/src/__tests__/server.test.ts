@@ -10,7 +10,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OidcAdapterFactory } from "../adapters/OidcAdapterFactory.js";
-import type { GiteaOidcConfig } from "../config.js";
+import type { GiteaOidcConfig, ResolvedGiteaOidcConfig } from "../config.js";
 import { AuthCoordinator } from "../core/AuthCoordinator.js";
 import {
   cleanupServerResources,
@@ -24,7 +24,7 @@ import {
 } from "../server.js";
 import { MemoryStateStore } from "../stores/MemoryStateStore.js";
 
-const createValidRuntimeConfig = (): GiteaOidcConfig => ({
+const createValidRuntimeConfig = (): ResolvedGiteaOidcConfig => ({
   server: {
     host: "0.0.0.0",
     port: 3000,
@@ -174,7 +174,7 @@ async function seedDynamicApplication(tempDir: string) {
 }
 
 function configureDynamicApplications(
-  config: GiteaOidcConfig,
+  config: ResolvedGiteaOidcConfig,
   fixture: Awaited<ReturnType<typeof seedDynamicApplication>>,
   tempDir: string,
 ): void {
@@ -413,6 +413,22 @@ describe("server runtime config validation", () => {
     expect(validateRuntimeConfig(createValidRuntimeConfig()).server.url).toBe(
       "https://id.example.com",
     );
+  });
+
+  it("fills defaults for legacy TypeScript config fields introduced in v2", () => {
+    const current = createValidRuntimeConfig();
+    const { admin: _admin, providerApi: _providerApi, ...withoutControlPlane } = current;
+    const { corsOrigins: _corsOrigins, ...legacyServer } = current.server;
+    const legacyConfig: GiteaOidcConfig = {
+      ...withoutControlPlane,
+      server: legacyServer,
+    };
+
+    const resolved = validateRuntimeConfig(legacyConfig);
+
+    expect(resolved.server.corsOrigins).toEqual([]);
+    expect(resolved.admin.enabled).toBe(false);
+    expect(resolved.providerApi.enabled).toBe(false);
   });
 
   it("rejects unsafe production custom runtime config before startup", () => {

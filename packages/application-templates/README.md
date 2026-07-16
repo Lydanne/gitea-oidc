@@ -31,8 +31,8 @@ Gitea OIDC 内置应用模板包。它负责校验产品输入、派生 OIDC Cli
 - `syncEnabled` 和 `active`。
 
 `GiteaTemplateInputV3Schema` 继承上述字段，并增加可选的 `externalIdClaimName`。该字段留空时 Gitea
-使用默认且稳定的 `sub`；已有认证源从 1.26 升级到 1.27 时应继续留空。只有需要使用其他稳定、不可变
-Claim 作为账号关联键时才填写，并且该 Claim 必须由当前 OIDC scopes 实际提供。
+使用默认且稳定的 `sub`；已有认证源从 1.26 升级到 1.27 时应继续留空。当前模板只接受省略该字段或
+显式填写 `sub`，不会把邮箱、状态、用户组等可变、非唯一或非字符串 Claim 用作账号关联键。
 
 `groupTeamMap` 使用 JSON 字符串，结构为“组 Claim 值 -> 组织 -> 团队名称数组”。模板会验证并规范化
 JSON。管理员组、受限组和团队映射必须同时配置 `groupClaimName`；启用团队成员自动移除时必须提供
@@ -106,14 +106,14 @@ PKCE 改为 `required`。
 | 图标、跳过本地 2FA、Required Claim | 支持 | 支持 | 支持 | 支持 |
 | Group Claim、管理员/受限组、组织团队映射 | 支持 | 支持 | 支持 | 支持 |
 | 全名 Claim、SSH 公钥 Claim | 不支持 | 支持 | 支持 | 支持 |
-| External ID Claim | 不支持 | 不支持 | 不支持 | 支持，默认留空 |
+| External ID Claim | 不支持 | 不支持 | 不支持 | 支持留空或显式 `sub` |
 | 用户同步、认证源启用状态 | 后台确认 | 后台确认 | 后台确认 | 后台确认 |
 
 选择 Gitea `1.24` 时，模板会拒绝全名和 SSH 公钥 Claim。Gitea 的 `add-oauth` 命令总是创建启用的
 认证源，而且没有用户同步参数：`active=false` 时模板不会生成 CLI 命令；其他情况执行命令后仍需在
-管理后台确认“启用用户同步”。Gitea 1.27 的 CLI 也没有 External ID Claim 参数；当
-`externalIdClaimName` 非空时，`gitea@3` 不生成不完整的 CLI 命令，而是要求在首次登录前通过管理
-后台完成认证源配置。
+管理后台确认“启用用户同步”。Gitea 1.27 的 CLI 也没有 External ID Claim 参数；显式填写
+`externalIdClaimName: "sub"` 时，`gitea@3` 不生成不完整的 CLI 命令，而是要求在首次登录前通过
+管理后台完成认证源配置。
 
 ## 结构化接入说明
 

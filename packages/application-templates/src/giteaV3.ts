@@ -26,8 +26,8 @@ export const GITEA_TEMPLATE_V3_VERSION = 3 as const;
 export const GITEA_V3_SUPPORTED_VERSIONS = Object.freeze(["1.27"] as const);
 
 const DEFAULT_EXTERNAL_ID_VALUE = "留空（默认使用 sub）";
-const EXTERNAL_ID_CHANGE_WARNING =
-  "外部 ID Claim 会决定 Gitea 的账号关联键；已有认证源改动该字段可能把同一用户识别为新账号。";
+const EXTERNAL_ID_SUB_WARNING =
+  "外部 ID Claim 仅支持稳定且唯一的 sub；显式填写 sub 与留空使用默认 sub 的账号关联语义等价。";
 const EXTERNAL_ID_MANUAL_CONFIGURATION_WARNING =
   "Gitea 1.27 的 add-oauth 命令不能设置“外部 ID Claim 名称”；请在管理后台创建认证源，并在首次登录前完成该字段。";
 
@@ -56,10 +56,10 @@ export const GITEA_TEMPLATE_V3_FORM: ApplicationTemplateFormV1 = {
         {
           kind: "text" as const,
           name: "externalIdClaimName",
-          label: "外部 ID Claim 名称（可选）",
+          label: "外部 ID Claim 名称（可选，仅支持 sub）",
           required: false,
-          placeholder: "employee_id",
-          description: "Gitea 1.27 新增。留空时使用稳定的 sub；已有认证源不要在升级时随意修改。",
+          placeholder: "sub",
+          description: "建议留空，Gitea 默认使用稳定的 sub；如需显式配置，只能填写 sub。",
         },
       ];
     }
@@ -67,12 +67,9 @@ export const GITEA_TEMPLATE_V3_FORM: ApplicationTemplateFormV1 = {
   }),
 };
 
-const externalIdClaimNameSchema = z
-  .string()
-  .min(1)
-  .max(255)
-  .refine((value) => value === value.trim(), "字段不能包含首尾空白")
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._~:/-]*$/u, "Claim 名称包含不安全字符");
+const externalIdClaimNameSchema = z.literal("sub", {
+  error: "外部 ID Claim 名称仅支持 sub",
+});
 
 const toV2CompatibleInput = (input: Readonly<Record<string, unknown>>): Record<string, unknown> => {
   const { externalIdClaimName: _externalIdClaimName, ...baseInput } = input;
@@ -91,14 +88,6 @@ const rawGiteaTemplateInputV3Schema = z
         message: "gitea@3 仅支持 Gitea 1.27",
       });
     }
-    if (input.externalIdClaimName === "sub") {
-      context.addIssue({
-        code: "custom",
-        path: ["externalIdClaimName"],
-        message: "使用默认 sub 时请留空，不要重复配置 External ID Claim",
-      });
-    }
-
     const baseInput = GiteaTemplateInputV2Schema.safeParse(toV2CompatibleInput(input));
     if (!baseInput.success) {
       for (const issue of baseInput.error.issues) {
@@ -123,21 +112,7 @@ const GiteaTemplateResolutionInputV3Schema = z
     input: GiteaTemplateInputV3Schema,
     context: GiteaTemplateContextV1Schema,
   })
-  .strict()
-  .superRefine(({ input, context }, refinementContext) => {
-    if (
-      input.externalIdClaimName &&
-      !Object.values(context.claimScopes ?? {}).some((claims) =>
-        claims.includes(input.externalIdClaimName!),
-      )
-    ) {
-      refinementContext.addIssue({
-        code: "custom",
-        path: ["input", "externalIdClaimName"],
-        message: `${input.externalIdClaimName} 必须是当前 OIDC 部署实际提供的 Claim`,
-      });
-    }
-  });
+  .strict();
 
 export interface ResolvedGiteaTemplateV3 extends ResolvedApplicationTemplate {
   readonly template: {
@@ -153,31 +128,10 @@ export interface ResolvedGiteaTemplateV3 extends ResolvedApplicationTemplate {
     readonly discoveryUrl: string;
     readonly groupClaimName?: string;
     readonly configuration: ResolvedGiteaTemplateV2["target"]["configuration"] & {
-      readonly externalIdClaimName?: string;
+      readonly externalIdClaimName?: "sub";
     };
   };
 }
-
-const scopePreference = ["openid", "profile", "email"];
-
-const findClaimScope = (
-  claim: string,
-  claimScopes: Readonly<Record<string, readonly string[]>>,
-): string | undefined =>
-  Object.entries(claimScopes)
-    .filter(([, claims]) => claims.includes(claim))
-    .map(([scope]) => scope)
-    .sort((left, right) => {
-      const leftPreference = scopePreference.indexOf(left);
-      const rightPreference = scopePreference.indexOf(right);
-      if (leftPreference >= 0 || rightPreference >= 0) {
-        return (
-          (leftPreference < 0 ? Number.MAX_SAFE_INTEGER : leftPreference) -
-          (rightPreference < 0 ? Number.MAX_SAFE_INTEGER : rightPreference)
-        );
-      }
-      return left.localeCompare(right);
-    })[0];
 
 const buildIntegrationGuide = (
   baseGuide: DeepReadonly<IntegrationGuideV1>,
@@ -215,7 +169,7 @@ const buildIntegrationGuide = (
 
   if (input.externalIdClaimName) {
     nodes.push(
-      { kind: "warning", text: EXTERNAL_ID_CHANGE_WARNING },
+      { kind: "warning", text: EXTERNAL_ID_SUB_WARNING },
       { kind: "warning", text: EXTERNAL_ID_MANUAL_CONFIGURATION_WARNING },
     );
   }
@@ -236,16 +190,12 @@ const buildResolution = (
     context,
   ).resolution;
   const scopes = [...baseResolution.client.allowedScopes];
-  const externalIdScope = input.externalIdClaimName
-    ? findClaimScope(input.externalIdClaimName, context.claimScopes ?? {})
-    : undefined;
-  if (externalIdScope && !scopes.includes(externalIdScope)) scopes.push(externalIdScope);
 
   const warnings = [...baseResolution.warnings];
   if (input.externalIdClaimName) {
     const cliWarningIndex = warnings.findIndex((warning) => warning.startsWith("Gitea CLI"));
     if (cliWarningIndex >= 0) warnings.splice(cliWarningIndex, 1);
-    warnings.push(EXTERNAL_ID_CHANGE_WARNING, EXTERNAL_ID_MANUAL_CONFIGURATION_WARNING);
+    warnings.push(EXTERNAL_ID_SUB_WARNING, EXTERNAL_ID_MANUAL_CONFIGURATION_WARNING);
   }
 
   return {

@@ -46,6 +46,10 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 后台默认挂载在 `/admin`，管理员默认通过专用用户组 `gitea-oidc-admins` 判断。使用本地认证时，
 `local.config.adminUsers` 中的用户会自动获得 `gitea-oidc-admins` 组。
 
+省略 `admin` 配置时内置后台默认关闭，以保证旧版配置可以直接升级。需要后台时必须显式设置
+`admin.enabled: true`，并同时配置下面要求的后台 callback Client；显式启用但缺少匹配 Client 时，
+配置验证仍会阻止启动。
+
 ```json
 {
   "server": {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GiteaOidcConfig } from "../../config.js";
+import type { ResolvedGiteaOidcConfig } from "../../config.js";
 import {
   formatValidationErrors,
   formatWarnings,
@@ -8,7 +8,7 @@ import {
 } from "../configValidator.js";
 import { Logger } from "../Logger.js";
 
-const createBaseConfig = (): GiteaOidcConfig => ({
+const createBaseConfig = (): ResolvedGiteaOidcConfig => ({
   server: {
     host: "0.0.0.0",
     port: 3000,
@@ -158,6 +158,33 @@ describe("validateConfig", () => {
 
     expect(result.valid).toBe(true);
     expect(result.config?.audit).toEqual({ enabled: true, retentionDays: 30 });
+  });
+
+  it("旧版配置省略 admin 时默认关闭且无需后台 callback", () => {
+    const config = createBaseConfig() as any;
+    delete config.admin;
+    config.clients[0].redirect_uris = ["https://app.example.com/callback"];
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(true);
+    expect(result.config?.admin).toEqual({
+      enabled: false,
+      basePath: "/admin",
+      allowedGroups: ["gitea-oidc-admins"],
+      sessionTtlSeconds: 3600,
+    });
+  });
+
+  it("后台配置省略 enabled 时保持关闭", () => {
+    const config = createBaseConfig() as any;
+    delete config.admin.enabled;
+    config.clients[0].redirect_uris = ["https://app.example.com/callback"];
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(true);
+    expect(result.config?.admin.enabled).toBe(false);
   });
 
   it("允许自定义审计日志保留天数", () => {
@@ -705,15 +732,21 @@ describe("validateConfig", () => {
     expect(validateConfig(config).errors).toEqual(
       expect.arrayContaining([expect.objectContaining({ path: "adapter.type" })]),
     );
+
+    config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };
+    config.applications.repository = { type: "memory" };
+    expect(validateConfig(config).errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "applications.repository.type" })]),
+    );
   });
 
-  it("rejects application key reuse and production memory repositories", () => {
+  it("rejects application key reuse across security domains", () => {
     const masterKey = createApplicationMasterKey(9);
     const config = createBaseConfig();
     config.applications = {
       enabled: true,
       clientSource: "database",
-      repository: { type: "memory" },
+      repository: { type: "sqlite", sqlite: { dbPath: "./applications.db" } },
       secretEncryption: { keyId: "applications-v1", masterKey },
     };
     config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };
@@ -731,18 +764,6 @@ describe("validateConfig", () => {
     expect(validateConfig(config).errors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "application_secret_key_reuse_forbidden" }),
-      ]),
-    );
-
-    vi.stubEnv("NODE_ENV", "production");
-    config.providerApi.tokenEncryptionKey = "P".repeat(32);
-    const production = validateConfig(config);
-    expect(production.errors).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: "applications.repository.type",
-          code: "production_storage_required",
-        }),
       ]),
     );
   });

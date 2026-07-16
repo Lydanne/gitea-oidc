@@ -185,7 +185,7 @@ export const AuthConfigSchema = z.object({
  * 后台管理配置 Schema
  */
 export const AdminConfigSchema = z.object({
-  enabled: z.boolean().default(true),
+  enabled: z.boolean().default(false),
   basePath: z.string().regex(/^\/[a-zA-Z0-9/_-]*$/, "后台路径必须以 / 开头"),
   allowedGroups: z.array(z.string().min(1)).default(["gitea-oidc-admins"]),
   sessionTtlSeconds: z.number().int().positive().default(3600),
@@ -366,7 +366,7 @@ export const GiteaOidcConfigSchema = z
     clients: z.array(ClientConfigSchema).min(1, "至少需要配置一个客户端"),
     auth: AuthConfigSchema,
     admin: AdminConfigSchema.default({
-      enabled: true,
+      enabled: false,
       basePath: "/admin",
       allowedGroups: ["gitea-oidc-admins"],
       sessionTtlSeconds: 3600,
@@ -413,6 +413,13 @@ export const GiteaOidcConfigSchema = z
         code: "custom",
         path: ["adapter", "type"],
         message: "database Client 模式当前仅支持单实例 SQLite OIDC adapter",
+      });
+    }
+    if (databaseMode && data.applications.repository.type !== "sqlite") {
+      context.addIssue({
+        code: "custom",
+        path: ["applications", "repository", "type"],
+        message: "database Client 模式必须使用持久化 SQLite ApplicationRepository",
       });
     }
     if (databaseMode && data.oidc.features.registration.enabled) {

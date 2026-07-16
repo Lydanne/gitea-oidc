@@ -3,7 +3,7 @@
  */
 
 import type { RedisOidcAdapterOptions } from "../adapters/RedisOidcAdapter.js";
-import type { GiteaOidcConfig } from "../config.js";
+import type { ResolvedGiteaOidcConfig } from "../config.js";
 import type { AuthProviderConfig } from "./auth.js";
 
 export type RepositoryType = "memory" | "sqlite" | "pgsql";
@@ -81,7 +81,7 @@ export interface AuthConfig {
  * 注意：现在 GiteaOidcConfig 已经包含 auth 字段，
  * 所以这个接口实际上就是 GiteaOidcConfig 的别名
  */
-export type ExtendedGiteaOidcConfig = GiteaOidcConfig;
+export type ExtendedGiteaOidcConfig = ResolvedGiteaOidcConfig;
 
 /**
  * 完整配置示例

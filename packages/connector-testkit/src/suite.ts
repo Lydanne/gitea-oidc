@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { OIDC_CALLBACK_PATH, OIDC_LOGIN_PATH, OIDC_LOGOUT_PATH } from "@gitea-oidc/connector-core";
-import { type AuthSessionView, NodeOidcError } from "@gitea-oidc/node";
+import { OIDC_CALLBACK_PATH, OIDC_LOGIN_PATH, OIDC_LOGOUT_PATH } from "@x-oidc/connector-core";
+import { type AuthSessionView, NodeOidcError } from "@x-oidc/node";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CONFORMANCE_CONFIGURATION,
@@ -20,8 +20,8 @@ const cookieNamespace = createHash("sha256")
   .update(new URL(CONFORMANCE_CONFIGURATION.redirectUri).origin)
   .digest("base64url")
   .slice(0, 16);
-const transactionCookieName = `__Host-gitea_oidc_transaction_${cookieNamespace}`;
-const sessionCookieName = `__Host-gitea_oidc_session_${cookieNamespace}`;
+const transactionCookieName = `__Host-x_oidc_transaction_${cookieNamespace}`;
+const sessionCookieName = `__Host-x_oidc_session_${cookieNamespace}`;
 const transactionCookie = () => `${transactionCookieName}=${CONFORMANCE_TRANSACTION_ID}`;
 const sessionCookie = () => `${sessionCookieName}=${CONFORMANCE_SESSION_ID}`;
 

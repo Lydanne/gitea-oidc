@@ -1,6 +1,6 @@
 {
-  "name": "@gitea-oidc/applications",
-  "version": "0.0.0",
+  "name": "@x-oidc/applications",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -12,16 +12,16 @@
     }
   },
   "scripts": {
-    "prebuild": "pnpm --filter @gitea-oidc/contracts build && pnpm --filter @gitea-oidc/application-templates build",
+    "prebuild": "pnpm --filter @x-oidc/contracts build && pnpm --filter @x-oidc/application-templates build",
     "build": "tsc -p tsconfig.json",
-    "pretypecheck": "pnpm --filter @gitea-oidc/contracts build && pnpm --filter @gitea-oidc/application-templates build",
+    "pretypecheck": "pnpm --filter @x-oidc/contracts build && pnpm --filter @x-oidc/application-templates build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "pretest": "pnpm --filter @gitea-oidc/contracts build && pnpm --filter @gitea-oidc/application-templates build",
+    "pretest": "pnpm --filter @x-oidc/contracts build && pnpm --filter @x-oidc/application-templates build",
     "test": "vitest run"
   },
   "dependencies": {
-    "@gitea-oidc/application-templates": "workspace:*",
-    "@gitea-oidc/contracts": "workspace:*",
+    "@x-oidc/application-templates": "workspace:*",
+    "@x-oidc/contracts": "workspace:*",
     "better-sqlite3": "^12.4.1",
     "zod": "^4.1.12"
   },

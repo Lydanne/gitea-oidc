@@ -58,7 +58,7 @@ export function renderLoginPageHTML(
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-  <title>登录 - Gitea OIDC</title>
+  <title>登录 - X OIDC</title>
   <style>
     :root {
       color-scheme: light;
@@ -404,9 +404,9 @@ export function renderLoginPageHTML(
 </head>
 <body>
   <div class="page-shell">
-    <div class="brand" aria-label="Gitea OIDC">
+    <div class="brand" aria-label="X OIDC">
       <span class="brand-mark" aria-hidden="true">GO</span>
-      <span>Gitea OIDC</span>
+      <span>X OIDC</span>
     </div>
     <main class="login-card" aria-labelledby="login-title">
       <header class="login-header">
@@ -425,7 +425,7 @@ export function renderLoginPageHTML(
         <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
         <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
       </svg>
-      <span>安全身份认证由 Gitea OIDC 提供</span>
+      <span>安全身份认证由 X OIDC 提供</span>
     </p>
   </div>
 </body>

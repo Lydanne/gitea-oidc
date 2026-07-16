@@ -1,7 +1,7 @@
 {
-  "name": "@gitea-oidc/connector-core",
-  "version": "0.0.0",
-  "description": "Framework-neutral HTTP adapter core for Gitea OIDC connectors",
+  "name": "@x-oidc/connector-core",
+  "version": "2.0.0",
+  "description": "Framework-neutral HTTP adapter core for X OIDC connectors",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -22,11 +22,11 @@
   "sideEffects": false,
   "scripts": {
     "clean": "node ./scripts/clean.mjs",
-    "prebuild": "pnpm --filter @gitea-oidc/node build",
+    "prebuild": "pnpm --filter @x-oidc/node build",
     "build": "pnpm clean && tsc -p tsconfig.json",
-    "pretypecheck": "pnpm --filter @gitea-oidc/node build",
+    "pretypecheck": "pnpm --filter @x-oidc/node build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "pretest": "pnpm --filter @gitea-oidc/node build",
+    "pretest": "pnpm --filter @x-oidc/node build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -35,7 +35,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@gitea-oidc/node": "workspace:*"
+    "@x-oidc/node": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

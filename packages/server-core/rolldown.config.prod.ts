@@ -2,9 +2,9 @@ import { builtinModules } from "node:module";
 import { defineConfig } from "rolldown";
 
 const bundledWorkspacePackages = new Set([
-  "@gitea-oidc/application-templates",
-  "@gitea-oidc/applications",
-  "@gitea-oidc/contracts",
+  "@x-oidc/application-templates",
+  "@x-oidc/applications",
+  "@x-oidc/contracts",
 ]);
 
 /**

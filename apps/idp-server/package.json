@@ -1,16 +1,16 @@
 {
-  "name": "@gitea-oidc/idp-server",
-  "version": "1.0.29",
+  "name": "@x-oidc/idp-server",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "pnpm --filter gitea-oidc build:types && tsc --noEmit -p tsconfig.json",
+    "typecheck": "pnpm --filter @x-oidc/server-core build:types && tsc --noEmit -p tsconfig.json",
     "start": "NODE_ENV=production node dist/main.js"
   },
   "dependencies": {
-    "gitea-oidc": "workspace:*"
+    "@x-oidc/server-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -26,18 +26,18 @@ Access Token 或 Refresh Token；Session ID 只存在于 `HttpOnly` Cookie，前
 
 ## 配置门户 OIDC Client
 
-配置 Schema 默认关闭门户；仓库的本地 `example.gitea-oidc.config.json` 已显式启用，便于直接验证。
+配置 Schema 默认关闭门户；仓库的本地 `example.x-oidc.config.json` 已显式启用，便于直接验证。
 生产启用时，`portal.clientId` 必须指向 `clients[]` 中的 confidential Client。推荐为门户单独创建
 Client Secret，不与后台、Gitea 或其他业务 Client 共用。
 
-下面是需要合并进完整 `gitea-oidc.config.js` 的门户配置：
+下面是需要合并进完整 `x-oidc.config.js` 的门户配置：
 
 ```javascript
 const serverUrl = "https://id.example.com";
-const portalClientSecret = process.env.GITEA_OIDC_PORTAL_CLIENT_SECRET;
+const portalClientSecret = process.env.X_OIDC_PORTAL_CLIENT_SECRET;
 
 if (!portalClientSecret) {
-  throw new Error("缺少 GITEA_OIDC_PORTAL_CLIENT_SECRET");
+  throw new Error("缺少 X_OIDC_PORTAL_CLIENT_SECRET");
 }
 
 export default {
@@ -52,12 +52,12 @@ export default {
   portal: {
     enabled: true,
     basePath: "/portal",
-    clientId: "gitea-oidc-portal",
+    clientId: "x-oidc-portal",
     sessionTtlSeconds: 3600,
   },
   clients: [
     {
-      client_id: "gitea-oidc-portal",
+      client_id: "x-oidc-portal",
       client_secret: portalClientSecret,
       redirect_uris: [`${serverUrl}/portal/callback`],
       post_logout_redirect_uris: [`${serverUrl}/portal/signed-out`],

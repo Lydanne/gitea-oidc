@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { AuthSessionView, NodeOidcClient } from "@gitea-oidc/node";
+import type { AuthSessionView, NodeOidcClient } from "@x-oidc/node";
 import express4 from "express4";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -46,7 +46,7 @@ describe("Express 4 peer compatibility", () => {
     const oidc = createExpressOidc({
       client,
       redirectUri: "https://app.example.com/oidc/callback",
-      cookieNames: { session: "__Host-gitea_oidc_session" },
+      cookieNames: { session: "__Host-x_oidc_session" },
     });
     const app = express4();
     app.use(oidc.router);
@@ -70,7 +70,7 @@ describe("Express 4 peer compatibility", () => {
     });
     const address = server.address() as AddressInfo;
     const response = await fetch(`http://127.0.0.1:${address.port}/required`, {
-      headers: { Cookie: `__Host-gitea_oidc_session=${SESSION_ID}` },
+      headers: { Cookie: `__Host-x_oidc_session=${SESSION_ID}` },
     });
 
     expect(response.status).toBe(598);

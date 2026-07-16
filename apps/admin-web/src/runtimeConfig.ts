@@ -8,11 +8,11 @@ function normalizeAdminBasePath(value: string | undefined): string {
 }
 
 const rootDataset = globalThis.document?.documentElement.dataset;
-const applicationsAttribute = rootDataset?.giteaOidcApplicationsEnabled;
+const applicationsAttribute = rootDataset?.xOidcApplicationsEnabled;
 
 /** 服务端注入的管理台部署信息；Vite 开发模式缺少注入时回退到 `/admin`。 */
 export const adminRuntimeConfig = Object.freeze({
-  basePath: normalizeAdminBasePath(rootDataset?.giteaOidcAdminBasePath),
+  basePath: normalizeAdminBasePath(rootDataset?.xOidcAdminBasePath),
   capabilities: Object.freeze({
     applications:
       applicationsAttribute === undefined ? undefined : applicationsAttribute === "true",

@@ -13,7 +13,7 @@ export class RedisStateStore implements StateStore {
   private clientPromise: Promise<any>;
   private readonly keyPrefix: string;
 
-  constructor(options: RedisOidcAdapterOptions, keyPrefix = "gitea-oidc:state:") {
+  constructor(options: RedisOidcAdapterOptions, keyPrefix = "x-oidc:state:") {
     this.keyPrefix = keyPrefix;
     this.clientPromise = this.createClient(options);
   }

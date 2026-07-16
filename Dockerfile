@@ -28,13 +28,13 @@ RUN mkdir -p /runtime/apps/idp-server /runtime/packages/server-core \
     && cp /workspace/apps/idp-server/package.json /runtime/apps/idp-server/package.json \
     && cp /workspace/packages/server-core/package.json /runtime/packages/server-core/package.json
 
-RUN pnpm --dir /runtime --filter @gitea-oidc/idp-server... install \
+RUN pnpm --dir /runtime --filter @x-oidc/idp-server... install \
       --prod \
       --offline \
       --frozen-lockfile \
       --ignore-scripts \
       --store-dir=/pnpm/store \
-    && pnpm --dir /runtime --filter @gitea-oidc/idp-server... rebuild bcrypt better-sqlite3 \
+    && pnpm --dir /runtime --filter @x-oidc/idp-server... rebuild bcrypt better-sqlite3 \
     && ! find /runtime/node_modules/.pnpm -maxdepth 1 -type d \( \
       -name 'vitest@*' -o -name 'rolldown@*' -o -name 'tsx@*' -o \
       -name 'husky@*' -o -name 'release-it@*' -o -name '@biomejs+biome@*' \
@@ -46,8 +46,8 @@ ARG VERSION=dev
 ARG REVISION=unknown
 ARG SOURCE=https://github.com/Lydanne/gitea-oidc
 
-LABEL org.opencontainers.image.title="gitea-oidc" \
-      org.opencontainers.image.description="Gitea OIDC identity provider" \
+LABEL org.opencontainers.image.title="X OIDC" \
+      org.opencontainers.image.description="X OIDC identity provider" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="${SOURCE}" \
@@ -58,26 +58,26 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-RUN groupadd --gid 10001 gitea-oidc \
+RUN groupadd --gid 10001 x-oidc \
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent \
-      --shell /usr/sbin/nologin gitea-oidc \
-    && chown gitea-oidc:gitea-oidc /app
+      --shell /usr/sbin/nologin x-oidc \
+    && chown x-oidc:x-oidc /app
 
-COPY --from=production-dependencies --chown=gitea-oidc:gitea-oidc \
+COPY --from=production-dependencies --chown=x-oidc:x-oidc \
     /runtime/node_modules ./node_modules
-COPY --from=production-dependencies --chown=gitea-oidc:gitea-oidc \
+COPY --from=production-dependencies --chown=x-oidc:x-oidc \
     /runtime/apps/idp-server/node_modules ./apps/idp-server/node_modules
-COPY --from=production-dependencies --chown=gitea-oidc:gitea-oidc \
+COPY --from=production-dependencies --chown=x-oidc:x-oidc \
     /runtime/packages/server-core/node_modules ./packages/server-core/node_modules
-COPY --from=production-dependencies --chown=gitea-oidc:gitea-oidc \
+COPY --from=production-dependencies --chown=x-oidc:x-oidc \
     /runtime/apps/idp-server/package.json ./apps/idp-server/package.json
-COPY --from=production-dependencies --chown=gitea-oidc:gitea-oidc \
+COPY --from=production-dependencies --chown=x-oidc:x-oidc \
     /runtime/packages/server-core/package.json ./packages/server-core/package.json
-COPY --from=build --chown=gitea-oidc:gitea-oidc \
+COPY --from=build --chown=x-oidc:x-oidc \
     /workspace/apps/idp-server/dist ./apps/idp-server/dist
-COPY --from=build --chown=gitea-oidc:gitea-oidc \
+COPY --from=build --chown=x-oidc:x-oidc \
     /workspace/packages/server-core/dist ./packages/server-core/dist
-COPY --from=build --chown=gitea-oidc:gitea-oidc \
+COPY --from=build --chown=x-oidc:x-oidc \
     /workspace/packages/server-core/public ./packages/server-core/public
 
 USER 10001:10001

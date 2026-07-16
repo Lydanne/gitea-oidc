@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GiteaOidcClient } from "../client.js";
+import { XOidcClient } from "../client.js";
 
-describe("GiteaOidcClient", () => {
+describe("XOidcClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -13,7 +13,7 @@ describe("GiteaOidcClient", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GiteaOidcClient({
+    const client = new XOidcClient({
       baseUrl: "http://localhost:3000/",
       accessToken: "oidc-token",
     });

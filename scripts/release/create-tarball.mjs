@@ -8,7 +8,7 @@ const workspaceRoot = resolve(import.meta.dirname, "../..");
 const packageRoot = resolve(workspaceRoot, "packages/server-core");
 const outputDir = resolve(workspaceRoot, "artifacts/npm");
 const manifest = JSON.parse(await readFile(resolve(packageRoot, "package.json"), "utf8"));
-const npmCache = await mkdtemp(resolve(tmpdir(), "gitea-oidc-npm-cache-"));
+const npmCache = await mkdtemp(resolve(tmpdir(), "x-oidc-npm-cache-"));
 
 try {
   await rm(outputDir, { force: true, recursive: true });
@@ -40,6 +40,9 @@ try {
 
   if (result.version !== manifest.version) {
     throw new Error(`tarball 版本 ${result.version} 与 package.json ${manifest.version} 不一致`);
+  }
+  if (result.name !== manifest.name) {
+    throw new Error(`tarball 包名 ${result.name} 与 package.json ${manifest.name} 不一致`);
   }
 
   console.log(`发布 tarball 已生成: ${result.filename}`);

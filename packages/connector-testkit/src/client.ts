@@ -8,7 +8,7 @@ import {
   MemoryRefreshLock,
   type NodeOidcClient,
   type NodeOidcClientOptions,
-} from "@gitea-oidc/node";
+} from "@x-oidc/node";
 import type { ConnectorConformanceConfiguration } from "./types.js";
 
 export const CONFORMANCE_NOW = Date.parse("2026-07-10T08:00:00.000Z");

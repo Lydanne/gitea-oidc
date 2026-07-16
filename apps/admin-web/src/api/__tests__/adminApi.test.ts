@@ -6,7 +6,7 @@ import {
   CUSTOM_APPLICATION_SCHEMA_VERSION,
   INTEGRATION_GUIDE_SCHEMA_VERSION,
   type RotateApplicationCredentialResponseV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchAdminApplications,
@@ -86,7 +86,7 @@ const rotationResponse: RotateApplicationCredentialResponseV1 = {
       resourceServer: false,
     },
     recommendedConnector: {
-      packageName: "@gitea-oidc/node",
+      packageName: "@x-oidc/node",
       minimumVersion: "0.1.0",
     },
   },
@@ -141,7 +141,7 @@ describe("admin application API contracts", () => {
       {
         reference: { id: "gitea", version: 1 },
         name: "Gitea",
-        description: "Gitea OIDC 模板",
+        description: "Gitea OpenID Connect 模板",
         supportedVersions: [],
         form: {
           fields: [{ kind: "url", name: "baseUrl", label: "Base URL", required: true }],

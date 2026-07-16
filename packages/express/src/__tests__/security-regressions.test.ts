@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { AuthSessionView, NodeOidcClient } from "@gitea-oidc/node";
+import type { AuthSessionView, NodeOidcClient } from "@x-oidc/node";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createExpressOidc } from "../index.js";
@@ -46,13 +46,13 @@ describe("Express connector instance isolation", () => {
     const connectorA = createExpressOidc({
       client: clientA,
       redirectUri: "https://app.example.com/oidc/callback",
-      cookieNames: { session: "__Host-gitea_oidc_session" },
+      cookieNames: { session: "__Host-x_oidc_session" },
       clock: () => NOW,
     });
     const connectorB = createExpressOidc({
       client: clientB,
       redirectUri: "https://app.example.com/oidc/callback",
-      cookieNames: { session: "__Host-gitea_oidc_session" },
+      cookieNames: { session: "__Host-x_oidc_session" },
       clock: () => NOW,
     });
     const app = express();
@@ -73,7 +73,7 @@ describe("Express connector instance isolation", () => {
     const address = server.address() as AddressInfo;
 
     const response = await fetch(`http://127.0.0.1:${address.port}/cross-instance`, {
-      headers: { Cookie: `__Host-gitea_oidc_session=${SESSION_ID}` },
+      headers: { Cookie: `__Host-x_oidc_session=${SESSION_ID}` },
     });
 
     expect(response.status).toBe(401);

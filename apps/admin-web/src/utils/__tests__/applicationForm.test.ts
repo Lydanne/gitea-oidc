@@ -1,4 +1,4 @@
-import type { ApplicationTemplateSummaryV1 } from "@gitea-oidc/contracts";
+import type { ApplicationTemplateSummaryV1 } from "@x-oidc/contracts";
 import { describe, expect, it } from "vitest";
 import type { ApplicationForm, TemplateApplicationForm } from "../../types/admin";
 import {
@@ -23,7 +23,7 @@ const createForm = (overrides: Partial<ApplicationForm> = {}): ApplicationForm =
 const template: ApplicationTemplateSummaryV1 = {
   reference: { id: "gitea", version: 1 },
   name: "Gitea",
-  description: "Gitea OIDC 接入模板",
+  description: "Gitea OpenID Connect 接入模板",
   supportedVersions: ["1.27"],
   form: {
     fields: [

@@ -1,8 +1,6 @@
 import "reflect-metadata";
 import { createHash } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import type { AuthSessionView, NodeOidcClient } from "@gitea-oidc/node";
-import { NodeOidcError } from "@gitea-oidc/node";
 import {
   Bind,
   type CanActivate,
@@ -18,6 +16,8 @@ import {
 } from "@nestjs/common";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { FastifyAdapter } from "@nestjs/platform-fastify";
+import type { AuthSessionView, NodeOidcClient } from "@x-oidc/node";
+import { NodeOidcError } from "@x-oidc/node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   NestOidcModule,
@@ -35,8 +35,8 @@ const COOKIE_NAMESPACE = createHash("sha256")
   .update("https://app.example.com")
   .digest("base64url")
   .slice(0, 16);
-const TRANSACTION_COOKIE_NAME = `__Host-gitea_oidc_transaction_${COOKIE_NAMESPACE}`;
-const SESSION_COOKIE_NAME = `__Host-gitea_oidc_session_${COOKIE_NAMESPACE}`;
+const TRANSACTION_COOKIE_NAME = `__Host-x_oidc_transaction_${COOKIE_NAMESPACE}`;
+const SESSION_COOKIE_NAME = `__Host-x_oidc_session_${COOKIE_NAMESPACE}`;
 
 const session: AuthSessionView = Object.freeze({
   authenticated: true,

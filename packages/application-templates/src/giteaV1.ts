@@ -6,7 +6,7 @@ import {
   IntegrationGuideV1Schema,
   issuerUrlSchema,
   scopeSchema,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { z } from "zod";
 import { createImmutableJsonSnapshot } from "./jsonSnapshot.js";
 import {
@@ -21,8 +21,8 @@ import {
 export const GITEA_TEMPLATE_ID = "gitea" as const;
 export const GITEA_TEMPLATE_VERSION = 1 as const;
 export const GITEA_SUPPORTED_VERSIONS = Object.freeze(["1.24", "1.25", "1.26"] as const);
-export const GITEA_CLIENT_ID_PLACEHOLDER = "<GITEA_OIDC_CLIENT_ID>" as const;
-export const GITEA_CLIENT_SECRET_PLACEHOLDER = "<GITEA_OIDC_CLIENT_SECRET>" as const;
+export const GITEA_CLIENT_ID_PLACEHOLDER = "<X_OIDC_CLIENT_ID>" as const;
+export const GITEA_CLIENT_SECRET_PLACEHOLDER = "<X_OIDC_CLIENT_SECRET>" as const;
 export const GITEA_TEMPLATE_FORM: ApplicationTemplateFormV1 = {
   fields: [
     {
@@ -271,8 +271,8 @@ const buildGiteaCliCommand = (
     "gitea admin auth add-oauth \\",
     `  --name ${shellQuote(input.authSourceName)} \\`,
     "  --provider openidConnect \\",
-    '  --key "$GITEA_OIDC_CLIENT_ID" \\',
-    '  --secret "$GITEA_OIDC_CLIENT_SECRET" \\',
+    '  --key "$X_OIDC_CLIENT_ID" \\',
+    '  --secret "$X_OIDC_CLIENT_SECRET" \\',
     `  --auto-discover-url ${shellQuote(discoveryUrl)} \\`,
     `  --scopes ${shellQuote(scopes.join(","))}${input.groupClaimName ? " \\" : ""}`,
   ];
@@ -345,14 +345,14 @@ const buildIntegrationGuide = (
     },
     {
       kind: "warning",
-      text: "执行前在可信的 Gitea 主机上临时设置 GITEA_OIDC_CLIENT_ID 和 GITEA_OIDC_CLIENT_SECRET 环境变量，执行后立即清除；不要把真实凭据替换进命令文本、脚本、日志或工单。",
+      text: "执行前在可信的 Gitea 主机上临时设置 X_OIDC_CLIENT_ID 和 X_OIDC_CLIENT_SECRET 环境变量，执行后立即清除；不要把真实凭据替换进命令文本、脚本、日志或工单。",
     },
   ];
 
   return IntegrationGuideV1Schema.parse({
     schemaVersion: INTEGRATION_GUIDE_SCHEMA_VERSION,
     title: `Gitea ${input.targetVersion} OIDC 接入说明`,
-    description: "使用内置 OpenID Connect 认证源接入 Gitea OIDC。",
+    description: "使用内置 OpenID Connect 认证源接入 X OIDC。",
     nodes,
   });
 };

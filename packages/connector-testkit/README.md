@@ -1,7 +1,7 @@
-# `@gitea-oidc/connector-testkit`
+# `@x-oidc/connector-testkit`
 
 供 monorepo 内框架连接器复用的私有 Vitest conformance testkit。它从
-`@gitea-oidc/connector-core` 的公开 HTTP 行为出发，统一验证登录、callback、Cookie、auth
+`@x-oidc/connector-core` 的公开 HTTP 行为出发，统一验证登录、callback、Cookie、auth
 投影、退出、错误与生命周期，不参与生产运行时，也不发布给应用开发者。
 
 ## Harness 边界
@@ -22,7 +22,7 @@ Harness 返回的响应只包含 status、大小写无关 header、`Set-Cookie` 
 import {
   type ConnectorConformanceHarness,
   defineConnectorConformanceSuite,
-} from "@gitea-oidc/connector-testkit";
+} from "@x-oidc/connector-testkit";
 
 const harness: ConnectorConformanceHarness = {
   name: "my-framework",
@@ -65,7 +65,7 @@ optional/required guard，`close()` 调用 `app.close()`，`probeAfterClose()` �
 ## 验证
 
 ```bash
-pnpm --filter @gitea-oidc/connector-testkit test
-pnpm --filter @gitea-oidc/connector-testkit typecheck
-pnpm --filter @gitea-oidc/connector-testkit build
+pnpm --filter @x-oidc/connector-testkit test
+pnpm --filter @x-oidc/connector-testkit typecheck
+pnpm --filter @x-oidc/connector-testkit build
 ```

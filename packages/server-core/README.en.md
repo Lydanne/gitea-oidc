@@ -1,11 +1,11 @@
-# Gitea OIDC Identity Provider
+# X OIDC Identity Provider
 
 [中文文档](./README.md) · [English README](./README.en.md)
 
 [![CI-CHECK](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml)
 [![Release](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml)
-[![npm version](https://img.shields.io/npm/v/gitea-oidc)](https://www.npmjs.com/package/gitea-oidc)
-[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/gitea-oidc)](https://hub.docker.com/r/lydamirror/gitea-oidc)
+[![npm version](https://img.shields.io/npm/v/%40x-oidc%2Fserver-core)](https://www.npmjs.com/package/@x-oidc/server-core)
+[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/x-oidc)](https://hub.docker.com/r/lydamirror/x-oidc)
 ![Node version](https://img.shields.io/badge/node-%3E%3D22.0.0-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
@@ -23,7 +23,7 @@ user repositories, and pluggable OIDC persistence adapters.
 
 ## Table of Contents
 
-- [Gitea OIDC Identity Provider](#gitea-oidc-identity-provider)
+- [X OIDC Identity Provider](#x-oidc-identity-provider)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Architecture Overview](#architecture-overview)
@@ -77,7 +77,7 @@ At a high level:
 
 - `packages/server-core/src/identityServer.ts`
   - Bootstraps Fastify 5
-  - Loads merged configuration from `gitea-oidc.config.js/json` via
+  - Loads merged configuration from `x-oidc.config.js/json` via
     `packages/server-core/src/config.ts`
   - Configures `oidc-provider` and mounts it at `/oidc`
   - Integrates the authentication system (unified login, OAuth state, callbacks)
@@ -134,7 +134,7 @@ pnpm install
 Copy the example config and adjust it to your environment:
 
 ```bash
-cp example.gitea-oidc.config.json gitea-oidc.config.json
+cp example.x-oidc.config.json x-oidc.config.json
 ```
 
 Important fields (development example):
@@ -209,7 +209,7 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 
 The full configuration is validated by Zod
 (`packages/server-core/src/schemas/configSchema.ts`).
-Key sections in `gitea-oidc.config.*`:
+Key sections in `x-oidc.config.*`:
 
 - `server`: host/port/public URL, reverse proxy trust
 - `logging`: enable/disable and log level
@@ -235,7 +235,7 @@ Key sections in `gitea-oidc.config.*`:
 For concrete JSON examples, refer to:
 
 - `README.md` (Chinese, detailed examples)
-- `example.gitea-oidc.config.json`
+- `example.x-oidc.config.json`
 
 ---
 
@@ -261,10 +261,10 @@ A simple way to run the IdP in production is via Docker:
 
 ```bash
 # Pull latest image
-docker pull lydamirror/gitea-oidc:latest
+docker pull lydamirror/x-oidc:latest
 
 # Run with default ports
-docker run -d -p 3000:3000 lydamirror/gitea-oidc
+docker run -d -p 3000:3000 lydamirror/x-oidc
 ```
 
 With a custom JSON config:
@@ -272,8 +272,8 @@ With a custom JSON config:
 ```bash
 docker run -p 3000:3000 \
   -e NODE_ENV=production \
-  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
-  lydamirror/gitea-oidc
+  -v ./x-oidc.config.json:/app/x-oidc.config.json \
+  lydamirror/x-oidc
 ```
 
 See `README.md` (Chinese) for more detailed production recommendations:

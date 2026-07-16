@@ -3,7 +3,7 @@ import type {
   LogoutWarning,
   NodeOidcClient,
   NodeOidcClientOptions,
-} from "@gitea-oidc/node";
+} from "@x-oidc/node";
 
 export const OIDC_LOGIN_PATH = "/oidc/login" as const;
 export const OIDC_CALLBACK_PATH = "/oidc/callback" as const;

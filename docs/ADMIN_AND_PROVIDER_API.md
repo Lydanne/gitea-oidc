@@ -13,8 +13,8 @@
 - 内置管理后台：默认访问路径为 `/admin`，用于账号管理、Provider 状态和 token 探活。
 - Provider API 代理：默认接口为 `/api/provider/:provider/request`，业务系统只提交 OIDC
   access token。
-- SDK 子路径：从 `gitea-oidc/client`、`gitea-oidc/express`、`gitea-oidc/nest`、
-  `gitea-oidc/vue` 引入。
+- SDK 子路径：从 `@x-oidc/server-core/client`、`@x-oidc/server-core/express`、`@x-oidc/server-core/nest`、
+  `@x-oidc/server-core/vue` 引入。
 
 浏览器和业务服务不直接持有第三方 refresh token。第三方 token 只保存在本服务的 token
 仓储中，持久化前使用 `providerApi.tokenEncryptionKey` 加密。
@@ -43,8 +43,8 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 
 ## 启用管理后台
 
-后台默认挂载在 `/admin`，管理员默认通过专用用户组 `gitea-oidc-admins` 判断。使用本地认证时，
-`local.config.adminUsers` 中的用户会自动获得 `gitea-oidc-admins` 组。
+后台默认挂载在 `/admin`，管理员默认通过专用用户组 `x-oidc-admins` 判断。使用本地认证时，
+`local.config.adminUsers` 中的用户会自动获得 `x-oidc-admins` 组。
 
 省略 `admin` 配置时内置后台默认关闭，以保证旧版配置可以直接升级。需要后台时必须显式设置
 `admin.enabled: true`，并同时配置下面要求的后台 callback Client；显式启用但缺少匹配 Client 时，
@@ -88,7 +88,7 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
   "admin": {
     "enabled": true,
     "basePath": "/admin",
-    "allowedGroups": ["gitea-oidc-admins"],
+    "allowedGroups": ["x-oidc-admins"],
     "sessionTtlSeconds": 3600
   },
   "audit": {
@@ -249,7 +249,7 @@ Client 的场景。密码错误、账号禁用等失败仍在 Provider 认证阶
 示例：
 
 ```bash
-curl --cookie "gitea_oidc_admin_session=<admin-session>" \
+curl --cookie "x_oidc_admin_session=<admin-session>" \
   "https://id.example.com/admin/api/audit-logs?userId=user-1&eventType=user.login&limit=20"
 ```
 
@@ -475,7 +475,7 @@ Content-Type: application/json
 - 实际 `method` 和 `path` 由服务端维护的 `operation` 定义生成，调用方不能自定义。
 - 请求体必须是 JSON 对象；`operation` 必须是非空字符串，`tokenKind` 只能是 `user` 或
   `app`，非法结构会在进入 Provider client 前被拒绝。
-- 旧 SDK 如果仍提交 `method` 或 `path`，必须与服务端定义完全匹配，否则会被拒绝。
+- SDK 提交的 `method` 或 `path` 必须与服务端定义完全匹配，否则会被拒绝。
 - `pathParams` 和 `query` 值只能是字符串、数字或布尔值，不能提交对象或数组。
 - `pathParams` 会被限制为单个 URL 路径段，只允许 ASCII 字母、数字、`.`、`_`、`~` 和
   `-`，且不能是 `.` 或 `..`；`/`、`\`、`%`、`?`、`#` 等可能造成路径混淆的字符会被拒绝。
@@ -531,13 +531,13 @@ curl -X POST "https://id.example.com/api/provider/feishu/request" \
 安装并从子路径导入：
 
 ```bash
-pnpm add gitea-oidc
+pnpm add @x-oidc/server-core
 ```
 
 ```typescript
-import { GiteaOidcClient } from "gitea-oidc/client";
+import { XOidcClient } from "@x-oidc/server-core/client";
 
-const client = new GiteaOidcClient({
+const client = new XOidcClient({
   baseUrl: "https://id.example.com",
   accessToken: "<oidc-access-token>",
 });
@@ -562,12 +562,12 @@ Express 中间件通过 OIDC `userinfo` 端点校验 bearer token，并把用户
 
 ```typescript
 import express from "express";
-import { createGiteaOidcExpressMiddleware } from "gitea-oidc/express";
+import { createXOidcExpressMiddleware } from "@x-oidc/server-core/express";
 
 const app = express();
 
 app.use(
-  createGiteaOidcExpressMiddleware({
+  createXOidcExpressMiddleware({
     userInfoEndpoint: "https://id.example.com/oidc/me",
   }),
 );
@@ -577,7 +577,7 @@ app.get("/api/me", (req, res) => {
 });
 ```
 
-如果需要在 Express 服务里继续调用 Provider API，可以结合 `gitea-oidc/client` 使用请求中的
+如果需要在 Express 服务里继续调用 Provider API，可以结合 `@x-oidc/server-core/client` 使用请求中的
 bearer token。
 
 ## Nest 接入
@@ -586,45 +586,45 @@ Nest Guard 工厂不依赖 `@nestjs/*` 运行时类型，可以在 Nest 项目�
 
 ```typescript
 import { CanActivate, Injectable } from "@nestjs/common";
-import { createGiteaOidcNestGuard, getGiteaOidcUser } from "gitea-oidc/nest";
+import { createXOidcNestGuard, getXOidcUser } from "@x-oidc/server-core/nest";
 
-const BaseGuard = createGiteaOidcNestGuard({
+const BaseGuard = createXOidcNestGuard({
   userInfoEndpoint: "https://id.example.com/oidc/me",
 });
 
 @Injectable()
-export class GiteaOidcGuard extends BaseGuard implements CanActivate {}
+export class XOidcGuard extends BaseGuard implements CanActivate {}
 
-export { getGiteaOidcUser };
+export { getXOidcUser };
 ```
 
 在控制器中使用：
 
 ```typescript
 import { Controller, Get, Req, UseGuards } from "@nestjs/common";
-import { GiteaOidcGuard, getGiteaOidcUser } from "./gitea-oidc.guard";
+import { XOidcGuard, getXOidcUser } from "./x-oidc.guard";
 
 @Controller("me")
 export class MeController {
   @Get()
-  @UseGuards(GiteaOidcGuard)
+  @UseGuards(XOidcGuard)
   me(@Req() request: any) {
-    return getGiteaOidcUser(request);
+    return getXOidcUser(request);
   }
 }
 ```
 
 ## Vue 接入
 
-`gitea-oidc/vue` 提供登录按钮、用户菜单和 Provider request composable。
+`@x-oidc/server-core/vue` 提供登录按钮、用户菜单和 Provider request composable。
 
 ```vue
 <script setup lang="ts">
 import {
-  GiteaOidcLoginButton,
-  GiteaOidcUserMenu,
+  XOidcLoginButton,
+  XOidcUserMenu,
   useProviderRequest,
-} from "gitea-oidc/vue";
+} from "@x-oidc/server-core/vue";
 
 const oidcBaseUrl = "https://id.example.com";
 const accessToken = "<oidc-access-token>";
@@ -644,11 +644,11 @@ const loadFeishuUser = async () => {
 </script>
 
 <template>
-  <GiteaOidcLoginButton
+  <XOidcLoginButton
     href="https://id.example.com/oidc/auth"
-    label="使用 Gitea OIDC 登录"
+    label="使用 X OIDC 登录"
   />
-  <GiteaOidcUserMenu :user="currentUser" logout-href="/logout" />
+  <XOidcUserMenu :user="currentUser" logout-href="/logout" />
   <button :disabled="loading" @click="loadFeishuUser">读取飞书用户信息</button>
   <p v-if="error">{{ error }}</p>
 </template>
@@ -657,7 +657,7 @@ const loadFeishuUser = async () => {
 实际业务中，前端通常从自身 BFF 或 OAuth 客户端状态中获取 OIDC access token；不要把第三方
 Provider refresh token 下发给浏览器。
 
-如果这个 Vue 应用与 gitea-oidc 不同源部署，服务端需要配置：
+如果这个 Vue 应用与 X OIDC 不同源部署，服务端需要配置：
 
 ```json
 {
@@ -727,7 +727,7 @@ token。
 
 ### 调用 app token 或跨用户请求返回权限错误？
 
-当前用户必须在 `admin.allowedGroups` 配置的组内，默认是 `gitea-oidc-admins`。
+当前用户必须在 `admin.allowedGroups` 配置的组内，默认是 `x-oidc-admins`。
 
 ### 调用返回 `operation is not allowed`？
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createGiteaOidcNestGuard, getGiteaOidcUser } from "../nest.js";
+import { createXOidcNestGuard, getXOidcUser } from "../nest.js";
 
-describe("createGiteaOidcNestGuard", () => {
+describe("createXOidcNestGuard", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -20,7 +20,7 @@ describe("createGiteaOidcNestGuard", () => {
         json: vi.fn().mockResolvedValue({ sub: "user-1" }),
       }),
     );
-    const Guard = createGiteaOidcNestGuard({
+    const Guard = createXOidcNestGuard({
       userInfoEndpoint: "https://id.example.com/oidc/me",
     });
     const request = { headers: { authorization: "Bearer token" } };
@@ -28,12 +28,12 @@ describe("createGiteaOidcNestGuard", () => {
     const result = await new Guard().canActivate(createContext(request));
 
     expect(result).toBe(true);
-    expect(getGiteaOidcUser(request)).toEqual({ sub: "user-1" });
+    expect(getXOidcUser(request)).toEqual({ sub: "user-1" });
   });
 
   it("returns false when token is invalid", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
-    const Guard = createGiteaOidcNestGuard({
+    const Guard = createXOidcNestGuard({
       userInfoEndpoint: "https://id.example.com/oidc/me",
     });
 

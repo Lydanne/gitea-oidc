@@ -1,4 +1,4 @@
-import type { AuthSessionView, NodeOidcClient } from "@gitea-oidc/node";
+import type { AuthSessionView, NodeOidcClient } from "@x-oidc/node";
 import { describe, expect, it, vi } from "vitest";
 import { createWebConnectorCore } from "../index.js";
 

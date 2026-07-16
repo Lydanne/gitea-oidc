@@ -1,4 +1,4 @@
-import type { ApplicationConnectionV1 } from "@gitea-oidc/contracts";
+import type { ApplicationConnectionV1 } from "@x-oidc/contracts";
 import type { DnsResolver, HttpClient, HttpResponse } from "./dependencies.js";
 import { CliError } from "./errors.js";
 import { isPublicIpAddress } from "./networkPolicy.js";

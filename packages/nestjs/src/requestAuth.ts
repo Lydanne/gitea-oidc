@@ -1,6 +1,6 @@
-import { connectorError, mapConnectorError } from "@gitea-oidc/connector-core";
-import type { AuthSessionView } from "@gitea-oidc/node";
 import { HttpException } from "@nestjs/common";
+import { connectorError, mapConnectorError } from "@x-oidc/connector-core";
+import type { AuthSessionView } from "@x-oidc/node";
 
 type OidcRequestState = Record<PropertyKey, unknown>;
 
@@ -53,8 +53,8 @@ export const getNestOidcAuth = (request: unknown): AuthSessionView => {
 
 /** 每个 NestOidcService 都必须持有独立 context，禁止跨模块复用认证缓存。 */
 export const createNestOidcRequestAuthContext = (): NestOidcRequestAuthContext => {
-  const authResolved = Symbol("@gitea-oidc/nestjs/auth-resolved");
-  const authSession = Symbol("@gitea-oidc/nestjs/auth-session");
+  const authResolved = Symbol("@x-oidc/nestjs/auth-resolved");
+  const authSession = Symbol("@x-oidc/nestjs/auth-session");
 
   const read = (request: unknown): ResolvedNestOidcAuth => {
     const state = asRequestState(request);

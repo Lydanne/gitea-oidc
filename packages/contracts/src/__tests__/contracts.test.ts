@@ -83,7 +83,7 @@ const connection: ApplicationConnectionV1 = {
     resourceServer: false,
   },
   recommendedConnector: {
-    packageName: "@gitea-oidc/node",
+    packageName: "@x-oidc/node",
     minimumVersion: "0.1.0",
   },
 };
@@ -633,7 +633,7 @@ describe("template application DTOs", () => {
       ApplicationTemplateSummaryV1Schema.safeParse({
         reference: { id: "gitea", version: 1 },
         name: "Gitea",
-        description: "Gitea OIDC 模板",
+        description: "X OIDC 模板",
         supportedVersions: ["1.26"],
         form: {
           fields: [

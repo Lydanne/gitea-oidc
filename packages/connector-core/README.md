@@ -1,15 +1,15 @@
-# `@gitea-oidc/connector-core`
+# `@x-oidc/connector-core`
 
 Express、Fastify 和 NestJS 连接器共用的框架无关 Web 适配核心。该包只负责固定路由语义、
 Cookie、CSRF、`returnTo`、公开会话投影和错误映射，不实现 discovery、PKCE、Token 交换、
-refresh 或 OIDC 校验；这些能力全部由 `@gitea-oidc/node` 提供。
+refresh 或 OIDC 校验；这些能力全部由 `@x-oidc/node` 提供。
 
 包内同时提供轻量请求排空器，供 Fastify 和 NestJS adapter 在 `preClose` 阶段等待已接收响应，
 避免 Session 已创建但 Cookie 尚未发送时关闭 socket。
 
 ## 当前状态
 
-该包目前是 monorepo 内部包，版本为 `0.0.0` 且保持 `private: true`。应用代码应优先安装具体的
+该包目前是 monorepo 内部包，从 `2.0.0` 起与全部 workspace 包同步版本并保持 `private: true`。应用代码应优先安装具体的
 Express、Fastify 或 NestJS 连接器，不直接依赖本包。
 
 ## 固定 HTTP 合同
@@ -18,7 +18,7 @@ Express、Fastify 或 NestJS 连接器，不直接依赖本包。
 - `GET /oidc/callback`
 - `POST /oidc/logout`
 
-callback 只把原始 query 和短期 transaction Cookie 交给 `@gitea-oidc/node`。核心不会读取
+callback 只把原始 query 和短期 transaction Cookie 交给 `@x-oidc/node`。核心不会读取
 `Host`、`X-Forwarded-Host` 或其他代理头来拼 callback URL；注册的 `redirectUri` 必须是绝对
 `/oidc/callback` URL，且不能携带 query 或 fragment。
 
@@ -29,9 +29,9 @@ callback 只把原始 query 和短期 transaction Cookie 交给 `@gitea-oidc/nod
 
 HTTPS 默认使用：
 
-- `__Host-gitea_oidc_transaction_<origin-hash>`：`HttpOnly`、`SameSite=Lax`、`Secure`，Path 固定
+- `__Host-x_oidc_transaction_<origin-hash>`：`HttpOnly`、`SameSite=Lax`、`Secure`，Path 固定
   为 `/`，有效期来自登录事务。
-- `__Host-gitea_oidc_session_<origin-hash>`：`HttpOnly`、`SameSite=Lax`、`Secure`，Path 固定为
+- `__Host-x_oidc_session_<origin-hash>`：`HttpOnly`、`SameSite=Lax`、`Secure`，Path 固定为
   `/`，有效期来自公开会话视图。
 
 loopback HTTP 开发环境使用无前缀、无 `Secure` 的名称。Cookie 不支持 `Domain`，重复的目标
@@ -70,7 +70,7 @@ Node SDK 仍把注入的 store 和 lock 视为调用方资源；调用方需要�
 ## 验证
 
 ```bash
-pnpm --filter @gitea-oidc/connector-core typecheck
-pnpm --filter @gitea-oidc/connector-core test
-pnpm --filter @gitea-oidc/connector-core build
+pnpm --filter @x-oidc/connector-core typecheck
+pnpm --filter @x-oidc/connector-core test
+pnpm --filter @x-oidc/connector-core build
 ```

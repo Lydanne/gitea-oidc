@@ -1,4 +1,4 @@
-import type { ParsedApplicationTemplateSnapshot } from "@gitea-oidc/application-templates";
+import type { ParsedApplicationTemplateSnapshot } from "@x-oidc/application-templates";
 import type {
   ApplicationConnectionV1,
   ApplicationCredentialV1,
@@ -19,8 +19,8 @@ import type {
   PortalApplicationV1,
   PreviewApplicationTemplateRequestV1,
   RotateApplicationCredentialResponseV1,
-} from "@gitea-oidc/contracts";
-import { parseApplicationDetailsV1 } from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
+import { parseApplicationDetailsV1 } from "@x-oidc/contracts";
 
 export type {
   ApplicationConnectionV1,

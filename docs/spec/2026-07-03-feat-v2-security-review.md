@@ -101,7 +101,7 @@
 - `/admin/api/tokens` 改为返回后台 token 摘要 DTO，不返回 `accessToken` 或 `refreshToken`。
 - `providerApi.enabled` 默认关闭；启用时要求至少 32 字符且非占位的
   `providerApi.tokenEncryptionKey`。
-- 后台默认管理员组改为 `gitea-oidc-admins`，飞书组映射不再自动追加后台管理员组。
+- 后台默认管理员组改为 `x-oidc-admins`，飞书组映射不再自动追加后台管理员组。
 - cookie session 认证的后台写接口增加同源来源、JSON 和自定义 header 校验。
 - HTTPS 部署下后台 session cookie 自动追加 `Secure`。
 - cookie session 命中的后台用户如果已非 `active`，会被拒绝并清理 session。
@@ -276,7 +276,7 @@
 
 建议采用独立后台权限标识：
 
-- 将默认后台组改为更明确的值，例如 `GiteaOidcAdmins`。
+- 将默认后台组改为更明确的值，例如 `XOidcAdmins`。
 - Feishu 默认组映射不得自动追加后台管理员组。
 - 如需自动授予后台权限，应通过显式 `groupMapping` 或单独 `adminUsers` 配置完成。
 - 文档中说明 `admin.allowedGroups` 是高权限入口，不能复用普通团队名。
@@ -389,7 +389,7 @@ Origin 获得 CORS 响应头。即使后台写接口已有 CSRF 防护，身份�
 
 ### 12. 配置文件加载失败不能回退默认配置
 
-如果用户已经提供 `gitea-oidc.config.js` 或 `gitea-oidc.config.json`，但文件加载、语法解析或
+如果用户已经提供 `x-oidc.config.js` 或 `x-oidc.config.json`，但文件加载、语法解析或
 运行时执行失败，服务不能静默回退到开发默认配置。否则生产环境可能在配置错误后带着默认客户端
 密钥、弱 cookie key、本地内存仓储或错误 URL 继续启动。
 

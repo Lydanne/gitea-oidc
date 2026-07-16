@@ -1,4 +1,4 @@
-import type { ApplicationConnectionV1, ApplicationCredentialV1 } from "@gitea-oidc/contracts";
+import type { ApplicationConnectionV1, ApplicationCredentialV1 } from "@x-oidc/contracts";
 
 export interface AuthUserProfile {
   subject: string;

@@ -60,7 +60,7 @@ pnpm dev:admin
 - `tokenKind: "user"` 默认使用当前 OIDC 用户的 token。
 - 指定其他用户的 `ownerId` 需要管理员权限。
 - `tokenKind: "app"` 只能由管理员调用。
-- 管理员由 `admin.allowedGroups` 判断，默认 `gitea-oidc-admins`。
+- 管理员由 `admin.allowedGroups` 判断，默认 `x-oidc-admins`。
 
 Provider client 负责更靠近平台的限制：
 
@@ -129,9 +129,9 @@ Provider API 代理、Feishu 用户 token 刷新和 app token 获取都会使用
 
 `package.json` 暴露以下 ESM 子路径：
 
-- `gitea-oidc/client`
-- `gitea-oidc/express`
-- `gitea-oidc/nest`
-- `gitea-oidc/vue`
+- `@x-oidc/server-core/client`
+- `@x-oidc/server-core/express`
+- `@x-oidc/server-core/nest`
+- `@x-oidc/server-core/vue`
 
 构建由 `rolldown` 多入口输出 JS，`tsc --emitDeclarationOnly` 输出声明文件。

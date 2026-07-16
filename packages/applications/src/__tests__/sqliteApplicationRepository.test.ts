@@ -19,7 +19,7 @@ const repositories: SqliteApplicationRepository[] = [];
 const CONNECTION_ISSUER = "https://id.example.com";
 
 function createDatabasePath(): string {
-  const directory = mkdtempSync(join(tmpdir(), "gitea-oidc-applications-"));
+  const directory = mkdtempSync(join(tmpdir(), "x-oidc-applications-"));
   directories.push(directory);
   return join(directory, "applications.db");
 }

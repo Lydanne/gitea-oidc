@@ -1,6 +1,6 @@
 # Redis OIDC 适配器使用指南
 
-Redis Adapter 用于多实例 gitea-oidc，共享 OIDC 协议记录、撤销屏障和短期状态。单实例且启用应用
+Redis Adapter 用于多实例 X OIDC，共享 OIDC 协议记录、撤销屏障和短期状态。单实例且启用应用
 管理时应优先使用 SQLite；拓扑选择见[OIDC 适配器配置指南](./ADAPTER_CONFIGURATION.md)。
 
 ## 支持边界
@@ -24,14 +24,14 @@ Redis Adapter 用于多实例 gitea-oidc，共享 OIDC 协议记录、撤销屏�
     "userRepository": {
       "type": "pgsql",
       "pgsql": {
-        "connectionString": "postgresql://gitea_oidc:your-password@postgres:5432/gitea_oidc"
+        "connectionString": "postgresql://x_oidc:your-password@postgres:5432/x_oidc"
       }
     },
     "stateStore": {
       "type": "redis",
       "redis": {
         "url": "redis://:your-password@redis:6379/0",
-        "keyPrefix": "gitea-oidc:state:"
+        "keyPrefix": "x-oidc:state:"
       }
     }
   },
@@ -43,7 +43,7 @@ Redis Adapter 用于多实例 gitea-oidc，共享 OIDC 协议记录、撤销屏�
     "type": "redis",
     "redis": {
       "url": "redis://:your-password@redis:6379/0",
-      "keyPrefix": "gitea-oidc:oidc:"
+      "keyPrefix": "x-oidc:oidc:"
     }
   }
 }
@@ -56,7 +56,7 @@ Provider 配置和 JWKS。
 
 ### 网络和认证
 
-- Redis 只允许 gitea-oidc 实例所在网络访问。
+- Redis 只允许 X OIDC 实例所在网络访问。
 - 启用 Redis ACL 或密码认证。
 - 跨不可信网络时使用 TLS 或受控的加密隧道。
 - 不在配置示例、日志和 Shell 历史中保存真实 Redis URL。
@@ -94,14 +94,14 @@ Redis 不是可以随时清空的缓存。执行 `FLUSHDB` 会让已有登录、
   "adapter": {
     "type": "redis",
     "redis": {
-      "keyPrefix": "production:gitea-oidc:oidc:"
+      "keyPrefix": "production:x-oidc:oidc:"
     }
   },
   "auth": {
     "stateStore": {
       "type": "redis",
       "redis": {
-        "keyPrefix": "production:gitea-oidc:state:"
+        "keyPrefix": "production:x-oidc:state:"
       }
     }
   }
@@ -136,8 +136,8 @@ Redis 不是可以随时清空的缓存。执行 `FLUSHDB` 会让已有登录、
 排查键数量时使用增量 `SCAN`，不要在生产执行阻塞式 `KEYS`：
 
 ```bash
-redis-cli --scan --pattern 'production:gitea-oidc:oidc:*' | wc -l
-redis-cli --scan --pattern 'production:gitea-oidc:state:*' | wc -l
+redis-cli --scan --pattern 'production:x-oidc:oidc:*' | wc -l
+redis-cli --scan --pattern 'production:x-oidc:state:*' | wc -l
 ```
 
 命令中的连接凭据应通过安全方式注入。不要把键值正文复制到日志或工单，其中可能包含会话元数据。

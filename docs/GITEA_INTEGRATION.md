@@ -1,13 +1,13 @@
 # Gitea 接入指南
 
-本文说明如何把 Gitea 接入 gitea-oidc，并完成登录、退出和用户组映射验收。生产环境推荐通过
+本文说明如何把 Gitea 接入 X OIDC，并完成登录、退出和用户组映射验收。生产环境推荐通过
 内置管理后台的 Gitea 模板创建应用；不启用应用管理时，可以使用静态 `clients` 配置。
 
 ## URL 对照表
 
 假设：
 
-- gitea-oidc 地址：`https://id.example.com`
+- X OIDC 地址：`https://id.example.com`
 - Gitea 地址：`https://git.example.com`
 - Gitea 认证源名称：`company-sso`
 
@@ -145,7 +145,7 @@ Client Secret，避免一处凭据泄露扩大影响范围。
 | 启用用户同步 | 按部署策略确认 |
 | 该认证源已经启用 | 上线时勾选 |
 
-Gitea 页面展示的 Callback URL 必须与 gitea-oidc 应用记录中的 `redirect_uris` 完全一致。不要猜测
+Gitea 页面展示的 Callback URL 必须与 X OIDC 应用记录中的 `redirect_uris` 完全一致。不要猜测
 回调路径；如果认证源名称变化，应同时更新应用的 Redirect URI。
 
 ## 使用 Gitea CLI 配置
@@ -153,20 +153,20 @@ Gitea 页面展示的 Callback URL 必须与 gitea-oidc 应用记录中的 `redi
 在可信的 Gitea 运行环境中临时设置凭据：
 
 ```bash
-read -r GITEA_OIDC_CLIENT_ID
-read -r -s GITEA_OIDC_CLIENT_SECRET
-export GITEA_OIDC_CLIENT_ID GITEA_OIDC_CLIENT_SECRET
+read -r X_OIDC_CLIENT_ID
+read -r -s X_OIDC_CLIENT_SECRET
+export X_OIDC_CLIENT_ID X_OIDC_CLIENT_SECRET
 
 gitea admin auth add-oauth \
   --name 'company-sso' \
   --provider openidConnect \
-  --key "$GITEA_OIDC_CLIENT_ID" \
-  --secret "$GITEA_OIDC_CLIENT_SECRET" \
+  --key "$X_OIDC_CLIENT_ID" \
+  --secret "$X_OIDC_CLIENT_SECRET" \
   --auto-discover-url 'https://id.example.com/oidc/.well-known/openid-configuration' \
   --scopes 'openid,profile,email' \
   --group-claim-name 'groups'
 
-unset GITEA_OIDC_CLIENT_ID GITEA_OIDC_CLIENT_SECRET
+unset X_OIDC_CLIENT_ID X_OIDC_CLIENT_SECRET
 ```
 
 模板会根据目标版本和已填写字段追加 Claim、组映射等参数。不使用组映射时删除
@@ -242,7 +242,7 @@ Gitea 的组映射值应填写 `groups` 中实际返回的完整路径。管理�
 3. 完成一次登录和退出验证。
 4. 确认旧 Secret 不再使用。
 
-静态模式需要同时修改 gitea-oidc 配置和 Gitea 认证源。不要提前删除仍在使用的凭据，也不要让
+静态模式需要同时修改 X OIDC 配置和 Gitea 认证源。不要提前删除仍在使用的凭据，也不要让
 新旧配置长时间不一致。
 
 ## 常见问题

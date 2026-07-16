@@ -42,7 +42,7 @@ UserRepositoryFactory 提供了一个统一的接口来创建不同类型的用�
   userRepository: {
     type: 'pgsql',
     config: {
-      uri: 'postgresql://username:password@localhost:5432/gitea_oidc'  // 连接字符串
+      uri: 'postgresql://username:password@localhost:5432/x_oidc'  // 连接字符串
     }
   }
 }

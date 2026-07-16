@@ -1,5 +1,5 @@
-import { OIDC_CALLBACK_PATH, OIDC_LOGIN_PATH, OIDC_LOGOUT_PATH } from "@gitea-oidc/connector-core";
 import { All, Bind, Controller, Inject, Req, Res } from "@nestjs/common";
+import { OIDC_CALLBACK_PATH, OIDC_LOGIN_PATH, OIDC_LOGOUT_PATH } from "@x-oidc/connector-core";
 import { NestOidcService } from "./nestOidcService.js";
 
 @Controller()

@@ -5,17 +5,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const temporaryRoot = await mkdtemp(path.join(tmpdir(), "gitea-oidc-integration-packs-"));
+const temporaryRoot = await mkdtemp(path.join(tmpdir(), "x-oidc-integration-packs-"));
 const consumerRoot = path.join(temporaryRoot, "consumer");
 const packageDefinitions = [
-  ["@gitea-oidc/contracts", "packages/contracts"],
-  ["@gitea-oidc/node", "packages/oidc-client"],
-  ["@gitea-oidc/node-sqlite", "packages/oidc-client-sqlite"],
-  ["@gitea-oidc/connector-core", "packages/connector-core"],
-  ["@gitea-oidc/express", "packages/express"],
-  ["@gitea-oidc/fastify", "packages/fastify"],
-  ["@gitea-oidc/nestjs", "packages/nestjs"],
-  ["@gitea-oidc/cli", "packages/cli"],
+  ["@x-oidc/contracts", "packages/contracts"],
+  ["@x-oidc/node", "packages/oidc-client"],
+  ["@x-oidc/node-sqlite", "packages/oidc-client-sqlite"],
+  ["@x-oidc/connector-core", "packages/connector-core"],
+  ["@x-oidc/express", "packages/express"],
+  ["@x-oidc/fastify", "packages/fastify"],
+  ["@x-oidc/nestjs", "packages/nestjs"],
+  ["@x-oidc/cli", "packages/cli"],
 ];
 
 const run = (command, args, cwd, capture = false) => {
@@ -126,7 +126,7 @@ try {
     path.join(consumerRoot, "package.json"),
     `${JSON.stringify(
       {
-        name: "gitea-oidc-integration-pack-consumer",
+        name: "x-oidc-integration-pack-consumer",
         private: true,
         dependencies: {
           ...localTarballs,
@@ -156,14 +156,14 @@ try {
   await writeFile(
     path.join(consumerRoot, "esm.mjs"),
     [
-      'import { parseApplicationConnectionV1 } from "@gitea-oidc/contracts";',
-      'import { createInMemoryNodeOidcClient } from "@gitea-oidc/node";',
-      'import { createSqliteOidcStores } from "@gitea-oidc/node-sqlite";',
-      'import { createWebConnectorCore } from "@gitea-oidc/connector-core";',
-      'import { createExpressOidc } from "@gitea-oidc/express";',
-      'import { createFastifyOidc } from "@gitea-oidc/fastify";',
-      'import { NestOidcModule } from "@gitea-oidc/nestjs";',
-      'import { runCli } from "@gitea-oidc/cli";',
+      'import { parseApplicationConnectionV1 } from "@x-oidc/contracts";',
+      'import { createInMemoryNodeOidcClient } from "@x-oidc/node";',
+      'import { createSqliteOidcStores } from "@x-oidc/node-sqlite";',
+      'import { createWebConnectorCore } from "@x-oidc/connector-core";',
+      'import { createExpressOidc } from "@x-oidc/express";',
+      'import { createFastifyOidc } from "@x-oidc/fastify";',
+      'import { NestOidcModule } from "@x-oidc/nestjs";',
+      'import { runCli } from "@x-oidc/cli";',
       "for (const value of [parseApplicationConnectionV1, createInMemoryNodeOidcClient, createSqliteOidcStores, createWebConnectorCore, createExpressOidc, createFastifyOidc, NestOidcModule, runCli]) {",
       '  if (typeof value !== "function") throw new Error("ESM export missing");',
       "}",
@@ -178,7 +178,7 @@ try {
   await writeFile(
     path.join(consumerRoot, "cjs.cjs"),
     [
-      'const modules = [require("@gitea-oidc/contracts"), require("@gitea-oidc/node"), require("@gitea-oidc/node-sqlite"), require("@gitea-oidc/connector-core"), require("@gitea-oidc/express"), require("@gitea-oidc/fastify"), require("@gitea-oidc/nestjs"), require("@gitea-oidc/cli")];',
+      'const modules = [require("@x-oidc/contracts"), require("@x-oidc/node"), require("@x-oidc/node-sqlite"), require("@x-oidc/connector-core"), require("@x-oidc/express"), require("@x-oidc/fastify"), require("@x-oidc/nestjs"), require("@x-oidc/cli")];',
       'if (modules.some((value) => !value || typeof value !== "object")) throw new Error("CJS export missing");',
       "",
     ].join("\n"),
@@ -186,14 +186,14 @@ try {
   await writeFile(
     path.join(consumerRoot, "consumer.ts"),
     [
-      'import type { ApplicationConnectionV1 } from "@gitea-oidc/contracts";',
-      'import { createNodeOidcClient, type AuthSessionView } from "@gitea-oidc/node";',
-      'import { createSqliteOidcStores } from "@gitea-oidc/node-sqlite";',
-      'import type { WebConnectorCoreOptions } from "@gitea-oidc/connector-core";',
-      'import { createExpressOidc } from "@gitea-oidc/express";',
-      'import { createFastifyOidc } from "@gitea-oidc/fastify";',
-      'import { NestOidcModule } from "@gitea-oidc/nestjs";',
-      'import { runCli } from "@gitea-oidc/cli";',
+      'import type { ApplicationConnectionV1 } from "@x-oidc/contracts";',
+      'import { createNodeOidcClient, type AuthSessionView } from "@x-oidc/node";',
+      'import { createSqliteOidcStores } from "@x-oidc/node-sqlite";',
+      'import type { WebConnectorCoreOptions } from "@x-oidc/connector-core";',
+      'import { createExpressOidc } from "@x-oidc/express";',
+      'import { createFastifyOidc } from "@x-oidc/fastify";',
+      'import { NestOidcModule } from "@x-oidc/nestjs";',
+      'import { runCli } from "@x-oidc/cli";',
       "declare const connection: ApplicationConnectionV1;",
       "declare const options: WebConnectorCoreOptions;",
       "declare const session: AuthSessionView;",
@@ -226,9 +226,9 @@ try {
   run(process.execPath, ["esm.mjs"], consumerRoot);
   run(process.execPath, ["cjs.cjs"], consumerRoot);
   runPnpm(["exec", "tsc", "-p", "tsconfig.json"], consumerRoot);
-  const cliBin = path.join(consumerRoot, "node_modules", ".bin", "gitea-oidc");
+  const cliBin = path.join(consumerRoot, "node_modules", ".bin", "x-oidc");
   const help = run(cliBin, ["--help"], consumerRoot, true);
-  if (!help.includes("gitea-oidc")) throw new Error("CLI tarball bin 未输出帮助");
+  if (!help.includes("x-oidc")) throw new Error("CLI tarball bin 未输出帮助");
 
   console.log(`SDK 与连接器 tarball 消费检查通过，共 ${packageDefinitions.length} 个包`);
 } finally {

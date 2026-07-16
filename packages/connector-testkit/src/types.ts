@@ -1,4 +1,4 @@
-import type { NodeOidcClient, NodeOidcClientOptions } from "@gitea-oidc/node";
+import type { NodeOidcClient, NodeOidcClientOptions } from "@x-oidc/node";
 
 export type ConnectorConformanceMethod = "GET" | "HEAD" | "POST" | "TRACE";
 

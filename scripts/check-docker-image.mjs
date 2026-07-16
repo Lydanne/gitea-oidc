@@ -62,6 +62,7 @@ check(
   Array.isArray(config.Env) && config.Env.includes("NODE_ENV=production"),
   "镜像设置 NODE_ENV=production",
 );
+check(config.Labels?.["org.opencontainers.image.title"] === "X OIDC", "镜像 OCI 标题为 X OIDC");
 
 for (const label of [
   "org.opencontainers.image.version",
@@ -73,6 +74,8 @@ for (const label of [
 
 const filesystemCheck = String.raw`
 set -eu
+
+test "$(id -un)" = "x-oidc"
 
 for required_path in \
   /app/apps/idp-server/dist/main.js \
@@ -130,7 +133,7 @@ then
 fi
 
 cd /app/apps/idp-server
-node --input-type=module --eval 'await import("gitea-oidc/server")'
+node --input-type=module --eval 'await import("@x-oidc/server-core/server")'
 `;
 
 try {

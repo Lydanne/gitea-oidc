@@ -53,7 +53,7 @@ describe("init", () => {
       dependencies,
     );
     expect(plan.redirectUri).toBe("https://app.example.com/oidc/callback");
-    expect(parseEnv(plan.envPreview).GITEA_OIDC_REDIRECT_URI).toBe(
+    expect(parseEnv(plan.envPreview).X_OIDC_REDIRECT_URI).toBe(
       "https://app.example.com/oidc/callback",
     );
 
@@ -87,7 +87,7 @@ describe("init", () => {
     expect(dependencies.terminal.prompt).not.toHaveBeenCalled();
     expect(dependencies.terminal.promptHidden).not.toHaveBeenCalled();
     const output = dependencies.stdoutText.join("");
-    expect(output).toContain("推荐包：@gitea-oidc/express");
+    expect(output).toContain("推荐包：@x-oidc/express");
     expect(output).toContain("[REDACTED: 通过安全输入提供]");
     expect(output).toContain("dry-run");
   });
@@ -138,8 +138,8 @@ describe("init", () => {
     expect(dependencies.terminal.promptHidden).not.toHaveBeenCalled();
     expect(dependencies.fileSystem.readSecureTextFile).not.toHaveBeenCalled();
     expect(dependencies.fileSystem.writeTextFileExclusive).toHaveBeenCalledWith(
-      "/workspace/.env.gitea-oidc",
-      expect.not.stringContaining("GITEA_OIDC_CLIENT_SECRET"),
+      "/workspace/.env.x-oidc",
+      expect.not.stringContaining("X_OIDC_CLIENT_SECRET"),
       0o600,
     );
     expect(dependencies.stdoutText.join("")).toContain("不含 client secret");
@@ -182,8 +182,8 @@ describe("init", () => {
       16 * 1024,
     );
     expect(dependencies.fileSystem.writeTextFileExclusive).toHaveBeenCalledWith(
-      "/workspace/.env.gitea-oidc",
-      expect.stringContaining(`GITEA_OIDC_CLIENT_SECRET='${secret}'`),
+      "/workspace/.env.x-oidc",
+      expect.stringContaining(`X_OIDC_CLIENT_SECRET='${secret}'`),
       0o600,
     );
     expect(dependencies.terminal.promptHidden).not.toHaveBeenCalled();
@@ -292,13 +292,13 @@ describe("init", () => {
     const secret = 'safe"$HOME\\path`tick-value';
     const content = renderEnv(connection, secret);
 
-    expect(parseEnv(content).GITEA_OIDC_CLIENT_SECRET).toBe(secret);
+    expect(parseEnv(content).X_OIDC_CLIENT_SECRET).toBe(secret);
     expect(content).toContain("禁止使用 shell source");
 
     const singleQuoteClientId = "client'id";
     expect(
       parseEnv(renderEnv({ ...connection, clientId: singleQuoteClientId }, secret))
-        .GITEA_OIDC_CLIENT_ID,
+        .X_OIDC_CLIENT_ID,
     ).toBe(singleQuoteClientId);
     expect(() => renderEnv({ ...connection, clientId: "client'$HOME" }, secret)).toThrow(
       "无法在保持 dotenv 原值",
@@ -332,9 +332,9 @@ describe("CLI argument safety", () => {
 
 describe("Node filesystem adapter", () => {
   it("creates mode 0600 files exclusively and rejects credential symlinks", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "gitea-oidc-cli-"));
+    const directory = await mkdtemp(join(tmpdir(), "x-oidc-cli-"));
     const fileSystem = createNodeFileSystem();
-    const outputPath = join(directory, ".env.gitea-oidc");
+    const outputPath = join(directory, ".env.x-oidc");
     try {
       expect(fileSystem.supportsSecureSecretWrite).toBe(process.platform !== "win32");
       await fileSystem.writeTextFileExclusive(outputPath, "KEY='value'\n", 0o600);
@@ -358,22 +358,22 @@ describe("Node filesystem adapter", () => {
   });
 
   it("checks the actual Git ignore rules without tracking the target", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "gitea-oidc-cli-gitignore-"));
+    const directory = await mkdtemp(join(tmpdir(), "x-oidc-cli-gitignore-"));
     try {
       await promisify(execFile)("git", ["init", "--quiet", directory]);
-      await writeFile(join(directory, ".gitignore"), ".env.gitea-oidc\n");
+      await writeFile(join(directory, ".gitignore"), ".env.x-oidc\n");
       const checker = createNodeDependencies().gitIgnoreChecker;
 
-      await expect(checker.isIgnored(directory, join(directory, ".env.gitea-oidc"))).resolves.toBe(
+      await expect(checker.isIgnored(directory, join(directory, ".env.x-oidc"))).resolves.toBe(
         true,
       );
       await expect(checker.isIgnored(directory, join(directory, ".env.other"))).resolves.toBe(
         false,
       );
 
-      const trackedTarget = join(directory, ".env.gitea-oidc");
+      const trackedTarget = join(directory, ".env.x-oidc");
       await writeFile(trackedTarget, "SECRET='placeholder'\n");
-      await promisify(execFile)("git", ["-C", directory, "add", "--force", ".env.gitea-oidc"]);
+      await promisify(execFile)("git", ["-C", directory, "add", "--force", ".env.x-oidc"]);
       await rm(trackedTarget);
       await expect(checker.isIgnored(directory, trackedTarget)).resolves.toBe(false);
     } finally {

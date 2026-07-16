@@ -5,8 +5,8 @@
  */
 
 import { ZodError } from "zod";
-import { type ResolvedGiteaOidcConfig, resolveApplicationsConfig } from "../config.js";
-import { GiteaOidcConfigSchema } from "../schemas/configSchema.js";
+import { type ResolvedXOidcConfig, resolveApplicationsConfig } from "../config.js";
+import { XOidcConfigSchema } from "../schemas/configSchema.js";
 import {
   findAdminClient,
   formatAdminClientRequirement,
@@ -63,17 +63,17 @@ export interface ConfigValidationResult {
   warnings: string[];
 
   /** 验证后的配置（如果验证通过） */
-  config?: ResolvedGiteaOidcConfig;
+  config?: ResolvedXOidcConfig;
 }
 
 /**
  * 验证配置
  */
 export function validateConfig(config: unknown): ConfigValidationResult {
-  const result = GiteaOidcConfigSchema.safeParse(config);
+  const result = XOidcConfigSchema.safeParse(config);
 
   if (result.success) {
-    const parsedConfig = result.data as unknown as ResolvedGiteaOidcConfig;
+    const parsedConfig = result.data as unknown as ResolvedXOidcConfig;
     const errors = [
       ...checkRuntimeConfigErrors(parsedConfig),
       ...checkProductionErrors(parsedConfig),
@@ -108,7 +108,7 @@ export function validateConfig(config: unknown): ConfigValidationResult {
   };
 }
 
-function checkRuntimeConfigErrors(config: ResolvedGiteaOidcConfig): ConfigValidationError[] {
+function checkRuntimeConfigErrors(config: ResolvedXOidcConfig): ConfigValidationError[] {
   const errors: ConfigValidationError[] = [];
   const applications = resolveApplicationsConfig(config);
   addPublicUrlBoundaryErrors(errors, "server.url", config.server.url);
@@ -165,7 +165,7 @@ function checkRuntimeConfigErrors(config: ResolvedGiteaOidcConfig): ConfigValida
   return errors;
 }
 
-function checkProductionErrors(config: ResolvedGiteaOidcConfig): ConfigValidationError[] {
+function checkProductionErrors(config: ResolvedXOidcConfig): ConfigValidationError[] {
   if (!isProductionRuntime()) {
     return [];
   }
@@ -618,7 +618,7 @@ function addCorsOriginBoundaryErrors(
 
 function addProviderApiBaseUrlBoundaryErrors(
   errors: ConfigValidationError[],
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
 ): void {
   if (!config.providerApi.enabled) {
     return;

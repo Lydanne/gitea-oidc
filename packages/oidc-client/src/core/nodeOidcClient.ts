@@ -5,7 +5,7 @@ import {
   type ApplicationCredentialV1,
   parseApplicationConnectionV1,
   parseApplicationCredentialV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import {
   MemoryAuthSessionStore,
   MemoryLoginTransactionStore,
@@ -880,7 +880,7 @@ export const createInMemoryNodeOidcClient = (
   );
 };
 
-/** 仅由 `@gitea-oidc/node/internal/testing` 导出，生产代码不得使用。 */
+/** 仅由 `@x-oidc/node/internal/testing` 导出，生产代码不得使用。 */
 export const createNodeOidcClientForTesting = (
   options: TestingNodeOidcClientOptions,
 ): NodeOidcClient =>

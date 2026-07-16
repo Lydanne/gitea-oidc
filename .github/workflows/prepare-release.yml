@@ -120,11 +120,11 @@ jobs:
           git status --porcelain=v1 | while IFS= read -r entry; do
             file=${entry#???}
             case "$file" in
-              CHANGELOG.md|apps/idp-server/package.json|packages/server-core/package.json) ;;
+              CHANGELOG.md|package.json|apps/*/package.json|packages/*/package.json) ;;
               *) echo "Unexpected file in release commit: $file" >&2; exit 1 ;;
             esac
           done
-          git add -- CHANGELOG.md apps/idp-server/package.json packages/server-core/package.json
+          git add -- CHANGELOG.md package.json apps/*/package.json packages/*/package.json
           git commit --message "chore(server-core): 准备发布 v$NEXT_VERSION"
           test "$(git status --porcelain)" = ""
 
@@ -154,7 +154,7 @@ jobs:
               --base main \
               --head "$RELEASE_BRANCH" \
               --title "chore(server-core): 准备发布 v$NEXT_VERSION" \
-              --body "自动生成版本、更新变更日志并同步运行入口版本。合并后由 release.yml 发布不可变产物。")
+              --body "自动生成版本、更新变更日志并同步全部 workspace 包版本。合并后由 release.yml 发布不可变产物。")
           fi
           echo "Release pull request: $pr_url"
           gh workflow run ci-check.yml --ref "$RELEASE_BRANCH"

@@ -197,7 +197,7 @@ describe("registerProviderApiRoutes", () => {
       userRepository: {
         findById: vi.fn().mockResolvedValue({
           sub: "user-1",
-          groups: [{ id: "gitea-oidc-admins", name: "gitea-oidc-admins" }],
+          groups: [{ id: "x-oidc-admins", name: "x-oidc-admins" }],
           roles: ["admin"],
           status: "active",
         }),
@@ -225,7 +225,7 @@ describe("registerProviderApiRoutes", () => {
     expect(providerApiService.request).toHaveBeenCalledWith(
       "feishu",
       expect.objectContaining({ operation: "authen.user_info", path: "/authen/v1/user_info" }),
-      { userId: "user-1", groups: ["gitea-oidc-admins"], roles: ["admin"] },
+      { userId: "user-1", groups: ["x-oidc-admins"], roles: ["admin"] },
     );
   });
 

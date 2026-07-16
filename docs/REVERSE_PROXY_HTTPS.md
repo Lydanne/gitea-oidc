@@ -1,6 +1,6 @@
 # 反向代理 HTTPS 配置指南
 
-生产环境必须由受信任的反向代理终止 TLS。gitea-oidc 根据公开 URL 和代理转发头生成 OIDC
+生产环境必须由受信任的反向代理终止 TLS。X OIDC 根据公开 URL 和代理转发头生成 OIDC
 端点，因此代理信任边界配置错误会导致 HTTP 端点、错误回调或伪造来源地址。
 
 ## 服务端配置
@@ -80,15 +80,15 @@ server {
 ```yaml
 services:
   idp:
-    image: lydamirror/gitea-oidc:${GITEA_OIDC_VERSION}
+    image: lydamirror/x-oidc:${X_OIDC_VERSION}
     networks:
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.gitea-oidc.rule=Host(`id.example.com`)"
-      - "traefik.http.routers.gitea-oidc.entrypoints=websecure"
-      - "traefik.http.routers.gitea-oidc.tls=true"
-      - "traefik.http.services.gitea-oidc.loadbalancer.server.port=3000"
+      - "traefik.http.routers.x-oidc.rule=Host(`id.example.com`)"
+      - "traefik.http.routers.x-oidc.entrypoints=websecure"
+      - "traefik.http.routers.x-oidc.tls=true"
+      - "traefik.http.services.x-oidc.loadbalancer.server.port=3000"
 
 networks:
   proxy:

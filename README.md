@@ -1,11 +1,11 @@
-# Gitea OIDC Identity Provider
+# X OIDC Identity Provider
 
 [English README](./README.en.md) · [中文文档](./README.md)
 
 [![CI-CHECK](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml)
 [![Release](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml)
-[![npm version](https://img.shields.io/npm/v/gitea-oidc)](https://www.npmjs.com/package/gitea-oidc)
-[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/gitea-oidc)](https://hub.docker.com/r/lydamirror/gitea-oidc)
+[![npm version](https://img.shields.io/npm/v/%40x-oidc%2Fserver-core)](https://www.npmjs.com/package/@x-oidc/server-core)
+[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/x-oidc)](https://hub.docker.com/r/lydamirror/x-oidc)
 ![Node version](https://img.shields.io/badge/node-22.13.x-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
@@ -65,7 +65,7 @@ pnpm install
 
 ```bash
 # 复制本地开发示例配置
-cp example.gitea-oidc.config.json gitea-oidc.config.json
+cp example.x-oidc.config.json x-oidc.config.json
 
 # 交互输入本地管理员密码并创建 bcrypt 密码文件
 read -r -s ADMIN_PASSWORD
@@ -98,11 +98,11 @@ pnpm build:prod
 如果你需要在其他项目中集成此服务器，可以作为模块导入：
 
 ```typescript
-import { start } from 'gitea-oidc/server';
-import type { GiteaOidcConfig } from 'gitea-oidc/config';
+import { start } from '@x-oidc/server-core/server';
+import type { XOidcConfig } from '@x-oidc/server-core/config';
 
 // 使用自定义配置启动
-const customConfig: GiteaOidcConfig = {
+const customConfig: XOidcConfig = {
   server: {
     host: '0.0.0.0',
     port: 4000,
@@ -136,7 +136,7 @@ pnpm test:coverage
 ## 📖 文档
 
 - **[文档目录](./docs/README.md)** - 使用者与开发者文档入口
-- **[快速开始](./docs/QUICK_START.md)** - 本地启动和 Gitea OIDC 配置
+- **[快速开始](./docs/QUICK_START.md)** - 本地启动和 X OIDC 配置
 - **[Gitea 接入](./docs/GITEA_INTEGRATION.md)** - Client、登录退出和用户组映射
 - **[生产部署](./docs/PRODUCTION_SETUP.md)** - 拓扑、密钥、Docker Compose 和上线验收
 - **[生产运维](./docs/OPERATIONS.md)** - 健康检查、备份恢复、升级回滚和监控
@@ -166,7 +166,7 @@ pnpm test:coverage
 ## 📦 项目结构
 
 ```bash
-gitea-oidc/
+x-oidc/
 ├── apps/
 │   ├── admin-web/              # Vue 管理台应用
 │   ├── idp-server/             # 生产服务进程入口
@@ -175,7 +175,7 @@ gitea-oidc/
 │   ├── contracts/              # 应用和连接器共用的版本化 wire contract
 │   ├── application-templates/  # 版本化 Gitea 应用模板
 │   ├── applications/           # 应用、Client、Secret、审计和 SQLite 仓储
-│   ├── oidc-client/            # @gitea-oidc/node 框架无关 OIDC 核心
+│   ├── oidc-client/            # @x-oidc/node 框架无关 OIDC 核心
 │   ├── oidc-client-sqlite/     # 加密 SQLite stores 与 refresh lock
 │   ├── connector-core/         # 框架连接器共享 HTTP 核心
 │   ├── express/                # Express 4/5 连接器
@@ -183,7 +183,7 @@ gitea-oidc/
 │   ├── nestjs/                 # NestJS 10/11 连接器
 │   ├── cli/                    # 本地接入 CLI
 │   ├── connector-testkit/      # 私有连接器一致性测试
-│   └── server-core/            # gitea-oidc 兼容包与认证服务核心
+│   └── server-core/            # @x-oidc/server-core 公开入口与认证服务核心
 │       ├── src/
 │       │   ├── identityServer.ts # 创建 Fastify/OIDC 运行时，不监听端口
 │       │   ├── server.ts       # 兼容 start() 与进程信号入口
@@ -194,13 +194,13 @@ gitea-oidc/
 │       │   └── sdk/            # 待迁移的兼容 SDK
 │       └── public/             # 服务包内静态资源
 ├── docs/                       # 用户与开发者文档
-├── example.gitea-oidc.config.json  # JSON 配置示例
+├── example.x-oidc.config.json  # JSON 配置示例
 ├── Dockerfile                  # Docker 镜像构建
 ├── pnpm-lock.yaml
 └── pnpm-workspace.yaml         # Workspace 边界
 ```
 
-根 `package.json` 只负责编排。公开 npm 包仍名为 `gitea-oidc`，位于
+根 `package.json` 只负责编排。公开服务端 npm 包名为 `@x-oidc/server-core`，位于
 `packages/server-core/`；生产镜像从 `apps/idp-server/` 启动。
 
 ## 🔧 配置说明
@@ -209,8 +209,8 @@ gitea-oidc/
 
 支持两种配置文件格式（按优先级排序）：
 
-1. **gitea-oidc.config.js** - JavaScript 格式，支持动态配置、环境变量、函数导出
-2. **gitea-oidc.config.json** - JSON 格式，静态配置
+1. **x-oidc.config.js** - JavaScript 格式，支持动态配置、环境变量、函数导出
+2. **x-oidc.config.json** - JSON 格式，静态配置
 
 ### 配置文件结构
 
@@ -270,7 +270,7 @@ gitea-oidc/
       }
     },
     {
-      "client_id": "gitea-oidc-portal",
+      "client_id": "x-oidc-portal",
       "client_secret": "portal-client-secret-change-in-production",
       "redirect_uris": ["http://localhost:3000/portal/callback"],
       "post_logout_redirect_uris": ["http://localhost:3000/portal/signed-out"],
@@ -279,7 +279,7 @@ gitea-oidc/
       "token_endpoint_auth_method": "client_secret_basic"
     },
     {
-      "client_id": "gitea-oidc-admin",
+      "client_id": "x-oidc-admin",
       "client_secret": "admin-client-secret-change-in-production",
       "redirect_uris": ["http://localhost:3000/admin/callback"],
       "response_types": ["code"],
@@ -326,13 +326,13 @@ gitea-oidc/
   "admin": {
     "enabled": true,
     "basePath": "/admin",
-    "allowedGroups": ["gitea-oidc-admins"],
+    "allowedGroups": ["x-oidc-admins"],
     "sessionTtlSeconds": 3600
   },
   "portal": {
     "enabled": true,
     "basePath": "/portal",
-    "clientId": "gitea-oidc-portal",
+    "clientId": "x-oidc-portal",
     "sessionTtlSeconds": 3600
   },
   "applications": {
@@ -428,7 +428,7 @@ gitea-oidc/
   "pgsql": {
     "host": "localhost",
     "port": 5432,
-    "database": "gitea_oidc",
+    "database": "x_oidc",
     "user": "postgres",
     "password": "password"
   }
@@ -518,7 +518,7 @@ SQLite。完整配置和备份要求见[应用管理接入指南](./docs/APPLICA
 ### 拉取镜像
 
 ```bash
-docker pull lydamirror/gitea-oidc:<version>
+docker pull lydamirror/x-oidc:<version>
 ```
 
 生产环境固定版本号，不使用 `latest`。最小运行结构：
@@ -527,17 +527,17 @@ docker pull lydamirror/gitea-oidc:<version>
 放宽密钥权限的命令见[生产部署指南](./docs/PRODUCTION_SETUP.md)。
 
 ```bash
-docker run -d --name gitea-oidc \
+docker run -d --name x-oidc \
   -p 127.0.0.1:3000:3000 \
   -e NODE_ENV=production \
-  --env-file /srv/gitea-oidc/.env.production \
-  -v /srv/gitea-oidc/gitea-oidc.config.js:/app/gitea-oidc.config.js:ro \
-  -v /srv/gitea-oidc/data:/app/data \
-  -v /srv/gitea-oidc/secrets:/app/secrets:ro \
+  --env-file /srv/x-oidc/.env.production \
+  -v /srv/x-oidc/x-oidc.config.js:/app/x-oidc.config.js:ro \
+  -v /srv/x-oidc/data:/app/data \
+  -v /srv/x-oidc/secrets:/app/secrets:ro \
   --restart unless-stopped \
   --log-opt max-size=10m \
   --log-opt max-file=5 \
-  lydamirror/gitea-oidc:<version>
+  lydamirror/x-oidc:<version>
 ```
 
 完整的配置、Compose、持久化目录、HTTPS 代理和验收命令见

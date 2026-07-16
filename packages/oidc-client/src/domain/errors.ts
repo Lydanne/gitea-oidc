@@ -108,7 +108,7 @@ const ERROR_DEFINITIONS: Record<NodeOidcErrorCode, ErrorDefinition> = {
   },
 };
 
-export const NODE_OIDC_ERROR_BRAND = Symbol.for("@gitea-oidc/node/NodeOidcError");
+export const NODE_OIDC_ERROR_BRAND = Symbol.for("@x-oidc/node/NodeOidcError");
 
 /** 对外错误只包含固定字段，不保留可能携带 Secret、Token 或上游响应的原始 cause。 */
 export class NodeOidcError extends Error {

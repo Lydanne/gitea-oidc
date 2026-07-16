@@ -14,7 +14,7 @@ packages/
   contracts/               版本化 connection、credential 和管理 API contract
   application-templates/   版本化内置应用模板和不可变快照
   applications/            应用、OIDC Client、Secret、审计和仓储领域包
-  oidc-client/             包名 @gitea-oidc/node，框架无关 OIDC relying-party 核心
+  oidc-client/             包名 @x-oidc/node，框架无关 OIDC relying-party 核心
   oidc-client-sqlite/      单机生产用加密 SQLite stores 和 refresh lock
   connector-core/          框架无关的固定路由、Cookie、错误和认证投影
   express/                 Express 4/5 连接器
@@ -22,7 +22,7 @@ packages/
   nestjs/                  NestJS 10/11 连接器
   cli/                     connection 校验、doctor 和安全项目初始化
   connector-testkit/       私有连接器一致性测试
-  server-core/             npm 包 gitea-oidc、认证服务装配和兼容 SDK
+  server-core/             npm 包 @x-oidc/server-core、认证服务装配和兼容 SDK
 ```
 
 根 `package.json` 是私有编排包，不包含运行时依赖，也不会发布。根脚本负责保持固定的工作目录，
@@ -36,7 +36,8 @@ packages/
   但不监听端口、不注册进程信号。
 - `start(config?, options?)` 保留现有公开契约，在装配完成后监听配置的地址并返回 Fastify 实例。
 
-`packages/server-core/src/server.ts` 是兼容 facade。直接执行 `gitea-oidc/dist/server.js` 时，
+`packages/server-core/src/server.ts` 是公开 facade。直接执行
+`node_modules/@x-oidc/server-core/dist/server.js` 时，
 它会注册 `SIGINT` 和 `SIGTERM` 清理；被普通模块导入时不会自动监听。
 
 `apps/idp-server/src/main.ts` 是 Docker 和生产部署入口，只调用统一的进程启动函数。业务应用不应
@@ -84,11 +85,11 @@ contracts --> admin-web --构建产物--> server-core
 - `connector-core` 依赖 `node`，只描述 HTTP、Cookie 和认证投影；框架包只做边界适配。
 - `cli` 只依赖公开 contract，不拥有管理 API 权限，也不直接修改认证服务配置或数据库。
 - `admin-web` 只导入 `contracts`，不导入服务端源码；运行时只通过 HTTP API 通信。
-- `idp-server` 依赖公开包 `gitea-oidc`，不跨目录导入其源码。
+- `idp-server` 依赖公开包 `@x-oidc/server-core`，不跨目录导入其源码。
 - `server-core` 通过私有 facade 装配 `applications`，公开声明不能泄漏私有 workspace 类型；
   它不依赖 `apps/*` 的运行时代码，装配脚本只在仓库构建阶段读取管理台产物。
-- 旧 `gitea-oidc/client`、`express`、`nest` 和 `vue` 子路径暂时留在兼容包；新项目应以独立包为
-  目标，兼容子路径要等独立包完成正式发布和迁移期后再移除。
+- `@x-oidc/server-core/client`、`express`、`nest` 和 `vue` 子路径提供 Provider API 与服务端集成工具；
+  完整 OIDC 登录能力使用独立的 `@x-oidc/node` 和框架连接器。
 
 ## 构建与验证
 
@@ -147,7 +148,7 @@ pnpm 脚本，否则 `engine-strict` 会在真正的最低版本消费测试前�
 根 `release` 脚本会把执行目录切换到该 package，避免私有根包被错误递增或发布。
 
 Release 工作流只允许手动触发，不再在每次主分支推送时自动发布 patch。Docker 从
-`apps/idp-server/dist/main.js` 启动，同时继续通过 workspace 中的 `gitea-oidc` 包加载服务核心。
+`apps/idp-server/dist/main.js` 启动，同时继续通过 workspace 中的 `@x-oidc/server-core` 包加载服务核心。
 
 ## P2 应用控制面边界
 
@@ -161,7 +162,7 @@ Release 工作流只允许手动触发，不再在每次主分支推送时自动
 
 ## 拆包约束
 
-`@gitea-oidc/node`、Express、Fastify、NestJS 和 CLI 必须继续复用共享 connection、credential
+`@x-oidc/node`、Express、Fastify、NestJS 和 CLI 必须继续复用共享 connection、credential
 和错误 contract。框架包只能适配请求、响应、Cookie 和生命周期，不得各自重新实现 discovery、
 PKCE、state、nonce、callback 或 token refresh。
 
@@ -169,5 +170,5 @@ Fastify 系 adapter 的关闭必须分成两个阶段：`preClose` 封口并等�
 `onClose` 或 Nest `onApplicationShutdown` 中关闭共享核心，确保认证 callback 的 Session Cookie
 不会因 socket 提前回收而丢失。
 
-公开包只有在 JS、声明文件和 tarball 消费测试都不引用私有 workspace 包时才能发布。长期产品品牌
-和 npm scope 尚未确认前，不应把现有兼容包改成依赖未发布 scope 包。
+公开包只有在 JS、声明文件和 tarball 消费测试都不引用私有 workspace 包时才能发布。所有公开包
+统一使用 `@x-oidc/*` scope，并通过实际 pack 消费测试验证依赖边界。

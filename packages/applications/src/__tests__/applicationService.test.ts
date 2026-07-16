@@ -1,4 +1,4 @@
-import { applicationTemplateCatalog } from "@gitea-oidc/application-templates";
+import { applicationTemplateCatalog } from "@x-oidc/application-templates";
 import { describe, expect, it } from "vitest";
 import { ApplicationSecretEncryptor } from "../applicationSecretEncryptor.js";
 import { ApplicationService, type SystemClientImportInput } from "../applicationService.js";
@@ -151,7 +151,7 @@ describe("ApplicationService", () => {
       pkce: { policy: "optional", methods: ["S256"] },
     });
     expect(outcome.response.integrationGuide.title).toContain("Gitea 1.26");
-    expect(JSON.stringify(outcome.response.integrationGuide)).not.toContain("gos_");
+    expect(JSON.stringify(outcome.response.integrationGuide)).not.toContain("xos_");
     await expect(
       service.getApplicationIntegrationGuide(outcome.response.application.id),
     ).resolves.toEqual(outcome.response.integrationGuide);
@@ -164,7 +164,7 @@ describe("ApplicationService", () => {
       template: { id: "gitea", version: 1 },
       normalizedInput: { targetVersion: "1.26" },
     });
-    expect(JSON.stringify(stored?.templateSnapshot)).not.toContain("gos_");
+    expect(JSON.stringify(stored?.templateSnapshot)).not.toContain("xos_");
 
     const replay = await service.createTemplateApplication(templateRequest, {
       idempotencyKey: "create-gitea-template",
@@ -336,7 +336,7 @@ describe("ApplicationService", () => {
       "application.created",
       "client_secret.created",
     ]);
-    expect(JSON.stringify(audits)).not.toContain("gos_");
+    expect(JSON.stringify(audits)).not.toContain("xos_");
     const listed = await service.listApplicationDetails();
     expect(listed[0]?.clients).toHaveLength(1);
     expect(listed[0]?.secrets[0]?.fingerprint).toMatch(/^hmac-sha256:/);
@@ -658,7 +658,7 @@ describe("ApplicationService", () => {
     });
     const projector = new OidcClientProjector(repository, secretEncryptor);
     const projection = await projector.findByClientId(created.response.client.clientId);
-    expect(projection?.client_secret).toMatch(/^gos_/);
+    expect(projection?.client_secret).toMatch(/^xos_/);
     const policyProjector = new OidcClientProjector(
       repository,
       new ApplicationSecretEncryptor({

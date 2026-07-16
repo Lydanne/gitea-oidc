@@ -3,7 +3,7 @@ import {
   INTEGRATION_GUIDE_SCHEMA_VERSION,
   type IntegrationGuideV1,
   IntegrationGuideV1Schema,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { z } from "zod";
 import {
   GITEA_CLIENT_ID_PLACEHOLDER,
@@ -404,8 +404,8 @@ const buildGiteaCliCommand = (
   const argumentsList = [
     `--name ${shellQuote(input.authSourceName)}`,
     "--provider openidConnect",
-    '--key "$GITEA_OIDC_CLIENT_ID"',
-    '--secret "$GITEA_OIDC_CLIENT_SECRET"',
+    '--key "$X_OIDC_CLIENT_ID"',
+    '--secret "$X_OIDC_CLIENT_SECRET"',
     `--auto-discover-url ${shellQuote(discoveryUrl)}`,
     `--scopes ${shellQuote(scopes.join(","))}`,
     ...(input.iconUrl ? [`--icon-url ${shellQuote(input.iconUrl)}`] : []),
@@ -566,7 +566,7 @@ const buildIntegrationGuide = (
       },
       {
         kind: "warning",
-        text: "执行前在可信的 Gitea 主机上临时设置 GITEA_OIDC_CLIENT_ID 和 GITEA_OIDC_CLIENT_SECRET 环境变量，执行后立即清除；不要把真实凭据替换进命令文本、脚本、日志或工单。",
+        text: "执行前在可信的 Gitea 主机上临时设置 X_OIDC_CLIENT_ID 和 X_OIDC_CLIENT_SECRET 环境变量，执行后立即清除；不要把真实凭据替换进命令文本、脚本、日志或工单。",
       },
       {
         kind: "warning",
@@ -583,7 +583,7 @@ const buildIntegrationGuide = (
   return IntegrationGuideV1Schema.parse({
     schemaVersion: INTEGRATION_GUIDE_SCHEMA_VERSION,
     title: `Gitea ${input.targetVersion} OIDC 接入说明`,
-    description: "使用内置 OpenID Connect 认证源接入 Gitea OIDC。",
+    description: "使用内置 OpenID Connect 认证源接入 X OIDC。",
     nodes,
   });
 };

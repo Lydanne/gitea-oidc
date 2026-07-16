@@ -7,8 +7,8 @@ import {
   type ConnectorConformanceResponse,
   createConnectorConformanceResponse,
   defineConnectorConformanceSuite,
-} from "@gitea-oidc/connector-testkit";
-import type { NodeOidcClient, NodeOidcClientOptions } from "@gitea-oidc/node";
+} from "@x-oidc/connector-testkit";
+import type { NodeOidcClient, NodeOidcClientOptions } from "@x-oidc/node";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { createExpressOidc, type ExpressOidc } from "../index.js";
 
@@ -111,7 +111,7 @@ const probeAfterClose = async (oidc: ExpressOidc): Promise<ConnectorConformanceR
       },
     } as unknown as Response;
     const request = {
-      headers: { cookie: `__Host-gitea_oidc_session=${"s".repeat(43)}` },
+      headers: { cookie: `__Host-x_oidc_session=${"s".repeat(43)}` },
     } as Request;
     const next: NextFunction = (error?: unknown) => {
       if (error) {

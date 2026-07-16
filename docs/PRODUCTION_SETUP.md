@@ -1,6 +1,6 @@
 # 生产部署指南
 
-本文是 gitea-oidc 的生产部署主入口，面向部署者和运维人员。推荐先按本文完成单实例
+本文是 X OIDC 的生产部署主入口，面向部署者和运维人员。推荐先按本文完成单实例
 SQLite 部署，再根据容量和可用性要求评估多实例 Redis 方案。
 
 生产进程会执行严格配置校验。缺少配置文件、使用 HTTP 公网地址、使用默认密钥、使用
@@ -52,9 +52,9 @@ Issuer:      https://id.example.com/oidc
 以下目录结构适用于 Docker 部署：
 
 ```text
-/srv/gitea-oidc/
+/srv/x-oidc/
 ├── compose.yaml
-├── gitea-oidc.config.js
+├── x-oidc.config.js
 ├── .env.production
 ├── data/
 ├── secrets/
@@ -65,15 +65,15 @@ Issuer:      https://id.example.com/oidc
 创建目录并限制访问权限：
 
 ```bash
-sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0750 /srv/gitea-oidc
-sudo install -d -o 10001 -g 10001 -m 0700 /srv/gitea-oidc/data
-sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/secrets
-sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/gitea-oidc/backup
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0750 /srv/x-oidc
+sudo install -d -o 10001 -g 10001 -m 0700 /srv/x-oidc/data
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/x-oidc/secrets
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0700 /srv/x-oidc/backup
 ```
 
 生产镜像固定以 UID/GID `10001:10001` 运行。Linux bind mount 不会自动转换宿主权限，因此数据目录、
 配置文件和密码文件必须允许该 UID 访问；不要为了省事改成全局可读写权限。源码或 systemd 部署使用后文
-独立的 `gitea-oidc` 系统用户，不套用这里的数值 UID。
+独立的 `x-oidc` 系统用户，不套用这里的数值 UID。
 
 每类密钥必须独立生成，不能互相复用：
 
@@ -94,12 +94,12 @@ openssl rand -base64 32
 ```bash
 read -r -s ADMIN_PASSWORD
 export ADMIN_PASSWORD
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 12));" > /srv/gitea-oidc/secrets/.htpasswd
+node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 12));" > /srv/x-oidc/secrets/.htpasswd
 unset ADMIN_PASSWORD
 sudo chown 10001:10001 \
-  /srv/gitea-oidc/secrets \
-  /srv/gitea-oidc/secrets/.htpasswd
-sudo chmod 0600 /srv/gitea-oidc/secrets/.htpasswd
+  /srv/x-oidc/secrets \
+  /srv/x-oidc/secrets/.htpasswd
+sudo chmod 0600 /srv/x-oidc/secrets/.htpasswd
 ```
 
 不要把明文密码直接写进命令历史。本地认证适合作为首次上线的后台入口；外部认证管理员完成
@@ -107,7 +107,7 @@ sudo chmod 0600 /srv/gitea-oidc/secrets/.htpasswd
 
 ## 创建生产配置
 
-生产环境推荐使用 `gitea-oidc.config.js`，由配置文件显式读取环境变量。这里使用单实例 SQLite、
+生产环境推荐使用 `x-oidc.config.js`，由配置文件显式读取环境变量。这里使用单实例 SQLite、
 本地管理员、用户门户和数据库应用管理作为完整基线：
 
 ```javascript
@@ -119,8 +119,8 @@ const requiredEnv = (name) => {
   return value;
 };
 
-const publicUrl = requiredEnv("GITEA_OIDC_PUBLIC_URL").replace(/\/+$/, "");
-const trustedProxyIps = requiredEnv("GITEA_OIDC_TRUSTED_PROXY_IPS")
+const publicUrl = requiredEnv("X_OIDC_PUBLIC_URL").replace(/\/+$/, "");
+const trustedProxyIps = requiredEnv("X_OIDC_TRUSTED_PROXY_IPS")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
@@ -145,8 +145,8 @@ export default {
   oidc: {
     issuer: `${publicUrl}/oidc`,
     cookieKeys: [
-      requiredEnv("GITEA_OIDC_COOKIE_KEY_CURRENT"),
-      requiredEnv("GITEA_OIDC_COOKIE_KEY_PREVIOUS")
+      requiredEnv("X_OIDC_COOKIE_KEY_CURRENT"),
+      requiredEnv("X_OIDC_COOKIE_KEY_PREVIOUS")
     ],
     ttl: {
       AccessToken: 3600,
@@ -178,16 +178,16 @@ export default {
   },
   clients: [
     {
-      client_id: "gitea-oidc-admin",
-      client_secret: requiredEnv("GITEA_OIDC_ADMIN_CLIENT_SECRET"),
+      client_id: "x-oidc-admin",
+      client_secret: requiredEnv("X_OIDC_ADMIN_CLIENT_SECRET"),
       redirect_uris: [`${publicUrl}/admin/callback`],
       response_types: ["code"],
       grant_types: ["authorization_code", "refresh_token"],
       token_endpoint_auth_method: "client_secret_basic"
     },
     {
-      client_id: "gitea-oidc-portal",
-      client_secret: requiredEnv("GITEA_OIDC_PORTAL_CLIENT_SECRET"),
+      client_id: "x-oidc-portal",
+      client_secret: requiredEnv("X_OIDC_PORTAL_CLIENT_SECRET"),
       redirect_uris: [`${publicUrl}/portal/callback`],
       post_logout_redirect_uris: [`${publicUrl}/portal/signed-out`],
       response_types: ["code"],
@@ -222,13 +222,13 @@ export default {
   admin: {
     enabled: true,
     basePath: "/admin",
-    allowedGroups: ["gitea-oidc-admins"],
+    allowedGroups: ["x-oidc-admins"],
     sessionTtlSeconds: 3600
   },
   portal: {
     enabled: true,
     basePath: "/portal",
-    clientId: "gitea-oidc-portal",
+    clientId: "x-oidc-portal",
     sessionTtlSeconds: 3600
   },
   providerApi: {
@@ -243,7 +243,7 @@ export default {
     },
     secretEncryption: {
       keyId: "applications-v1",
-      masterKey: requiredEnv("GITEA_OIDC_APPLICATION_MASTER_KEY")
+      masterKey: requiredEnv("X_OIDC_APPLICATION_MASTER_KEY")
     }
   },
   adapter: {
@@ -264,17 +264,17 @@ export default {
 `/app/data/users.db`；`retentionDays: 30` 表示自动删除超过 30 天的记录。生产环境不要关闭审计，
 也不要使用 `memory` 用户仓储，否则重启后无法追溯登录、退出和用户资料变更。
 
-创建 `/srv/gitea-oidc/.env.production`：
+创建 `/srv/x-oidc/.env.production`：
 
 ```dotenv
-GITEA_OIDC_VERSION=x.y.z
-GITEA_OIDC_PUBLIC_URL=https://id.example.com
-GITEA_OIDC_TRUSTED_PROXY_IPS=replace-with-proxy-ip-or-cidr
-GITEA_OIDC_COOKIE_KEY_CURRENT=replace-with-first-random-value
-GITEA_OIDC_COOKIE_KEY_PREVIOUS=replace-with-second-random-value
-GITEA_OIDC_ADMIN_CLIENT_SECRET=replace-with-independent-random-value
-GITEA_OIDC_PORTAL_CLIENT_SECRET=replace-with-another-independent-random-value
-GITEA_OIDC_APPLICATION_MASTER_KEY=replace-with-base64-encoded-32-byte-key
+X_OIDC_VERSION=x.y.z
+X_OIDC_PUBLIC_URL=https://id.example.com
+X_OIDC_TRUSTED_PROXY_IPS=replace-with-proxy-ip-or-cidr
+X_OIDC_COOKIE_KEY_CURRENT=replace-with-first-random-value
+X_OIDC_COOKIE_KEY_PREVIOUS=replace-with-second-random-value
+X_OIDC_ADMIN_CLIENT_SECRET=replace-with-independent-random-value
+X_OIDC_PORTAL_CLIENT_SECRET=replace-with-another-independent-random-value
+X_OIDC_APPLICATION_MASTER_KEY=replace-with-base64-encoded-32-byte-key
 ```
 
 将 `x.y.z` 替换为准备上线的已发布版本，不要在生产环境使用 `latest`。将代理地址替换为服务实际
@@ -284,20 +284,20 @@ GITEA_OIDC_APPLICATION_MASTER_KEY=replace-with-base64-encoded-32-byte-key
 会同时构建并装配管理后台与用户门户产物。
 
 ```bash
-chmod 0600 /srv/gitea-oidc/.env.production
-sudo chown 10001:10001 /srv/gitea-oidc/gitea-oidc.config.js
-sudo chmod 0600 /srv/gitea-oidc/gitea-oidc.config.js
+chmod 0600 /srv/x-oidc/.env.production
+sudo chown 10001:10001 /srv/x-oidc/x-oidc.config.js
+sudo chmod 0600 /srv/x-oidc/x-oidc.config.js
 ```
 
 ## 使用 Docker Compose 启动
 
-创建 `/srv/gitea-oidc/compose.yaml`：
+创建 `/srv/x-oidc/compose.yaml`：
 
 ```yaml
 services:
   idp:
-    image: lydamirror/gitea-oidc:${GITEA_OIDC_VERSION:?set GITEA_OIDC_VERSION}
-    container_name: gitea-oidc
+    image: lydamirror/x-oidc:${X_OIDC_VERSION:?set X_OIDC_VERSION}
+    container_name: x-oidc
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -306,7 +306,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
-      - ./gitea-oidc.config.js:/app/gitea-oidc.config.js:ro
+      - ./x-oidc.config.js:/app/x-oidc.config.js:ro
       - ./data:/app/data
       - ./secrets:/app/secrets:ro
     stop_grace_period: 20s
@@ -335,7 +335,7 @@ services:
 先验证 Compose 展开结果，再启动：
 
 ```bash
-cd /srv/gitea-oidc
+cd /srv/x-oidc
 docker compose --env-file .env.production config
 docker compose --env-file .env.production pull
 docker compose --env-file .env.production up -d
@@ -351,33 +351,33 @@ docker compose --env-file .env.production logs --tail=200 idp
 不使用 Docker 时，在固定发布目录安装并构建：
 
 ```bash
-cd /opt/gitea-oidc/current
+cd /opt/x-oidc/current
 corepack enable
 corepack prepare pnpm@10.0.0 --activate
 pnpm install --frozen-lockfile
 pnpm build:prod
 ```
 
-把前面的生产配置保存在 `/srv/gitea-oidc/gitea-oidc.config.js`，并将所有 `/app/data` 和
-`/app/secrets` 路径替换为宿主机上的 `/srv/gitea-oidc/data` 和
-`/srv/gitea-oidc/secrets`。进程工作目录必须包含配置文件。
+把前面的生产配置保存在 `/srv/x-oidc/x-oidc.config.js`，并将所有 `/app/data` 和
+`/app/secrets` 路径替换为宿主机上的 `/srv/x-oidc/data` 和
+`/srv/x-oidc/secrets`。进程工作目录必须包含配置文件。
 
-创建 `/etc/systemd/system/gitea-oidc.service`：
+创建 `/etc/systemd/system/x-oidc.service`：
 
 ```ini
 [Unit]
-Description=Gitea OIDC Identity Provider
+Description=X OIDC Identity Provider
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=gitea-oidc
-Group=gitea-oidc
-WorkingDirectory=/srv/gitea-oidc
+User=x-oidc
+Group=x-oidc
+WorkingDirectory=/srv/x-oidc
 Environment=NODE_ENV=production
-EnvironmentFile=/srv/gitea-oidc/.env.production
-ExecStart=/usr/bin/node /opt/gitea-oidc/current/apps/idp-server/dist/main.js
+EnvironmentFile=/srv/x-oidc/.env.production
+ExecStart=/usr/bin/node /opt/x-oidc/current/apps/idp-server/dist/main.js
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=20s
@@ -386,34 +386,34 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/gitea-oidc/data
+ReadWritePaths=/srv/x-oidc/data
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-确认 `/usr/bin/node` 是 Node.js 22，并让 `gitea-oidc` 用户拥有数据和配置：
+确认 `/usr/bin/node` 是 Node.js 22，并让 `x-oidc` 用户拥有数据和配置：
 
 ```bash
-sudo chown -R gitea-oidc:gitea-oidc /srv/gitea-oidc/data
-sudo chown -R root:gitea-oidc /srv/gitea-oidc/secrets
-sudo chown root:gitea-oidc \
-  /srv/gitea-oidc/gitea-oidc.config.js \
-  /srv/gitea-oidc/.env.production
-sudo chmod 0750 /srv/gitea-oidc/secrets
+sudo chown -R x-oidc:x-oidc /srv/x-oidc/data
+sudo chown -R root:x-oidc /srv/x-oidc/secrets
+sudo chown root:x-oidc \
+  /srv/x-oidc/x-oidc.config.js \
+  /srv/x-oidc/.env.production
+sudo chmod 0750 /srv/x-oidc/secrets
 sudo chmod 0640 \
-  /srv/gitea-oidc/secrets/.htpasswd \
-  /srv/gitea-oidc/gitea-oidc.config.js \
-  /srv/gitea-oidc/.env.production
+  /srv/x-oidc/secrets/.htpasswd \
+  /srv/x-oidc/x-oidc.config.js \
+  /srv/x-oidc/.env.production
 ```
 
 然后启动：
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now gitea-oidc
-sudo systemctl status gitea-oidc
-sudo journalctl -u gitea-oidc -n 200 --no-pager
+sudo systemctl enable --now x-oidc
+sudo systemctl status x-oidc
+sudo journalctl -u x-oidc -n 200 --no-pager
 ```
 
 systemd 和 Docker 只能选择一种运行方式，不能让两个实例同时访问同一组 SQLite 文件。
@@ -483,14 +483,14 @@ curl --fail --silent --show-error \
     "userRepository": {
       "type": "pgsql",
       "pgsql": {
-        "connectionString": "postgresql://gitea_oidc:your-password@postgres:5432/gitea_oidc"
+        "connectionString": "postgresql://x_oidc:your-password@postgres:5432/x_oidc"
       }
     },
     "stateStore": {
       "type": "redis",
       "redis": {
         "url": "redis://:your-password@redis:6379/0",
-        "keyPrefix": "gitea-oidc:state:"
+        "keyPrefix": "x-oidc:state:"
       }
     }
   },
@@ -502,7 +502,7 @@ curl --fail --silent --show-error \
     "type": "redis",
     "redis": {
       "url": "redis://:your-password@redis:6379/0",
-      "keyPrefix": "gitea-oidc:oidc:"
+      "keyPrefix": "x-oidc:oidc:"
     }
   }
 }
@@ -550,8 +550,8 @@ curl --fail --silent --show-error \
 
 ### 提示生产环境必须提供配置文件
 
-配置文件必须位于进程工作目录，文件名只能是 `gitea-oidc.config.js` 或
-`gitea-oidc.config.json`。两个文件同时存在时，JS 文件优先。
+配置文件必须位于进程工作目录，文件名只能是 `x-oidc.config.js` 或
+`x-oidc.config.json`。两个文件同时存在时，JS 文件优先。
 
 ### 提示 `oidc.issuer` 不匹配
 

@@ -1,7 +1,4 @@
-import {
-  type ApplicationConnectionV1,
-  safeParseApplicationConnectionV1,
-} from "@gitea-oidc/contracts";
+import { type ApplicationConnectionV1, safeParseApplicationConnectionV1 } from "@x-oidc/contracts";
 import type { CliFileSystem } from "./dependencies.js";
 import { CliError } from "./errors.js";
 

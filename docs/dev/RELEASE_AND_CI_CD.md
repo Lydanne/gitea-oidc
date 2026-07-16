@@ -49,7 +49,7 @@ Release。
 
 npm 使用 GitHub Actions OIDC Trusted Publishing，不使用长期 `NPM_TOKEN`。
 
-在 npm 的 `gitea-oidc` 包设置中新增 GitHub Actions Trusted Publisher，并填写：
+在 npm 的 `@x-oidc/server-core` 包设置中新增 GitHub Actions Trusted Publisher，并填写：
 
 | 配置项 | 值 |
 | --- | --- |
@@ -72,7 +72,7 @@ Automation/Granular Access Token，避免长期凭据继续有效。
 
 ### Docker 镜像仓库
 
-GHCR 镜像 `ghcr.io/lydanne/gitea-oidc` 始终发布，使用当前仓库的 `GITHUB_TOKEN` 鉴权，不需要额外
+GHCR 镜像 `ghcr.io/lydanne/x-oidc` 始终发布，使用当前仓库的 `GITHUB_TOKEN` 鉴权，不需要额外
 Secret。Docker Hub 是可选镜像源；未配置用户名时，工作流只发布 GHCR。
 
 在 Docker Hub 为发布账号创建具有目标仓库读写权限的 Access Token。不要使用账号密码。
@@ -84,7 +84,7 @@ Secret。Docker Hub 是可选镜像源；未配置用户名时，工作流只发
 | Variable | `DOCKERHUB_USERNAME` | Docker Hub 用户名和镜像命名空间；留空即关闭镜像同步 |
 | Secret | `DOCKERHUB_TOKEN` | 仅用于发布的 Docker Hub Access Token |
 
-目标镜像为 `${DOCKERHUB_USERNAME}/gitea-oidc`。Token 应使用最小权限并定期轮换，日志和 Issue 中不得输出
+目标镜像为 `${DOCKERHUB_USERNAME}/x-oidc`。Token 应使用最小权限并定期轮换，日志和 Issue 中不得输出
 Token 值。
 
 ## 创建 Prepare Release PR
@@ -99,7 +99,7 @@ Token 值。
 
 发布 PR 应只包含本次发布需要的版本和变更日志调整。重点确认：
 
-- `packages/server-core/package.json` 与 `apps/idp-server/package.json` 版本一致。
+- 全部 workspace `package.json` 与 `packages/server-core/package.json` 版本一致。
 - `CHANGELOG.md` 内容和目标版本正确。
 - PR 的 base branch 是 `main`，没有混入功能代码或生成的私密文件。
 
@@ -122,13 +122,13 @@ Token 值。
 
 维护者可以显式选择 `patch`、`minor` 或 `major` 覆盖自动结果，但必须在 PR 中说明原因。预发布还支持：
 
-- 稳定版 `1.3.0` 选择 `prerelease`：生成 `1.3.1-rc.0`；可用 `preid` 改为 `alpha` 或 `beta`。
-- `1.3.1-rc.0` 再选 `prerelease`：生成 `1.3.1-rc.1`。
-- `1.3.1-rc.1` 选择 `prerelease` 且把 `preid` 改为 `beta`：生成 `1.3.1-beta.0`。
+- 稳定版 `2.3.0` 选择 `prerelease`：生成 `2.3.1-rc.0`；可用 `preid` 改为 `alpha` 或 `beta`。
+- `2.3.1-rc.0` 再选 `prerelease`：生成 `2.3.1-rc.1`。
+- `2.3.1-rc.1` 选择 `prerelease` 且把 `preid` 改为 `beta`：生成 `2.3.1-beta.0`。
 - 当前版本为预发布时，`auto` 发现新的 `feat`、`fix`、`perf` 或 breaking change，只推进当前预发布序号；
   没有触发发布的提交则不创建 PR。
 - 当前版本为预发布时选择 `stable`：移除预发布后缀，将同一目标版本转为稳定版，例如
-  `1.3.1-rc.1` → `1.3.1`。
+  `2.3.1-rc.1` → `2.3.1`。
 
 `preid` 只与 `prerelease` 一起使用；未填写时沿用当前预发布通道，首次预发布则默认为 `rc`。它必须以
 字母开头，不能是 `latest` 或可被当作版本号的值，避免覆盖稳定 npm/Docker 渠道。
@@ -160,9 +160,9 @@ GitHub Release 放在最后创建，避免“Release 已显示成功，但 npm �
 
 | 渠道 | Git tag | npm dist-tag | Docker tag | GitHub Release |
 | --- | --- | --- | --- | --- |
-| 稳定版 `1.3.0` | `v1.3.0` | `latest` | `1.3.0`、`1.3`、`1`、`latest` | 正式版，可标记 latest |
-| 预发布 `1.3.1-rc.0` | `v1.3.1-rc.0` | `rc` | `1.3.1-rc.0`、`rc` | Prerelease，不标记 latest |
-| 预发布 `1.3.1-beta.0` | `v1.3.1-beta.0` | `beta` | `1.3.1-beta.0`、`beta` | Prerelease，不标记 latest |
+| 稳定版 `2.3.0` | `v2.3.0` | `latest` | `2.3.0`、`2.3`、`2`、`latest` | 正式版，可标记 latest |
+| 预发布 `2.3.1-rc.0` | `v2.3.1-rc.0` | `rc` | `2.3.1-rc.0`、`rc` | Prerelease，不标记 latest |
+| 预发布 `2.3.1-beta.0` | `v2.3.1-beta.0` | `beta` | `2.3.1-beta.0`、`beta` | Prerelease，不标记 latest |
 
 预发布不得更新 npm `latest`，也不得更新 Docker `latest`、major 或 minor 浮动 tag。稳定版发布成功后才更新
 这些稳定渠道 tag。Docker 浮动 tag 必须指向本次已验证的精确版本镜像 digest。
@@ -181,10 +181,10 @@ Checkout 输入不足以改变 npm provenance 使用的 GitHub 事件 SHA，因�
 `resume_tag` 必须同时指向同一 tag：
 
 ```bash
-gh workflow run release.yml --ref v1.3.0 --field resume_tag=v1.3.0
+gh workflow run release.yml --ref v2.3.0 --field resume_tag=v2.3.0
 ```
 
-也可以在 Actions 页面先把 **Use workflow from** 选为 `v1.3.0`，再填写相同的 `resume_tag`。恢复流程
+也可以在 Actions 页面先把 **Use workflow from** 选为 `v2.3.0`，再填写相同的 `resume_tag`。恢复流程
 会校验事件 SHA、tag、包版本和源码提交完全一致，不接受独立版本号或任意分支作为发布来源。
 手动工作流只负责协调已经存在的 tag，不能留空输入从当前 `main` 发布，也不能用同名 branch 代替 tag。
 如果失败发生在 tag 创建前，只能重跑原自动发布运行，避免把版本审批后的新提交带入旧版本。
@@ -207,19 +207,19 @@ gh workflow run release.yml --ref v1.3.0 --field resume_tag=v1.3.0
 - 不基于失败后的新 `main` HEAD 重算旧发布版本。
 - 发现远端状态冲突时立即停止，由维护者核对；需要修正内容时发布新的 patch 版本。
 
-## 首次迁移
+## 首次发布
 
-从旧的 `release-it` 直发流程迁移时，按以下顺序操作：
+X OIDC 所有 workspace 包从 `2.0.0` 开始并保持同步版本。首次发布按以下顺序操作：
 
-1. 先将两阶段工作流、发布脚本和包仓库元数据合并到 `main`。
-2. 获取完整 tag，并确认公开包版本、运行入口版本和最近稳定 tag 一致。
-3. 创建并保护 GitHub `release` Environment。
-4. 在 npm 配置 Trusted Publisher，精确填写 `release.yml` 和 `release`。
-5. 如需同步 Docker Hub，在 `release` Environment 配置 Variable `DOCKERHUB_USERNAME` 和 Secret
+1. 在合并前运行 `pnpm release:version-check`，确认全部 workspace 包版本均为 `2.0.0`。
+2. 创建并保护 GitHub `release` Environment。
+3. 在 npm 配置 Trusted Publisher，精确填写 `release.yml` 和 `release`。
+4. 如需同步 Docker Hub，在 `release` Environment 配置 Variable `DOCKERHUB_USERNAME` 和 Secret
    `DOCKERHUB_TOKEN`；否则只使用默认 GHCR。
-6. 从 `main` 运行一次 `Prepare Release`，先审查生成的 PR，不要手工发布。
-7. 合并发布 PR 并观察首次 OIDC 发布；核对 npm provenance、Docker tags 和 GitHub Release。
-8. 首次成功后撤销遗留的 npm Token，并删除旧的 `DOCKER_USERNAME`、`DOCKER_PASSWORD` 等无效 secrets。
+5. 合并包含工作流、发布脚本、包元数据和 `2.0.0` 版本的首次发布 PR；该次 `main` 推送会直接触发
+   `Release`，不要为 `2.0.0` 额外运行 `Prepare Release`。
+6. 观察首次 OIDC 发布；核对 npm provenance、Docker tags 和 GitHub Release。
+7. 首次成功后撤销遗留的 npm Token，并删除旧的 `DOCKER_USERNAME`、`DOCKER_PASSWORD` 等无效 secrets。
 
 迁移前可执行：
 
@@ -227,13 +227,11 @@ gh workflow run release.yml --ref v1.3.0 --field resume_tag=v1.3.0
 git fetch --tags origin
 git checkout main
 git pull --ff-only
-git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*'
 node -p "require('./packages/server-core/package.json').version"
-node -p "require('./apps/idp-server/package.json').version"
 pnpm release:version-check
 ```
 
-如果两个 package 版本与最近稳定 tag 不一致，应先通过单独的迁移 PR 修正；不要让准备工作流自动猜测基线。
+首次 `2.0.0` 由当前代码直接发布；后续版本统一通过 `Prepare Release` 生成版本 PR。
 
 ## 本地验证
 

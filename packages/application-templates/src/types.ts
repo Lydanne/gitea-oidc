@@ -1,4 +1,4 @@
-import type { ApplicationTemplateFormV1, IntegrationGuideV1 } from "@gitea-oidc/contracts";
+import type { ApplicationTemplateFormV1, IntegrationGuideV1 } from "@x-oidc/contracts";
 import type { z } from "zod";
 import type { DeepReadonly } from "./jsonSnapshot.js";
 

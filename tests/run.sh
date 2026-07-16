@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Docker 容器运行脚本
-# 用于运行 gitea-oidc 容器
+# 用于运行 x-oidc 容器
 
 set -e
 
@@ -31,10 +31,10 @@ find_project_root() {
 }
 
 # 配置
-IMAGE_NAME="gitea-oidc"
+IMAGE_NAME="x-oidc"
 TAG="latest"
 FULL_IMAGE_NAME="${IMAGE_NAME}:${TAG}"
-CONTAINER_NAME="gitea-oidc-test"
+CONTAINER_NAME="x-oidc-test"
 HOST_PORT=3000
 CONTAINER_PORT=3000
 
@@ -53,12 +53,12 @@ if ! docker images "${IMAGE_NAME}" | grep -q "${TAG}"; then
 fi
 
 # 检查配置文件是否存在（支持 .js 和 .json 文件）
-CONFIG_FILE="${PROJECT_ROOT}/gitea-oidc.config.js"
+CONFIG_FILE="${PROJECT_ROOT}/x-oidc.config.js"
 if [ ! -f "${CONFIG_FILE}" ]; then
-    CONFIG_FILE="${PROJECT_ROOT}/gitea-oidc.config.json"
+    CONFIG_FILE="${PROJECT_ROOT}/x-oidc.config.json"
     if [ ! -f "${CONFIG_FILE}" ]; then
         echo -e "${YELLOW}⚠️  配置文件不存在，使用示例配置${NC}"
-        EXAMPLE_CONFIG_FILE="${PROJECT_ROOT}/example.gitea-oidc.config.json"
+        EXAMPLE_CONFIG_FILE="${PROJECT_ROOT}/example.x-oidc.config.json"
         if [ -f "${EXAMPLE_CONFIG_FILE}" ]; then
             CONFIG_FILE="${EXAMPLE_CONFIG_FILE}"
         else
@@ -85,9 +85,9 @@ echo -e "${YELLOW}配置文件: ${CONFIG_FILE}${NC}"
 
 # 确定容器内配置文件路径
 if [[ "${CONFIG_FILE}" == *.js ]]; then
-    CONTAINER_CONFIG_FILE="/app/gitea-oidc.config.js"
+    CONTAINER_CONFIG_FILE="/app/x-oidc.config.js"
 elif [[ "${CONFIG_FILE}" == *.json ]]; then
-    CONTAINER_CONFIG_FILE="/app/gitea-oidc.config.json"
+    CONTAINER_CONFIG_FILE="/app/x-oidc.config.json"
 else
     echo -e "${RED}❌ 不支持的配置文件格式${NC}"
     exit 1

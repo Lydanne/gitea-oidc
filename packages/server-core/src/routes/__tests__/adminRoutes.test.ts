@@ -31,18 +31,18 @@ describe("registerAdminRoutes", () => {
   });
 
   const adminCookieHeader = (sessionId: string) => ({
-    cookie: `gitea_oidc_admin_session=${sessionId}`,
+    cookie: `x_oidc_admin_session=${sessionId}`,
   });
 
   const adminLoginCookieHeader = (binding: string = adminLoginBinding) => ({
-    cookie: `gitea_oidc_admin_login=${binding}`,
+    cookie: `x_oidc_admin_login=${binding}`,
   });
 
   const adminMutationHeaders = (sessionId: string, origin: string = "http://localhost:3000") => ({
     ...adminCookieHeader(sessionId),
     "content-type": "application/json",
     origin,
-    "x-gitea-oidc-admin-action": "1",
+    "x-oidc-admin-action": "1",
   });
 
   const createAdminClient = (serverUrl: string = "http://localhost:3000") => ({
@@ -55,7 +55,7 @@ describe("registerAdminRoutes", () => {
   });
 
   const createGroups = (...ids: string[]) => ids.map((id) => ({ id, name: id }));
-  const createAdminGroups = () => createGroups("gitea-oidc-admins");
+  const createAdminGroups = () => createGroups("x-oidc-admins");
 
   const createAdminCallbackOidcProvider = (
     overrides: {
@@ -104,7 +104,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -143,7 +143,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -181,7 +181,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -210,7 +210,7 @@ describe("registerAdminRoutes", () => {
         {
           id: "platform",
           name: "平台",
-          children: [{ id: "gitea-oidc-admins", name: "OIDC 管理员" }],
+          children: [{ id: "x-oidc-admins", name: "OIDC 管理员" }],
         },
       ],
       status: "active",
@@ -226,7 +226,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -268,7 +268,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -320,7 +320,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -354,7 +354,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -381,7 +381,7 @@ describe("registerAdminRoutes", () => {
     ).toBe("/admin/applications?status=disabled");
     expect(reply.header).toHaveBeenCalledWith(
       "Set-Cookie",
-      expect.stringMatching(/gitea_oidc_admin_login=[a-f0-9]{64}/u),
+      expect.stringMatching(/x_oidc_admin_login=[a-f0-9]{64}/u),
     );
 
     for (const returnTo of [
@@ -415,7 +415,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         auth: {
@@ -457,7 +457,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -495,7 +495,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -540,7 +540,7 @@ describe("registerAdminRoutes", () => {
           admin: {
             enabled: true,
             basePath: "/admin",
-            allowedGroups: ["gitea-oidc-admins"],
+            allowedGroups: ["x-oidc-admins"],
             sessionTtlSeconds: 3600,
           },
           server: { url: "http://localhost:3000" },
@@ -568,7 +568,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000/" },
@@ -599,7 +599,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/ops/identity/",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -638,10 +638,8 @@ describe("registerAdminRoutes", () => {
     expect(reply.header).toHaveBeenCalledWith("X-Content-Type-Options", "nosniff");
     expect(reply.header).toHaveBeenCalledWith("Referrer-Policy", "same-origin");
     expect(reply.header).toHaveBeenCalledWith("Cache-Control", "no-store");
-    expect(reply.send.mock.calls[0][0]).toContain(
-      'data-gitea-oidc-admin-base-path="/ops/identity"',
-    );
-    expect(reply.send.mock.calls[0][0]).toContain('data-gitea-oidc-applications-enabled="true"');
+    expect(reply.send.mock.calls[0][0]).toContain('data-x-oidc-admin-base-path="/ops/identity"');
+    expect(reply.send.mock.calls[0][0]).toContain('data-x-oidc-applications-enabled="true"');
     expect(reply.send.mock.calls[0][0]).toContain('<base href="/ops/identity/">');
     expect(reply.send.mock.calls[0][0]).toContain('<div id="app"></div>');
 
@@ -709,7 +707,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -781,7 +779,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -839,7 +837,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -905,7 +903,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -955,7 +953,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1020,7 +1018,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1071,7 +1069,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1124,7 +1122,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1178,7 +1176,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1213,7 +1211,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1265,7 +1263,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1307,7 +1305,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1349,7 +1347,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1410,7 +1408,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1473,7 +1471,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1538,7 +1536,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1558,7 +1556,7 @@ describe("registerAdminRoutes", () => {
         headers: adminMutationHeaders(session.id),
         body: {
           username: "user-1",
-          groups: "gitea-oidc-admins",
+          groups: "x-oidc-admins",
         },
       },
       reply,
@@ -1573,7 +1571,7 @@ describe("registerAdminRoutes", () => {
         headers: adminMutationHeaders(session.id),
         body: {
           username: "user-1",
-          groups: ["gitea-oidc-admins"],
+          groups: ["x-oidc-admins"],
         },
       },
       legacyReply,
@@ -1610,7 +1608,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -1662,7 +1660,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "https://id.example.com" },
@@ -1680,7 +1678,7 @@ describe("registerAdminRoutes", () => {
     await postHandler(
       {
         headers: {
-          cookie: `gitea_oidc_admin_session=${session.id}`,
+          cookie: `x_oidc_admin_session=${session.id}`,
           "content-type": "application/json",
           origin: "https://id.example.com",
         },
@@ -1709,7 +1707,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "https://id.example.com" },
@@ -1727,10 +1725,10 @@ describe("registerAdminRoutes", () => {
     await postHandler(
       {
         headers: {
-          cookie: `gitea_oidc_admin_session=${session.id}`,
+          cookie: `x_oidc_admin_session=${session.id}`,
           "content-type": "application/json",
           origin: "https://id.example.com",
-          "x-gitea-oidc-admin-action": "1",
+          "x-oidc-admin-action": "1",
         },
         body: { username: "user-1" },
       },
@@ -1759,7 +1757,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "https://id.example.com" },
@@ -1777,10 +1775,10 @@ describe("registerAdminRoutes", () => {
     await postHandler(
       {
         headers: {
-          cookie: `gitea_oidc_admin_session=${session.id}`,
+          cookie: `x_oidc_admin_session=${session.id}`,
           "content-type": "application/json",
           referer: "https://id.example.com/admin2/users",
-          "x-gitea-oidc-admin-action": "1",
+          "x-oidc-admin-action": "1",
         },
         body: { username: "user-1" },
       },
@@ -1808,7 +1806,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "https://id.example.com" },
@@ -1846,8 +1844,8 @@ describe("registerAdminRoutes", () => {
     );
 
     expect(reply.header).toHaveBeenCalledWith("Set-Cookie", [
-      expect.stringContaining("gitea_oidc_admin_login=;"),
-      expect.stringMatching(/gitea_oidc_admin_session=.*Secure/u),
+      expect.stringContaining("x_oidc_admin_login=;"),
+      expect.stringMatching(/x_oidc_admin_session=.*Secure/u),
     ]);
     expect(auditLogRepository.append).toHaveBeenCalledWith({
       eventType: "admin.login",
@@ -1876,7 +1874,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "https://id.example.com" },
@@ -1905,7 +1903,7 @@ describe("registerAdminRoutes", () => {
       expect(reply.send).toHaveBeenCalledWith("Invalid admin login state");
       expect(reply.header).toHaveBeenCalledWith(
         "Set-Cookie",
-        expect.stringMatching(/gitea_oidc_admin_login=;.*Max-Age=0/u),
+        expect.stringMatching(/x_oidc_admin_login=;.*Max-Age=0/u),
       );
       expect(reply.redirect).not.toHaveBeenCalled();
       expect(await sessionStore!.consumeLoginState(state)).toBeNull();
@@ -1936,7 +1934,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "https://id.example.com" },
@@ -1980,7 +1978,7 @@ describe("registerAdminRoutes", () => {
     expect(reply.header).toHaveBeenCalledOnce();
     expect(reply.header).toHaveBeenCalledWith(
       "Set-Cookie",
-      expect.stringContaining("gitea_oidc_admin_login=;"),
+      expect.stringContaining("x_oidc_admin_login=;"),
     );
     expect(reply.redirect).not.toHaveBeenCalled();
   });
@@ -1995,7 +1993,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "https://id.example.com" },
@@ -2034,7 +2032,7 @@ describe("registerAdminRoutes", () => {
     expect(reply.header).toHaveBeenCalledOnce();
     expect(reply.header).toHaveBeenCalledWith(
       "Set-Cookie",
-      expect.stringContaining("gitea_oidc_admin_login=;"),
+      expect.stringContaining("x_oidc_admin_login=;"),
     );
     expect(reply.redirect).not.toHaveBeenCalled();
   });
@@ -2053,7 +2051,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2068,7 +2066,7 @@ describe("registerAdminRoutes", () => {
     const handler = app.get.mock.calls.find((call) => call[0] === "/admin/api/me")?.[1];
     const reply = { code: vi.fn().mockReturnThis(), send: vi.fn() };
 
-    await handler({ headers: { cookie: `gitea_oidc_admin_session=${session.id}` } }, reply);
+    await handler({ headers: { cookie: `x_oidc_admin_session=${session.id}` } }, reply);
 
     expect(reply.code).toHaveBeenCalledWith(401);
     expect(reply.send).toHaveBeenCalledWith({ error: "Unauthorized" });
@@ -2084,7 +2082,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2120,7 +2118,7 @@ describe("registerAdminRoutes", () => {
           admin: {
             enabled: true,
             basePath: "/admin",
-            allowedGroups: ["gitea-oidc-admins"],
+            allowedGroups: ["x-oidc-admins"],
             sessionTtlSeconds: 3600,
           },
           server: { url: "http://localhost:3000" },
@@ -2145,7 +2143,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2196,7 +2194,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2254,7 +2252,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2303,7 +2301,7 @@ describe("registerAdminRoutes", () => {
       {
         reference: { id: "gitea", version: 1 },
         name: "Gitea",
-        description: "Gitea OIDC",
+        description: "X OIDC",
         supportedVersions: ["1.26"],
         form: { fields: [] },
       },
@@ -2328,7 +2326,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2423,7 +2421,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2517,7 +2515,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2603,7 +2601,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2675,7 +2673,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -2736,7 +2734,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["gitea-oidc-admins"],
+          allowedGroups: ["x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },

@@ -65,13 +65,11 @@ export const createCookieConfiguration = (
   }
   const transactionName = validateCookieName(
     names.transaction ??
-      (secure
-        ? `__Host-gitea_oidc_transaction_${namespace}`
-        : `gitea_oidc_transaction_${namespace}`),
+      (secure ? `__Host-x_oidc_transaction_${namespace}` : `x_oidc_transaction_${namespace}`),
   );
   const sessionName = validateCookieName(
     names.session ??
-      (secure ? `__Host-gitea_oidc_session_${namespace}` : `gitea_oidc_session_${namespace}`),
+      (secure ? `__Host-x_oidc_session_${namespace}` : `x_oidc_session_${namespace}`),
   );
   const transactionHasHostPrefix = hasHostCookiePrefix(transactionName);
   const sessionHasHostPrefix = hasHostCookiePrefix(sessionName);

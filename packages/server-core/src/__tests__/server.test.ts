@@ -6,11 +6,11 @@ import {
   ApplicationSecretEncryptor,
   ApplicationService,
   SqliteApplicationRepository,
-} from "@gitea-oidc/applications";
+} from "@x-oidc/applications";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OidcAdapterFactory } from "../adapters/OidcAdapterFactory.js";
-import type { GiteaOidcConfig, ResolvedGiteaOidcConfig } from "../config.js";
+import type { ResolvedXOidcConfig, XOidcConfig } from "../config.js";
 import { AuthCoordinator } from "../core/AuthCoordinator.js";
 import {
   cleanupServerResources,
@@ -25,7 +25,7 @@ import {
 } from "../server.js";
 import { MemoryStateStore } from "../stores/MemoryStateStore.js";
 
-const createValidRuntimeConfig = (): ResolvedGiteaOidcConfig => ({
+const createValidRuntimeConfig = (): ResolvedXOidcConfig => ({
   server: {
     host: "0.0.0.0",
     port: 3000,
@@ -79,7 +79,7 @@ const createValidRuntimeConfig = (): ResolvedGiteaOidcConfig => ({
         enabled: true,
         displayName: "Local",
         config: {
-          passwordFile: "/etc/gitea-oidc/htpasswd",
+          passwordFile: "/etc/x-oidc/htpasswd",
           passwordFormat: "bcrypt",
         },
       },
@@ -88,7 +88,7 @@ const createValidRuntimeConfig = (): ResolvedGiteaOidcConfig => ({
   admin: {
     enabled: true,
     basePath: "/admin",
-    allowedGroups: ["gitea-oidc-admins"],
+    allowedGroups: ["x-oidc-admins"],
     sessionTtlSeconds: 3600,
   },
   portal: {
@@ -181,7 +181,7 @@ async function seedDynamicApplication(tempDir: string) {
 }
 
 function configureDynamicApplications(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   fixture: Awaited<ReturnType<typeof seedDynamicApplication>>,
   tempDir: string,
 ): void {
@@ -407,7 +407,7 @@ describe("server static security headers", () => {
 
 describe("server process entry", () => {
   it("recognizes a directly executed entry through a workspace symlink", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-main-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-main-"));
     const realEntry = join(tempDir, "server.js");
     const linkedEntry = join(tempDir, "workspace-server.js");
     await writeFile(realEntry, "export {};\n", "utf8");
@@ -433,7 +433,7 @@ describe("server runtime config validation", () => {
     const current = createValidRuntimeConfig();
     const { admin: _admin, providerApi: _providerApi, ...withoutControlPlane } = current;
     const { corsOrigins: _corsOrigins, ...legacyServer } = current.server;
-    const legacyConfig: GiteaOidcConfig = {
+    const legacyConfig: XOidcConfig = {
       ...withoutControlPlane,
       server: legacyServer,
     };
@@ -469,7 +469,7 @@ describe("server runtime config validation", () => {
 
 describe("server dynamic applications", () => {
   it("loads a database application as a real oidc-provider Client", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-dynamic-client-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-dynamic-client-"));
     const fixture = await seedDynamicApplication(tempDir);
 
     const config = createValidRuntimeConfig();
@@ -552,7 +552,7 @@ describe("server dynamic applications", () => {
   });
 
   it("对第三方动态应用显式展示授权并处理允许和拒绝", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-dynamic-consent-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-dynamic-consent-"));
     const fixture = await seedDynamicApplication(tempDir);
     const passwordFile = join(tempDir, "users.htpasswd");
     await writeFile(passwordFile, "alice:secret\n", "utf8");
@@ -703,7 +703,7 @@ describe("server dynamic applications", () => {
 
 describe("server resource cleanup", () => {
   it("serves admin assets from a custom basePath", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-admin-base-path-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-admin-base-path-"));
     const config = createValidRuntimeConfig();
     config.logging.enabled = false;
     config.admin.basePath = "/ops/identity";
@@ -740,7 +740,7 @@ describe("server resource cleanup", () => {
   });
 
   it("creates an application without listening on a port", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-create-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-create-"));
     const config = createValidRuntimeConfig();
     config.auth.userRepository = { type: "memory", memory: {} };
     config.auth.providers.local.enabled = false;
@@ -765,7 +765,7 @@ describe("server resource cleanup", () => {
   });
 
   it("serves portal shell and assets from a custom basePath", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-portal-base-path-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-portal-base-path-"));
     const publicDir = join(tempDir, "public");
     await mkdir(join(publicDir, "portal", "assets"), { recursive: true });
     await writeFile(
@@ -800,7 +800,7 @@ describe("server resource cleanup", () => {
       const page = await app.inject({ method: "GET", url: "/workspace" });
       expect(page.statusCode).toBe(200);
       expect(page.body).toContain('<base href="/workspace/">');
-      expect(page.body).toContain('data-gitea-oidc-portal-base-path="/workspace"');
+      expect(page.body).toContain('data-x-oidc-portal-base-path="/workspace"');
       expect(page.headers["content-security-policy"]).toContain("script-src 'self'");
       expect(page.headers["cache-control"]).toBe("no-store");
 

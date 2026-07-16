@@ -1,11 +1,11 @@
-# Gitea OIDC Identity Provider
+# X OIDC Identity Provider
 
 [中文文档](./README.md) · [English README](./README.en.md)
 
 [![CI-CHECK](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml)
 [![Release](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml)
-[![npm version](https://img.shields.io/npm/v/gitea-oidc)](https://www.npmjs.com/package/gitea-oidc)
-[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/gitea-oidc)](https://hub.docker.com/r/lydamirror/gitea-oidc)
+[![npm version](https://img.shields.io/npm/v/%40x-oidc%2Fserver-core)](https://www.npmjs.com/package/@x-oidc/server-core)
+[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/x-oidc)](https://hub.docker.com/r/lydamirror/x-oidc)
 ![Node version](https://img.shields.io/badge/node-22.13.x-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
@@ -23,7 +23,7 @@ user repositories, and pluggable OIDC persistence adapters.
 
 ## Table of Contents
 
-- [Gitea OIDC Identity Provider](#gitea-oidc-identity-provider)
+- [X OIDC Identity Provider](#x-oidc-identity-provider)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Architecture Overview](#architecture-overview)
@@ -78,7 +78,7 @@ At a high level:
 
 - `packages/server-core/src/identityServer.ts`
   - Bootstraps Fastify 5
-  - Loads merged configuration from `gitea-oidc.config.js/json` via
+  - Loads merged configuration from `x-oidc.config.js/json` via
     `packages/server-core/src/config.ts`
   - Configures `oidc-provider` and mounts it at `/oidc`
   - Integrates the authentication system (unified login, OAuth state, callbacks)
@@ -135,7 +135,7 @@ pnpm install
 Copy the example config and adjust it to your environment:
 
 ```bash
-cp example.gitea-oidc.config.json gitea-oidc.config.json
+cp example.x-oidc.config.json x-oidc.config.json
 ```
 
 Important fields (development example):
@@ -210,7 +210,7 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 
 The full configuration is validated by Zod
 (`packages/server-core/src/schemas/configSchema.ts`).
-Key sections in `gitea-oidc.config.*`:
+Key sections in `x-oidc.config.*`:
 
 - `server`: host/port/public URL, reverse proxy trust
 - `logging`: enable/disable and log level
@@ -237,7 +237,7 @@ Key sections in `gitea-oidc.config.*`:
 For concrete JSON examples, refer to:
 
 - `README.md` (Chinese, detailed examples)
-- `example.gitea-oidc.config.json`
+- `example.x-oidc.config.json`
 
 ---
 
@@ -267,14 +267,14 @@ to the read-only config and secrets and ownership of the writable data directory
 guide for commands that preserve restrictive secret permissions.
 
 ```bash
-docker run -d --name gitea-oidc \
+docker run -d --name x-oidc \
   -p 127.0.0.1:3000:3000 \
   -e NODE_ENV=production \
-  --env-file /srv/gitea-oidc/.env.production \
-  -v /srv/gitea-oidc/gitea-oidc.config.js:/app/gitea-oidc.config.js:ro \
-  -v /srv/gitea-oidc/data:/app/data \
-  -v /srv/gitea-oidc/secrets:/app/secrets:ro \
-  lydamirror/gitea-oidc:<version>
+  --env-file /srv/x-oidc/.env.production \
+  -v /srv/x-oidc/x-oidc.config.js:/app/x-oidc.config.js:ro \
+  -v /srv/x-oidc/data:/app/data \
+  -v /srv/x-oidc/secrets:/app/secrets:ro \
+  lydamirror/x-oidc:<version>
 ```
 
 See the Chinese deployment documentation for the complete, validated workflow:

@@ -1,4 +1,4 @@
-import { isNodeOidcError, type NodeOidcErrorCode } from "@gitea-oidc/node";
+import { isNodeOidcError, type NodeOidcErrorCode } from "@x-oidc/node";
 
 export type ConnectorErrorCode =
   | "AUTH_REQUIRED"
@@ -120,7 +120,7 @@ const NODE_ERROR_DEFINITIONS: Record<NodeOidcErrorCode, ConnectorErrorDefinition
   },
 };
 
-const CONNECTOR_ERROR_BRAND = Symbol.for("@gitea-oidc/connector-core/ConnectorError");
+const CONNECTOR_ERROR_BRAND = Symbol.for("@x-oidc/connector-core/ConnectorError");
 
 export class ConnectorError extends Error {
   readonly code: ConnectorErrorCode;

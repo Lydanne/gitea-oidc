@@ -1,4 +1,4 @@
-# @gitea-oidc/applications
+# @x-oidc/applications
 
 应用控制面的私有领域包，负责自定义/模板应用、OIDC Client、密钥轮换和审计的一致性边界。
 
@@ -20,7 +20,7 @@
 或密文。
 
 V1 明确限制一个 Application 只拥有一个 OIDC Client。`ApplicationDetailsV1`、Secret 摘要和状态
-变更响应使用 `@gitea-oidc/contracts` 的共享 strict schema，避免管理端重复定义结构。
+变更响应使用 `@x-oidc/contracts` 的共享 strict schema，避免管理端重复定义结构。
 
 ## 安全约束
 
@@ -42,7 +42,7 @@ V1 明确限制一个 Application 只拥有一个 OIDC Client。`ApplicationDeta
 ## 开发验证
 
 ```bash
-pnpm --filter @gitea-oidc/applications test
-pnpm --filter @gitea-oidc/applications typecheck
-pnpm --filter @gitea-oidc/applications build
+pnpm --filter @x-oidc/applications test
+pnpm --filter @x-oidc/applications typecheck
+pnpm --filter @x-oidc/applications build
 ```

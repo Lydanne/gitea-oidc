@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ResolvedGiteaOidcConfig } from "../../config.js";
+import type { ResolvedXOidcConfig } from "../../config.js";
 import {
   formatValidationErrors,
   formatWarnings,
@@ -8,7 +8,7 @@ import {
 } from "../configValidator.js";
 import { Logger } from "../Logger.js";
 
-const createBaseConfig = (): ResolvedGiteaOidcConfig => ({
+const createBaseConfig = (): ResolvedXOidcConfig => ({
   server: {
     host: "0.0.0.0",
     port: 3000,
@@ -74,7 +74,7 @@ const createBaseConfig = (): ResolvedGiteaOidcConfig => ({
   admin: {
     enabled: true,
     basePath: "/admin",
-    allowedGroups: ["gitea-oidc-admins"],
+    allowedGroups: ["x-oidc-admins"],
     sessionTtlSeconds: 3600,
   },
   portal: {
@@ -177,7 +177,7 @@ describe("validateConfig", () => {
     expect(result.config?.admin).toEqual({
       enabled: false,
       basePath: "/admin",
-      allowedGroups: ["gitea-oidc-admins"],
+      allowedGroups: ["x-oidc-admins"],
       sessionTtlSeconds: 3600,
     });
   });

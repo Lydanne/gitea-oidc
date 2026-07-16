@@ -5,8 +5,8 @@ import {
   type ConnectorConformanceResponse,
   createConnectorConformanceResponse,
   defineConnectorConformanceSuite,
-} from "@gitea-oidc/connector-testkit";
-import type { NodeOidcClient, NodeOidcClientOptions } from "@gitea-oidc/node";
+} from "@x-oidc/connector-testkit";
+import type { NodeOidcClient, NodeOidcClientOptions } from "@x-oidc/node";
 import Fastify, {
   type FastifyReply,
   type FastifyRequest,
@@ -61,7 +61,7 @@ const probeAfterClose = async (
     },
   } as unknown as FastifyReply;
   const request = {
-    headers: { cookie: `__Host-gitea_oidc_session=${"s".repeat(43)}` },
+    headers: { cookie: `__Host-x_oidc_session=${"s".repeat(43)}` },
   } as FastifyRequest;
 
   await oidc.optionalAuth.call(app, request, reply);

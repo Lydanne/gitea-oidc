@@ -7,8 +7,8 @@ import {
   OIDC_LOGIN_PATH,
   OIDC_LOGOUT_PATH,
   type WebConnectorCoreOptions,
-} from "@gitea-oidc/connector-core";
-import { type AuthSessionView, NodeOidcError } from "@gitea-oidc/node";
+} from "@x-oidc/connector-core";
+import { type AuthSessionView, NodeOidcError } from "@x-oidc/node";
 import type {
   FastifyInstance,
   FastifyPluginAsync,
@@ -109,9 +109,9 @@ const markAsPublicFastifyPlugin = (plugin: FastifyPluginAsync): void => {
   // Fastify 公开插件约定使用这些全局 Symbol 关闭 encapsulation 并声明兼容版本。
   Object.defineProperties(plugin, {
     [Symbol.for("skip-override")]: { value: true },
-    [Symbol.for("fastify.display-name")]: { value: "@gitea-oidc/fastify" },
+    [Symbol.for("fastify.display-name")]: { value: "@x-oidc/fastify" },
     [Symbol.for("plugin-meta")]: {
-      value: { fastify: "5.x", name: "@gitea-oidc/fastify" },
+      value: { fastify: "5.x", name: "@x-oidc/fastify" },
     },
   });
 };
@@ -120,8 +120,8 @@ export function createFastifyOidc(options: FastifyOidcOptions): FastifyOidcPlugi
   const core = createWebConnectorCore(options);
   const requestDrain = createConnectorRequestDrain();
   const releaseListenersInstalled = new WeakSet<FastifyRequest>();
-  const authResolved = Symbol("@gitea-oidc/fastify/auth-resolved");
-  const authSession = Symbol("@gitea-oidc/fastify/auth-session");
+  const authResolved = Symbol("@x-oidc/fastify/auth-resolved");
+  const authSession = Symbol("@x-oidc/fastify/auth-session");
   type AuthenticatedRequestState = FastifyRequest & Record<PropertyKey, unknown>;
 
   const trackRequest = (request: FastifyRequest, reply: FastifyReply): boolean => {
@@ -332,5 +332,5 @@ export function createFastifyOidc(options: FastifyOidcOptions): FastifyOidcPlugi
   );
 }
 
-export type { WebConnectorCoreOptions } from "@gitea-oidc/connector-core";
-export type { AuthSessionView } from "@gitea-oidc/node";
+export type { WebConnectorCoreOptions } from "@x-oidc/connector-core";
+export type { AuthSessionView } from "@x-oidc/node";

@@ -14,7 +14,7 @@ import type {
   LoginTransactionStore,
   RefreshLock,
   SensitiveAuthSessionRecord,
-} from "@gitea-oidc/node";
+} from "@x-oidc/node";
 import Database from "better-sqlite3";
 import { SqliteOidcStoreError, sqliteStoreError } from "./errors.js";
 import { parseAuthSession, parseLoginTransaction } from "./schemas.js";
@@ -206,13 +206,7 @@ class EncryptedRecordCodec {
     recordVersion: number,
   ): Buffer {
     return Buffer.from(
-      JSON.stringify([
-        "gitea-oidc-node-sqlite-v1",
-        table,
-        ownerNamespace,
-        lookupKey,
-        recordVersion,
-      ]),
+      JSON.stringify(["x-oidc-node-sqlite-v1", table, ownerNamespace, lookupKey, recordVersion]),
       "utf8",
     );
   }
@@ -231,7 +225,7 @@ class LookupKeyCodec {
     try {
       const derive = (domain: LookupDomain): Buffer => {
         const key = createHmac("sha256", encryptionKey)
-          .update(JSON.stringify(["gitea-oidc-node-sqlite-lookup-key-v1", domain]), "utf8")
+          .update(JSON.stringify(["x-oidc-node-sqlite-lookup-key-v1", domain]), "utf8")
           .digest();
         derivedKeys.push(key);
         return key;
@@ -251,10 +245,7 @@ class LookupKeyCodec {
     this.#assertOpen();
     try {
       return createHmac("sha256", this.#keys[domain])
-        .update(
-          JSON.stringify(["gitea-oidc-node-sqlite-lookup-v1", ownerNamespace, opaqueId]),
-          "utf8",
-        )
+        .update(JSON.stringify(["x-oidc-node-sqlite-lookup-v1", ownerNamespace, opaqueId]), "utf8")
         .digest("base64url");
     } catch {
       throw sqliteStoreError("STORAGE_FAILED");
@@ -274,7 +265,7 @@ class LookupKeyCodec {
 
 const createDatabaseKeyVerifier = (encryptionKey: Buffer): Buffer =>
   createHmac("sha256", encryptionKey)
-    .update("gitea-oidc-node-sqlite-database-key-verifier-v1", "utf8")
+    .update("x-oidc-node-sqlite-database-key-verifier-v1", "utf8")
     .digest();
 
 class SharedState {

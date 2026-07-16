@@ -167,6 +167,8 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+x-oidc.config.*
+# 旧名称不再加载，但仍忽略本地遗留文件，避免其中的密钥被误提交。
 gitea-oidc.config.*
 .pnpm-store
 tests/data

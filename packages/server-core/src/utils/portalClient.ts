@@ -1,4 +1,4 @@
-import type { ResolvedGiteaOidcConfig } from "../config.js";
+import type { ResolvedXOidcConfig } from "../config.js";
 
 /** 规范化门户部署路径。 */
 export function normalizePortalBasePath(basePath: string): string {
@@ -7,7 +7,7 @@ export function normalizePortalBasePath(basePath: string): string {
 
 /** 计算门户内部 OIDC Client 的精确回调地址。 */
 export function getPortalRedirectUri(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string = config.portal.basePath,
 ): string {
   return `${config.server.url.replace(/\/+$/, "")}${normalizePortalBasePath(basePath)}/callback`;
@@ -15,7 +15,7 @@ export function getPortalRedirectUri(
 
 /** 计算门户退出完成后的固定回跳地址。 */
 export function getPortalPostLogoutRedirectUri(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string = config.portal.basePath,
 ): string {
   return `${config.server.url.replace(/\/+$/, "")}${normalizePortalBasePath(basePath)}/signed-out`;
@@ -23,8 +23,8 @@ export function getPortalPostLogoutRedirectUri(
 
 /** 查找同时匹配 Client ID、回调和授权方式的门户 Client。 */
 export function findPortalClient(
-  config: ResolvedGiteaOidcConfig,
-): ResolvedGiteaOidcConfig["clients"][number] | undefined {
+  config: ResolvedXOidcConfig,
+): ResolvedXOidcConfig["clients"][number] | undefined {
   if (!config.portal.clientId) return undefined;
   const redirectUri = getPortalRedirectUri(config);
   const postLogoutRedirectUri = getPortalPostLogoutRedirectUri(config);
@@ -41,8 +41,8 @@ export function findPortalClient(
 
 /** 返回门户 Client；配置不完整时在启动阶段显式失败。 */
 export function resolvePortalClient(
-  config: ResolvedGiteaOidcConfig,
-): ResolvedGiteaOidcConfig["clients"][number] {
+  config: ResolvedXOidcConfig,
+): ResolvedXOidcConfig["clients"][number] {
   const client = findPortalClient(config);
   if (!client) {
     throw new Error(formatPortalClientRequirement(config, getPortalRedirectUri(config)));
@@ -52,7 +52,7 @@ export function resolvePortalClient(
 
 /** 生成人类可读的门户 Client 配置要求。 */
 export function formatPortalClientRequirement(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   redirectUri: string,
 ): string {
   const postLogoutRedirectUri = getPortalPostLogoutRedirectUri(config);

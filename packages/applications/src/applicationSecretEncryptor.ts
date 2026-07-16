@@ -87,7 +87,7 @@ export class ApplicationSecretEncryptor {
   }
 
   public createSecret(options: CreateApplicationSecretOptions): CreatedApplicationSecret {
-    const plaintext = `gos_${randomBytes(SECRET_BYTES).toString("base64url")}`;
+    const plaintext = `xos_${randomBytes(SECRET_BYTES).toString("base64url")}`;
     return this.encryptSecret({ ...options, plaintext });
   }
 
@@ -108,7 +108,7 @@ export class ApplicationSecretEncryptor {
     const createdAt = (options.now ?? new Date()).toISOString();
     const expiresAt = options.expiresAt?.toISOString();
     const fingerprint = `hmac-sha256:${createHmac("sha256", this.masterKey)
-      .update("gitea-oidc/application-secret-fingerprint/v1\0", "utf8")
+      .update("x-oidc/application-secret-fingerprint/v1\0", "utf8")
       .update(plaintext, "utf8")
       .digest("hex")
       .slice(0, 24)}`;

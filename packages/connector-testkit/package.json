@@ -1,7 +1,7 @@
 {
-  "name": "@gitea-oidc/connector-testkit",
-  "version": "0.0.0",
-  "description": "Private conformance testkit for Gitea OIDC framework connectors",
+  "name": "@x-oidc/connector-testkit",
+  "version": "2.0.0",
+  "description": "Private conformance testkit for X OIDC framework connectors",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -22,11 +22,11 @@
   "sideEffects": false,
   "scripts": {
     "clean": "node ./scripts/clean.mjs",
-    "prebuild": "pnpm --filter @gitea-oidc/connector-core build",
+    "prebuild": "pnpm --filter @x-oidc/connector-core build",
     "build": "pnpm clean && tsc -p tsconfig.json",
-    "pretypecheck": "pnpm --filter @gitea-oidc/connector-core build",
+    "pretypecheck": "pnpm --filter @x-oidc/connector-core build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "pretest": "pnpm --filter @gitea-oidc/connector-core build",
+    "pretest": "pnpm --filter @x-oidc/connector-core build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -35,8 +35,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@gitea-oidc/connector-core": "workspace:*",
-    "@gitea-oidc/node": "workspace:*"
+    "@x-oidc/connector-core": "workspace:*",
+    "@x-oidc/node": "workspace:*"
   },
   "peerDependencies": {
     "vitest": "^4.0.0"

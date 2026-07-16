@@ -1,11 +1,11 @@
-import { createWebConnectorCore, type WebConnectorCore } from "@gitea-oidc/connector-core";
-import type { NodeOidcClient } from "@gitea-oidc/node";
 import type { HttpAdapterHost } from "@nestjs/core";
+import { createWebConnectorCore, type WebConnectorCore } from "@x-oidc/connector-core";
+import type { NodeOidcClient } from "@x-oidc/node";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NestOidcService } from "../nestOidcService.js";
 
-vi.mock("@gitea-oidc/connector-core", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@gitea-oidc/connector-core")>();
+vi.mock("@x-oidc/connector-core", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@x-oidc/connector-core")>();
   return { ...original, createWebConnectorCore: vi.fn() };
 });
 

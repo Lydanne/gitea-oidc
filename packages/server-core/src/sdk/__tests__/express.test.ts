@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createGiteaOidcExpressMiddleware } from "../express.js";
+import { createXOidcExpressMiddleware } from "../express.js";
 
-describe("createGiteaOidcExpressMiddleware", () => {
+describe("createXOidcExpressMiddleware", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -16,7 +16,7 @@ describe("createGiteaOidcExpressMiddleware", () => {
     const req = { headers: { authorization: "Bearer token" } };
     const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
     const next = vi.fn();
-    const middleware = createGiteaOidcExpressMiddleware({
+    const middleware = createXOidcExpressMiddleware({
       userInfoEndpoint: "https://id.example.com/oidc/me",
     });
 
@@ -33,7 +33,7 @@ describe("createGiteaOidcExpressMiddleware", () => {
     const req = { headers: {} };
     const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
     const next = vi.fn();
-    const middleware = createGiteaOidcExpressMiddleware({
+    const middleware = createXOidcExpressMiddleware({
       userInfoEndpoint: "https://id.example.com/oidc/me",
     });
 

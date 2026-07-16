@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 
 const packageRoot = new URL("../", import.meta.url);
 const packageJson = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8"));
-const packDir = await mkdtemp(join(tmpdir(), "gitea-oidc-pack-"));
+const packDir = await mkdtemp(join(tmpdir(), "x-oidc-pack-"));
+const npmCache = process.env.NPM_CONFIG_CACHE || join(packDir, ".npm-cache");
 const npmEnvironment = {
   ...process.env,
   HUSKY: "0",
-  NPM_CONFIG_CACHE: join(packDir, ".npm-cache"),
+  NPM_CONFIG_CACHE: npmCache,
 };
 
 try {
@@ -116,7 +117,7 @@ try {
   const declarationFiles = await listFiles(fileURLToPath(new URL("dist", packageRoot)), ".d.ts");
   for (const declarationFile of declarationFiles) {
     const declaration = await readFile(declarationFile, "utf8");
-    if (declaration.includes('"@gitea-oidc/applications"')) {
+    if (declaration.includes('"@x-oidc/applications"')) {
       throw new Error(`公开声明泄漏私有 workspace 类型: ${declarationFile}`);
     }
     const relativeSpecifiers = Array.from(
@@ -135,7 +136,7 @@ try {
   for (const javascriptFile of javascriptFiles) {
     const javascript = await readFile(javascriptFile, "utf8");
     if (
-      /(?:from\s+|import\()["']@gitea-oidc\/(?:applications|contracts)(?:\/[^"']*)?["']/.test(
+      /(?:from\s+|import\()["']@x-oidc\/(?:applications|contracts)(?:\/[^"']*)?["']/.test(
         javascript,
       )
     ) {
@@ -144,13 +145,13 @@ try {
   }
 
   const importScript = [
-    "gitea-oidc",
-    "gitea-oidc/server",
-    "gitea-oidc/config",
-    "gitea-oidc/client",
-    "gitea-oidc/express",
-    "gitea-oidc/nest",
-    "gitea-oidc/vue",
+    "@x-oidc/server-core",
+    "@x-oidc/server-core/server",
+    "@x-oidc/server-core/config",
+    "@x-oidc/server-core/client",
+    "@x-oidc/server-core/express",
+    "@x-oidc/server-core/nest",
+    "@x-oidc/server-core/vue",
   ]
     .map((specifier) => `await import(${JSON.stringify(specifier)});`)
     .join("\n");
@@ -158,7 +159,7 @@ try {
   await mkdir(consumerDir);
   await writeFile(
     join(consumerDir, "package.json"),
-    `${JSON.stringify({ name: "gitea-oidc-pack-consumer", private: true, type: "module" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "x-oidc-pack-consumer", private: true, type: "module" }, null, 2)}\n`,
     "utf8",
   );
   execFileSync(
@@ -180,18 +181,18 @@ try {
   await writeFile(
     typeFixture,
     [
-      'import { createIdentityServer, type IdentityServerOptions } from "gitea-oidc/server";',
-      'import type { GiteaOidcConfig } from "gitea-oidc/config";',
-      'import { GiteaOidcClient } from "gitea-oidc/client";',
+      'import { createIdentityServer, type IdentityServerOptions } from "@x-oidc/server-core/server";',
+      'import type { XOidcConfig } from "@x-oidc/server-core/config";',
+      'import { XOidcClient, type XOidcClientOptions } from "@x-oidc/server-core/client";',
+      'import { createXOidcExpressMiddleware } from "@x-oidc/server-core/express";',
+      'import { createXOidcNestGuard, getXOidcUser } from "@x-oidc/server-core/nest";',
+      'import { XOidcLoginButton, XOidcUserMenu } from "@x-oidc/server-core/vue";',
       'const options: IdentityServerOptions = { publicDir: "public" };',
-      "declare const config: GiteaOidcConfig;",
-      'type LegacyServer = Omit<GiteaOidcConfig["server"], "corsOrigins" | "trustedProxyIps">;',
-      'type LegacyConfig = Omit<GiteaOidcConfig, "server" | "audit" | "admin" | "providerApi" | "applications"> & { server: LegacyServer };',
-      "declare const legacyConfig: LegacyConfig;",
-      "const compatibleConfig: GiteaOidcConfig = legacyConfig;",
+      "declare const config: XOidcConfig;",
+      "declare const currentClientOptions: XOidcClientOptions;",
       "void createIdentityServer(config, options);",
-      "void compatibleConfig;",
-      "void GiteaOidcClient;",
+      "void currentClientOptions;",
+      "void [XOidcClient, createXOidcExpressMiddleware, createXOidcNestGuard, getXOidcUser, XOidcLoginButton, XOidcUserMenu];",
       "",
     ].join("\n"),
     "utf8",

@@ -4,36 +4,29 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const boundaries = new Map([
-  ["apps/admin-web", new Set(["@gitea-oidc/contracts"])],
+  ["apps/admin-web", new Set(["@x-oidc/contracts"])],
   ["apps/portal-web", new Set()],
-  ["apps/idp-server", new Set(["gitea-oidc"])],
+  ["apps/idp-server", new Set(["@x-oidc/server-core"])],
   ["packages/contracts", new Set()],
-  ["packages/application-templates", new Set(["@gitea-oidc/contracts"])],
-  [
-    "packages/applications",
-    new Set(["@gitea-oidc/application-templates", "@gitea-oidc/contracts"]),
-  ],
-  ["packages/cli", new Set(["@gitea-oidc/contracts"])],
-  ["packages/connector-core", new Set(["@gitea-oidc/node"])],
-  ["packages/connector-testkit", new Set(["@gitea-oidc/connector-core", "@gitea-oidc/node"])],
+  ["packages/application-templates", new Set(["@x-oidc/contracts"])],
+  ["packages/applications", new Set(["@x-oidc/application-templates", "@x-oidc/contracts"])],
+  ["packages/cli", new Set(["@x-oidc/contracts"])],
+  ["packages/connector-core", new Set(["@x-oidc/node"])],
+  ["packages/connector-testkit", new Set(["@x-oidc/connector-core", "@x-oidc/node"])],
   [
     "packages/express",
-    new Set(["@gitea-oidc/connector-core", "@gitea-oidc/connector-testkit", "@gitea-oidc/node"]),
+    new Set(["@x-oidc/connector-core", "@x-oidc/connector-testkit", "@x-oidc/node"]),
   ],
   [
     "packages/fastify",
-    new Set(["@gitea-oidc/connector-core", "@gitea-oidc/connector-testkit", "@gitea-oidc/node"]),
+    new Set(["@x-oidc/connector-core", "@x-oidc/connector-testkit", "@x-oidc/node"]),
   ],
-  ["packages/nestjs", new Set(["@gitea-oidc/connector-core", "@gitea-oidc/node"])],
-  ["packages/oidc-client", new Set(["@gitea-oidc/contracts"])],
-  ["packages/oidc-client-sqlite", new Set(["@gitea-oidc/node"])],
+  ["packages/nestjs", new Set(["@x-oidc/connector-core", "@x-oidc/node"])],
+  ["packages/oidc-client", new Set(["@x-oidc/contracts"])],
+  ["packages/oidc-client-sqlite", new Set(["@x-oidc/node"])],
   [
     "packages/server-core",
-    new Set([
-      "@gitea-oidc/application-templates",
-      "@gitea-oidc/applications",
-      "@gitea-oidc/contracts",
-    ]),
+    new Set(["@x-oidc/application-templates", "@x-oidc/applications", "@x-oidc/contracts"]),
   ],
 ]);
 
@@ -92,7 +85,7 @@ for (const [relativeDirectory, allowed] of boundaries) {
   for (const file of await listSourceFiles(directory)) {
     const source = await readFile(file, "utf8");
     const specifiers = source.matchAll(
-      /(?:from\s+|import\s*\(|require\s*\()\s*["'](@gitea-oidc\/[^/"']+|gitea-oidc)(?:\/[^"']*)?["']/gu,
+      /(?:from\s+|import\s*\(|require\s*\()\s*["'](@x-oidc\/[^/"']+)(?:\/[^"']*)?["']/gu,
     );
     for (const match of specifiers) {
       const packageName = match[1];

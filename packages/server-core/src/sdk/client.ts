@@ -1,5 +1,5 @@
 /**
- * Gitea OIDC TypeScript SDK
+ * X OIDC TypeScript SDK
  */
 
 import type { ProviderApiRequest, ProviderApiResponse } from "../types/providerApi.js";
@@ -7,8 +7,8 @@ import type { ProviderApiRequest, ProviderApiResponse } from "../types/providerA
 /**
  * SDK 客户端配置
  */
-export interface GiteaOidcClientOptions {
-  /** Gitea OIDC 服务基础 URL */
+export interface XOidcClientOptions {
+  /** X OIDC 服务基础 URL */
   baseUrl: string;
 
   /** 当前 OIDC access token */
@@ -16,13 +16,13 @@ export interface GiteaOidcClientOptions {
 }
 
 /**
- * Gitea OIDC SDK 客户端
+ * X OIDC SDK 客户端
  */
-export class GiteaOidcClient {
+export class XOidcClient {
   private baseUrl: string;
   private accessToken?: string;
 
-  constructor(options: GiteaOidcClientOptions) {
+  constructor(options: XOidcClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.accessToken = options.accessToken;
   }

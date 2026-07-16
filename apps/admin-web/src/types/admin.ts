@@ -15,7 +15,7 @@ import type {
   PreviewApplicationTemplateRequestV1,
   RotateApplicationCredentialRequestV1,
   RotateApplicationCredentialResponseV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 
 /** 管理台主导航视图。 */
 export type AdminView = "users" | "applications" | "providers" | "tokens" | "audit-logs";

@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { AuthSessionView, NodeOidcClient } from "@gitea-oidc/node";
+import type { AuthSessionView, NodeOidcClient } from "@x-oidc/node";
 import express, { type ErrorRequestHandler } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createExpressOidc } from "../index.js";
@@ -49,7 +49,7 @@ const createFixture = async (): Promise<Fixture> => {
   const oidc = createExpressOidc({
     client,
     redirectUri: "https://app.example.com/oidc/callback",
-    cookieNames: { session: "__Host-gitea_oidc_session" },
+    cookieNames: { session: "__Host-x_oidc_session" },
     clock: () => NOW,
   });
   const app = express();
@@ -98,7 +98,7 @@ describe("Express-specific connector behavior", () => {
   it("keeps the resolved auth view immutable on the request", async () => {
     const fixture = await createFixture();
     const response = await fetch(`${fixture.baseUrl}/tamper-auth`, {
-      headers: { Cookie: `__Host-gitea_oidc_session=${SESSION_ID}` },
+      headers: { Cookie: `__Host-x_oidc_session=${SESSION_ID}` },
     });
 
     expect(response.status).toBe(200);
@@ -110,7 +110,7 @@ describe("Express-specific connector behavior", () => {
     fixture.client.getSession.mockRejectedValueOnce(new Error("async storage failure"));
 
     const response = await fetch(`${fixture.baseUrl}/required`, {
-      headers: { Cookie: `__Host-gitea_oidc_session=${SESSION_ID}` },
+      headers: { Cookie: `__Host-x_oidc_session=${SESSION_ID}` },
     });
 
     expect(response.status).toBe(599);

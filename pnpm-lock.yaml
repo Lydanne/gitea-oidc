@@ -33,13 +33,13 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^21.2.0
         version: 21.2.0
-      '@gitea-oidc/application-templates':
+      '@x-oidc/application-templates':
         specifier: workspace:*
         version: link:packages/application-templates
-      '@gitea-oidc/applications':
+      '@x-oidc/applications':
         specifier: workspace:*
         version: link:packages/applications
-      '@gitea-oidc/contracts':
+      '@x-oidc/contracts':
         specifier: workspace:*
         version: link:packages/contracts
       husky:
@@ -60,12 +60,12 @@ importers:
 
   apps/admin-web:
     dependencies:
-      '@gitea-oidc/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
       '@primeuix/themes':
         specifier: ^2.0.3
         version: 2.0.3
+      '@x-oidc/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       primeicons:
         specifier: ^7.0.0
         version: 7.0.0
@@ -100,7 +100,7 @@ importers:
 
   apps/idp-server:
     dependencies:
-      gitea-oidc:
+      '@x-oidc/server-core':
         specifier: workspace:*
         version: link:../../packages/server-core
     devDependencies:
@@ -138,7 +138,7 @@ importers:
 
   packages/application-templates:
     dependencies:
-      '@gitea-oidc/contracts':
+      '@x-oidc/contracts':
         specifier: workspace:*
         version: link:../contracts
       zod:
@@ -154,10 +154,10 @@ importers:
 
   packages/applications:
     dependencies:
-      '@gitea-oidc/application-templates':
+      '@x-oidc/application-templates':
         specifier: workspace:*
         version: link:../application-templates
-      '@gitea-oidc/contracts':
+      '@x-oidc/contracts':
         specifier: workspace:*
         version: link:../contracts
       better-sqlite3:
@@ -182,7 +182,7 @@ importers:
 
   packages/cli:
     dependencies:
-      '@gitea-oidc/contracts':
+      '@x-oidc/contracts':
         specifier: workspace:*
         version: link:../contracts
     devDependencies:
@@ -198,7 +198,7 @@ importers:
 
   packages/connector-core:
     dependencies:
-      '@gitea-oidc/node':
+      '@x-oidc/node':
         specifier: workspace:*
         version: link:../oidc-client
     devDependencies:
@@ -214,10 +214,10 @@ importers:
 
   packages/connector-testkit:
     dependencies:
-      '@gitea-oidc/connector-core':
+      '@x-oidc/connector-core':
         specifier: workspace:*
         version: link:../connector-core
-      '@gitea-oidc/node':
+      '@x-oidc/node':
         specifier: workspace:*
         version: link:../oidc-client
     devDependencies:
@@ -246,22 +246,22 @@ importers:
 
   packages/express:
     dependencies:
-      '@gitea-oidc/connector-core':
+      '@x-oidc/connector-core':
         specifier: workspace:*
         version: link:../connector-core
-      '@gitea-oidc/node':
+      '@x-oidc/node':
         specifier: workspace:*
         version: link:../oidc-client
     devDependencies:
-      '@gitea-oidc/connector-testkit':
-        specifier: workspace:*
-        version: link:../connector-testkit
       '@types/express':
         specifier: ^5.0.5
         version: 5.0.5
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.1
+      '@x-oidc/connector-testkit':
+        specifier: workspace:*
+        version: link:../connector-testkit
       express:
         specifier: ^5.2.1
         version: 5.2.1
@@ -277,19 +277,19 @@ importers:
 
   packages/fastify:
     dependencies:
-      '@gitea-oidc/connector-core':
+      '@x-oidc/connector-core':
         specifier: workspace:*
         version: link:../connector-core
-      '@gitea-oidc/node':
+      '@x-oidc/node':
         specifier: workspace:*
         version: link:../oidc-client
     devDependencies:
-      '@gitea-oidc/connector-testkit':
-        specifier: workspace:*
-        version: link:../connector-testkit
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.1
+      '@x-oidc/connector-testkit':
+        specifier: workspace:*
+        version: link:../connector-testkit
       fastify:
         specifier: ^5.10.0
         version: 5.10.0
@@ -302,10 +302,10 @@ importers:
 
   packages/nestjs:
     dependencies:
-      '@gitea-oidc/connector-core':
+      '@x-oidc/connector-core':
         specifier: workspace:*
         version: link:../connector-core
-      '@gitea-oidc/node':
+      '@x-oidc/node':
         specifier: workspace:*
         version: link:../oidc-client
     devDependencies:
@@ -339,7 +339,7 @@ importers:
 
   packages/oidc-client:
     dependencies:
-      '@gitea-oidc/contracts':
+      '@x-oidc/contracts':
         specifier: workspace:*
         version: link:../contracts
       openid-client:
@@ -358,7 +358,7 @@ importers:
 
   packages/oidc-client-sqlite:
     dependencies:
-      '@gitea-oidc/node':
+      '@x-oidc/node':
         specifier: workspace:*
         version: link:../oidc-client
       better-sqlite3:

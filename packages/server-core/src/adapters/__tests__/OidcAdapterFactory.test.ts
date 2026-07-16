@@ -450,7 +450,7 @@ describe("OidcAdapterFactory", () => {
 
   describe("集成测试", () => {
     it("应该支持完整的配置-创建-清理流程", async () => {
-      const tempDirectory = await mkdtemp(join(tmpdir(), "gitea-oidc-adapter-"));
+      const tempDirectory = await mkdtemp(join(tmpdir(), "x-oidc-adapter-"));
 
       // 配置
       const config: OidcAdapterConfig = {

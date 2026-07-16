@@ -6,7 +6,7 @@ import {
   portalUrlSchema,
   safeParseCreateCustomApplicationRequestV1,
   safeParseCreateTemplateApplicationRequestV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import type {
   ApplicationForm,
   ApplicationPortalForm,

@@ -1,4 +1,4 @@
-import type { ApplicationConnectionV1 } from "@gitea-oidc/contracts";
+import type { ApplicationConnectionV1 } from "@x-oidc/contracts";
 import { oidcError } from "./errors.js";
 import type {
   AuthUserProfile,

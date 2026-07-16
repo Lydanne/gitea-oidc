@@ -1,4 +1,4 @@
-import type { ApplicationConnectionV1, ApplicationCredentialV1 } from "@gitea-oidc/contracts";
+import type { ApplicationConnectionV1, ApplicationCredentialV1 } from "@x-oidc/contracts";
 import * as client from "openid-client";
 import type { OidcProtocolTokenSet } from "../domain/types.js";
 import type {

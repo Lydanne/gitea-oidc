@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const temporaryRoot = await mkdtemp(path.join(tmpdir(), "gitea-oidc-contracts-pack-"));
+const temporaryRoot = await mkdtemp(path.join(tmpdir(), "x-oidc-contracts-pack-"));
 const tarballPath = path.join(temporaryRoot, "contracts.tgz");
 const consumerRoot = path.join(temporaryRoot, "consumer");
 
@@ -72,7 +72,7 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          "@gitea-oidc/contracts": `file:${tarballPath}`,
+          "@x-oidc/contracts": `file:${tarballPath}`,
         },
         devDependencies: {
           typescript: "^5.9.3",
@@ -84,17 +84,17 @@ try {
   );
   await writeFile(
     path.join(consumerRoot, "esm.mjs"),
-    'import { APPLICATION_CONTRACT_VERSION } from "@gitea-oidc/contracts";\n' +
+    'import { APPLICATION_CONTRACT_VERSION } from "@x-oidc/contracts";\n' +
       'if (APPLICATION_CONTRACT_VERSION !== 1) throw new Error("ESM contract version mismatch");\n',
   );
   await writeFile(
     path.join(consumerRoot, "cjs.cjs"),
-    'const { APPLICATION_CONTRACT_VERSION } = require("@gitea-oidc/contracts");\n' +
+    'const { APPLICATION_CONTRACT_VERSION } = require("@x-oidc/contracts");\n' +
       'if (APPLICATION_CONTRACT_VERSION !== 1) throw new Error("CJS contract version mismatch");\n',
   );
   await writeFile(
     path.join(consumerRoot, "consumer.ts"),
-    'import { APPLICATION_CONNECTION_SCHEMA_VERSION, type ApplicationConnectionV1 } from "@gitea-oidc/contracts";\n' +
+    'import { APPLICATION_CONNECTION_SCHEMA_VERSION, type ApplicationConnectionV1 } from "@x-oidc/contracts";\n' +
       'const version: ApplicationConnectionV1["schemaVersion"] = APPLICATION_CONNECTION_SCHEMA_VERSION;\n' +
       "void version;\n",
   );
@@ -125,11 +125,11 @@ try {
 
   const installedManifest = JSON.parse(
     await readFile(
-      path.join(consumerRoot, "node_modules", "@gitea-oidc", "contracts", "package.json"),
+      path.join(consumerRoot, "node_modules", "@x-oidc", "contracts", "package.json"),
       "utf8",
     ),
   );
-  if (installedManifest.name !== "@gitea-oidc/contracts") {
+  if (installedManifest.name !== "@x-oidc/contracts") {
     throw new Error("临时消费者安装了错误的 package");
   }
 

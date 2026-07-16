@@ -25,11 +25,11 @@ test("识别单字段和多行敏感数组中的高熵值", () => {
 
 test("占位符和环境变量引用不会被当作真实密钥", () => {
   assert.equal(isSuspiciousLiteral("replace-with-random-cookie-key"), false);
-  assert.equal(isSuspiciousLiteral("GITEA_OIDC_COOKIE_KEY_CURRENT"), false);
+  assert.equal(isSuspiciousLiteral("X_OIDC_COOKIE_KEY_CURRENT"), false);
   assert.deepEqual(
     findSuspiciousAssignments([
       "cookieKeys: [",
-      '  requiredEnv("GITEA_OIDC_COOKIE_KEY_CURRENT"),',
+      '  requiredEnv("X_OIDC_COOKIE_KEY_CURRENT"),',
       "]",
     ]),
     [],

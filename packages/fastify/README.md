@@ -1,21 +1,21 @@
-# `@gitea-oidc/fastify`
+# `@x-oidc/fastify`
 
-基于 `@gitea-oidc/node` 和 `@gitea-oidc/connector-core` 的 Fastify 5 OIDC 连接器。它注册
+基于 `@x-oidc/node` 和 `@x-oidc/connector-core` 的 Fastify 5 OIDC 连接器。它注册
 完整的浏览器登录路由，提供 `optionalAuth`、`requireAuth`、`getAuth()` 和类型安全的
 `request.auth`，不在 Fastify 层保存或解析 Token。
 
 ## 当前状态
 
-该包目前是 monorepo 内部预发布包，版本为 `0.0.0` 且保持 `private: true`。运行时要求
+该包目前是 monorepo 内部预发布包，从 `2.0.0` 起与全部 workspace 包同步版本并保持 `private: true`。运行时要求
 Node.js `>=20.19.0` 和 Fastify `^5.0.0`。
 
 ## 注册插件
 
-先按 `@gitea-oidc/node` 文档创建使用持久化 store 和跨实例 refresh lock 的客户端，再创建并
+先按 `@x-oidc/node` 文档创建使用持久化 store 和跨实例 refresh lock 的客户端，再创建并
 注册 Fastify plugin：
 
 ```typescript
-import { createFastifyOidc } from "@gitea-oidc/fastify";
+import { createFastifyOidc } from "@x-oidc/fastify";
 import Fastify from "fastify";
 import { nodeOidcClient } from "./oidc-client.js";
 
@@ -93,11 +93,11 @@ await oidc.close();
 ## 验证
 
 登录、callback、Cookie、auth 投影、logout、错误和生命周期合同由私有
-`@gitea-oidc/connector-testkit` 统一执行。Fastify 包另行保留非 encapsulated request decoration
+`@x-oidc/connector-testkit` 统一执行。Fastify 包另行保留非 encapsulated request decoration
 和异步错误 handler 等框架专属测试。
 
 ```bash
-pnpm --filter @gitea-oidc/fastify test
-pnpm --filter @gitea-oidc/fastify typecheck
-pnpm --filter @gitea-oidc/fastify build
+pnpm --filter @x-oidc/fastify test
+pnpm --filter @x-oidc/fastify typecheck
+pnpm --filter @x-oidc/fastify build
 ```

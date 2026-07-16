@@ -429,7 +429,7 @@ export class LocalAuthProvider implements AuthProvider {
       displayName: this.displayName,
       version: "1.0.0",
       description: "本地密码认证，支持 htpasswd 文件",
-      author: "Gitea OIDC Team",
+      author: "X OIDC Team",
       permissions: [PluginPermission.READ_USER, PluginPermission.CREATE_USER],
     };
   }
@@ -440,7 +440,7 @@ export class LocalAuthProvider implements AuthProvider {
   }
 }
 
-const ADMIN_GROUP = "gitea-oidc-admins";
+const ADMIN_GROUP = "x-oidc-admins";
 const DUMMY_BCRYPT_HASH = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 const APR1_ALPHABET = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 

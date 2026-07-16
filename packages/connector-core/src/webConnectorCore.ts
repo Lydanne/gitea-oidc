@@ -4,7 +4,7 @@ import {
   type LogoutWarning,
   type NodeOidcClient,
   NodeOidcError,
-} from "@gitea-oidc/node";
+} from "@x-oidc/node";
 import {
   createCookieConfiguration,
   readUniqueOpaqueCookie,

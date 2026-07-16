@@ -27,7 +27,7 @@ export const createConnectorRequestDrain = (): ConnectorRequestDrain => {
     if (closing) {
       return false;
     }
-    const token = Symbol("@gitea-oidc/connector-request");
+    const token = Symbol("@x-oidc/connector-request");
     requestTokens.set(request, token);
     activeTokens.add(token);
     return true;

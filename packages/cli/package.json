@@ -1,11 +1,11 @@
 {
-  "name": "@gitea-oidc/cli",
-  "version": "0.0.0",
-  "description": "Local integration CLI for Gitea OIDC applications",
+  "name": "@x-oidc/cli",
+  "version": "2.0.0",
+  "description": "Local integration CLI for X OIDC applications",
   "private": true,
   "type": "module",
   "bin": {
-    "gitea-oidc": "./dist/bin.js"
+    "x-oidc": "./dist/bin.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,12 +25,12 @@
   "sideEffects": false,
   "scripts": {
     "clean": "node ./scripts/clean.mjs",
-    "prebuild": "pnpm --filter @gitea-oidc/contracts build",
+    "prebuild": "pnpm --filter @x-oidc/contracts build",
     "build": "pnpm clean && tsc -p tsconfig.json",
     "postbuild": "node ./scripts/finalize-build.mjs",
-    "pretypecheck": "pnpm --filter @gitea-oidc/contracts build",
+    "pretypecheck": "pnpm --filter @x-oidc/contracts build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "pretest": "pnpm --filter @gitea-oidc/contracts build",
+    "pretest": "pnpm --filter @x-oidc/contracts build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -39,7 +39,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@gitea-oidc/contracts": "workspace:*"
+    "@x-oidc/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

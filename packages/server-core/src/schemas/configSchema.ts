@@ -239,7 +239,7 @@ export const AuthConfigSchema = z.object({
           port: z.number().int().min(1).max(65535).optional(),
           password: z.string().optional(),
           database: z.number().int().min(0).max(15).optional().default(0),
-          keyPrefix: z.string().optional().default("gitea-oidc:state:"),
+          keyPrefix: z.string().optional().default("x-oidc:state:"),
         })
         .optional(),
     })
@@ -256,7 +256,7 @@ export const AuthConfigSchema = z.object({
 export const AdminConfigSchema = z.object({
   enabled: z.boolean().default(false),
   basePath: z.string().regex(/^\/[a-zA-Z0-9/_-]*$/, "后台路径必须以 / 开头"),
-  allowedGroups: z.array(z.string().min(1)).default(["gitea-oidc-admins"]),
+  allowedGroups: z.array(z.string().min(1)).default(["x-oidc-admins"]),
   sessionTtlSeconds: z.number().int().positive().default(3600),
 });
 
@@ -440,7 +440,7 @@ export const JwksConfigSchema = z.object({
 /**
  * 完整配置 Schema
  */
-export const GiteaOidcConfigSchema = z
+export const XOidcConfigSchema = z
   .object({
     server: ServerConfigSchema,
     logging: LoggingConfigSchema,
@@ -451,7 +451,7 @@ export const GiteaOidcConfigSchema = z
     admin: AdminConfigSchema.default({
       enabled: false,
       basePath: "/admin",
-      allowedGroups: ["gitea-oidc-admins"],
+      allowedGroups: ["x-oidc-admins"],
       sessionTtlSeconds: 3600,
     }),
     portal: PortalConfigSchema.default({
@@ -597,4 +597,4 @@ export const GiteaOidcConfigSchema = z
 /**
  * 验证后的配置类型
  */
-export type ValidatedGiteaOidcConfig = z.infer<typeof GiteaOidcConfigSchema>;
+export type ValidatedXOidcConfig = z.infer<typeof XOidcConfigSchema>;

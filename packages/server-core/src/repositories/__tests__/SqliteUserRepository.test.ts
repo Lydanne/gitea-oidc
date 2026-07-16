@@ -86,7 +86,7 @@ describe("SqliteUserRepository", () => {
 
     it("应该为旧表中的用户回填随机内部 ID", async () => {
       await repository.close();
-      const directory = mkdtempSync(join(tmpdir(), "gitea-oidc-users-"));
+      const directory = mkdtempSync(join(tmpdir(), "x-oidc-users-"));
       temporaryDirectories.push(directory);
       const databasePath = join(directory, "users.db");
       const legacyDatabase = new Database(databasePath);

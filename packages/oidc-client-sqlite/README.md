@@ -1,8 +1,8 @@
-# `@gitea-oidc/node-sqlite`
+# `@x-oidc/node-sqlite`
 
-为 `@gitea-oidc/node` 提供可直接使用的 SQLite transaction store、session CAS store 和跨进程
+为 `@x-oidc/node` 提供可直接使用的 SQLite transaction store、session CAS store 和跨进程
 refresh lock。该包面向单机本地 SQLite 部署，可由同一主机的多个 Node 进程共享同一数据库路径；
-当前版本为 `0.0.0` 私有预览包，尚未发布到 npm。
+当前包从 `2.0.0` 起与全部 workspace 包同步版本，仍为私有包且尚未发布到 npm。
 
 ## 安全模型
 
@@ -27,12 +27,12 @@ refresh lock。该包面向单机本地 SQLite 部署，可由同一主机的多
 ## 使用方式
 
 ```typescript
-import { createNodeOidcClient } from "@gitea-oidc/node";
-import { createSqliteOidcStores } from "@gitea-oidc/node-sqlite";
+import { createNodeOidcClient } from "@x-oidc/node";
+import { createSqliteOidcStores } from "@x-oidc/node-sqlite";
 
-const key = Buffer.from(process.env.GITEA_OIDC_SESSION_KEY_BASE64URL ?? "", "base64url");
+const key = Buffer.from(process.env.X_OIDC_SESSION_KEY_BASE64URL ?? "", "base64url");
 if (key.byteLength !== 32) {
-  throw new Error("GITEA_OIDC_SESSION_KEY_BASE64URL 必须解码为 32 字节");
+  throw new Error("X_OIDC_SESSION_KEY_BASE64URL 必须解码为 32 字节");
 }
 
 const stores = createSqliteOidcStores({
@@ -55,7 +55,7 @@ await stores.close();
 ```
 
 `encryptionKey` 在创建时会复制；`close()` 会等待已经进入 refresh lock 的操作完成、关闭数据库并
-清零内部副本。关闭开始后所有新操作都会失败。注入 `@gitea-oidc/node` 的 store 归调用方所有，
+清零内部副本。关闭开始后所有新操作都会失败。注入 `@x-oidc/node` 的 store 归调用方所有，
 Node client 不会替调用方关闭它们。
 
 ## 部署边界
@@ -73,7 +73,7 @@ Node.js `>=20.19.0` 的 `require(esm)` 支持，不维护第二份 CJS 实现。
 ## 验证
 
 ```bash
-pnpm --filter @gitea-oidc/node-sqlite test
-pnpm --filter @gitea-oidc/node-sqlite typecheck
-pnpm --filter @gitea-oidc/node-sqlite build
+pnpm --filter @x-oidc/node-sqlite test
+pnpm --filter @x-oidc/node-sqlite typecheck
+pnpm --filter @x-oidc/node-sqlite build
 ```

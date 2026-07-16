@@ -9,7 +9,7 @@ describe("registerPortalRoutes", () => {
   let publicDir: string;
 
   beforeEach(() => {
-    publicDir = mkdtempSync(join(tmpdir(), "gitea-oidc-portal-routes-"));
+    publicDir = mkdtempSync(join(tmpdir(), "x-oidc-portal-routes-"));
     mkdirSync(join(publicDir, "portal", "assets"), { recursive: true });
     writeFileSync(
       join(publicDir, "portal", "index.html"),
@@ -50,7 +50,7 @@ describe("registerPortalRoutes", () => {
       admin: {
         enabled: true,
         basePath: "/admin",
-        allowedGroups: ["gitea-oidc-admins"],
+        allowedGroups: ["x-oidc-admins"],
         sessionTtlSeconds: 3600,
       },
       auth: { stateStore: { type: "memory" } },
@@ -78,7 +78,7 @@ describe("registerPortalRoutes", () => {
     picture: "https://example.com/avatar.png",
     authProvider: "feishu",
     externalId: "external-secret-id",
-    groups: [{ id: "gitea-oidc-admins", name: "管理员" }],
+    groups: [{ id: "x-oidc-admins", name: "管理员" }],
     roles: ["member"],
     status,
     providerProfile: { provider: "feishu", externalId: "external-secret-id", raw: { token: "x" } },
@@ -174,7 +174,7 @@ describe("registerPortalRoutes", () => {
     )({ query: { returnTo }, headers: {}, ip: "127.0.0.1" }, reply);
     const authorizationUrl = new URL(reply.redirect.mock.calls[0]?.[0]);
     const setCookie = reply.header.mock.calls.find((call) => call[0] === "Set-Cookie")?.[1];
-    const binding = String(setCookie).match(/gitea_oidc_portal_login=([a-f0-9]{64})/u)?.[1];
+    const binding = String(setCookie).match(/x_oidc_portal_login=([a-f0-9]{64})/u)?.[1];
     return { reply, authorizationUrl, binding: binding! };
   };
 
@@ -185,8 +185,8 @@ describe("registerPortalRoutes", () => {
     await handler(app, "get", "/portal/signed-out")({ headers: {} }, reply);
 
     const html = reply.send.mock.calls[0]?.[0] as string;
-    expect(html).toContain('data-gitea-oidc-portal-base-path="/portal"');
-    expect(html).toContain('data-gitea-oidc-admin-base-path="/admin"');
+    expect(html).toContain('data-x-oidc-portal-base-path="/portal"');
+    expect(html).toContain('data-x-oidc-admin-base-path="/admin"');
     expect(html).toContain('<base href="/portal/">');
     expect(reply.header).toHaveBeenCalledWith(
       "Content-Security-Policy",
@@ -229,7 +229,7 @@ describe("registerPortalRoutes", () => {
       {
         query: { code: "authorization-code", state },
         headers: {
-          cookie: `gitea_oidc_portal_login=${binding}`,
+          cookie: `x_oidc_portal_login=${binding}`,
           "user-agent": "vitest",
         },
         ip: "127.0.0.1",
@@ -274,7 +274,7 @@ describe("registerPortalRoutes", () => {
     )(
       {
         query: { code: "authorization-code", state },
-        headers: { cookie: `gitea_oidc_portal_login=${binding}` },
+        headers: { cookie: `x_oidc_portal_login=${binding}` },
         ip: "127.0.0.1",
       },
       replayReply,
@@ -312,7 +312,7 @@ describe("registerPortalRoutes", () => {
           code: "code",
           state: foreignStart.authorizationUrl.searchParams.get("state"),
         },
-        headers: { cookie: `gitea_oidc_portal_login=${foreignStart.binding}` },
+        headers: { cookie: `x_oidc_portal_login=${foreignStart.binding}` },
       },
       foreignReply,
     );
@@ -332,7 +332,7 @@ describe("registerPortalRoutes", () => {
           code: "code",
           state: disabledStart.authorizationUrl.searchParams.get("state"),
         },
-        headers: { cookie: `gitea_oidc_portal_login=${disabledStart.binding}` },
+        headers: { cookie: `x_oidc_portal_login=${disabledStart.binding}` },
       },
       disabledReply,
     );
@@ -342,7 +342,7 @@ describe("registerPortalRoutes", () => {
   it("returns only the safe user projection and portal application projection", async () => {
     const { app, sessionStore, listPortalApplications } = register();
     const session = await sessionStore.createSession("user-1");
-    const headers = { cookie: `gitea_oidc_portal_session=${session.id}` };
+    const headers = { cookie: `x_oidc_portal_session=${session.id}` };
 
     const me = await handler(app, "get", "/portal/api/me")({ headers }, createReply());
     expect(me).toEqual({
@@ -352,7 +352,7 @@ describe("registerPortalRoutes", () => {
         name: "Alice",
         email: "alice@example.com",
         picture: "https://example.com/avatar.png",
-        groups: [{ id: "gitea-oidc-admins", name: "管理员" }],
+        groups: [{ id: "x-oidc-admins", name: "管理员" }],
         roles: ["member"],
         status: "active",
       },
@@ -384,7 +384,7 @@ describe("registerPortalRoutes", () => {
   it("rejects CSRF logout attempts and ends both the BFF and OP sessions", async () => {
     const { app, sessionStore, auditLogRepository } = register();
     const session = await sessionStore.createSession("user-1");
-    const cookie = `gitea_oidc_portal_session=${session.id}`;
+    const cookie = `x_oidc_portal_session=${session.id}`;
 
     const rejectedReply = createReply();
     await handler(app, "post", "/portal/logout")({ headers: { cookie } }, rejectedReply);
@@ -402,7 +402,7 @@ describe("registerPortalRoutes", () => {
           cookie,
           origin: "http://localhost:3000",
           "content-type": "application/json",
-          "x-gitea-oidc-portal-action": "logout",
+          "x-oidc-portal-action": "logout",
         },
         ip: "127.0.0.1",
       },

@@ -1,5 +1,5 @@
 import type { AddressInfo } from "node:net";
-import type { AuthSessionView, NodeOidcClient } from "@gitea-oidc/node";
+import type { AuthSessionView, NodeOidcClient } from "@x-oidc/node";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFastifyOidc } from "../index.js";
@@ -7,8 +7,8 @@ import { createFastifyOidc } from "../index.js";
 const NOW = Date.parse("2026-07-10T08:00:00.000Z");
 const TRANSACTION_ID = "t".repeat(43);
 const SESSION_ID = "s".repeat(43);
-const TRANSACTION_COOKIE_NAME = "__Host-gitea_oidc_transaction";
-const SESSION_COOKIE_NAME = "__Host-gitea_oidc_session";
+const TRANSACTION_COOKIE_NAME = "__Host-x_oidc_transaction";
+const SESSION_COOKIE_NAME = "__Host-x_oidc_session";
 
 const session: AuthSessionView = Object.freeze({
   authenticated: true,
@@ -84,7 +84,7 @@ describe("Fastify-specific connector behavior", () => {
     const response = await fixture.app.inject({
       method: "GET",
       url: "/required",
-      headers: { cookie: `__Host-gitea_oidc_session=${SESSION_ID}` },
+      headers: { cookie: `__Host-x_oidc_session=${SESSION_ID}` },
     });
 
     expect(response.statusCode).toBe(599);

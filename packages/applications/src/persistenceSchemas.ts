@@ -1,10 +1,10 @@
-import { ApplicationTemplateSnapshotSchema } from "@gitea-oidc/application-templates";
+import { ApplicationTemplateSnapshotSchema } from "@x-oidc/application-templates";
 import {
   ApplicationSecretSummaryV1Schema,
   ApplicationV1Schema,
   issuerUrlSchema,
   OidcClientV1Schema,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { z } from "zod";
 import { ApplicationStorageCorruptionError } from "./errors.js";
 import type {

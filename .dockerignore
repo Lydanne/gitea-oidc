@@ -25,6 +25,9 @@ Dockerfile
 **/*.htpasswd
 **/.pgpass
 **/.my.cnf
+x-oidc.config.js
+x-oidc.config.json
+# 旧名称不再加载，但不允许遗留配置进入 Docker build context。
 gitea-oidc.config.js
 gitea-oidc.config.json
 

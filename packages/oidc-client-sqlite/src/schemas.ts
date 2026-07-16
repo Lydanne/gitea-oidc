@@ -1,4 +1,4 @@
-import type { LoginTransaction, SensitiveAuthSessionRecord } from "@gitea-oidc/node";
+import type { LoginTransaction, SensitiveAuthSessionRecord } from "@x-oidc/node";
 import { z } from "zod";
 import { sqliteStoreError } from "./errors.js";
 

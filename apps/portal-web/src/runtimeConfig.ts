@@ -12,8 +12,8 @@ const rootDataset = globalThis.document?.documentElement.dataset;
 
 /** 服务端注入的门户部署信息；Vite 开发模式缺少注入时使用默认路径。 */
 export const portalRuntimeConfig = Object.freeze({
-  basePath: normalizeBasePath(rootDataset?.giteaOidcPortalBasePath, DEFAULT_PORTAL_BASE_PATH),
-  adminBasePath: normalizeBasePath(rootDataset?.giteaOidcAdminBasePath, DEFAULT_ADMIN_BASE_PATH),
+  basePath: normalizeBasePath(rootDataset?.xOidcPortalBasePath, DEFAULT_PORTAL_BASE_PATH),
+  adminBasePath: normalizeBasePath(rootDataset?.xOidcAdminBasePath, DEFAULT_ADMIN_BASE_PATH),
 });
 
 /** 将门户内的绝对子路径拼到当前部署前缀下。 */

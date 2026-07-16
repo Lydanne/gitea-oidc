@@ -2,13 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { ResolvedGiteaOidcConfig } from "../../config.js";
+import type { ResolvedXOidcConfig } from "../../config.js";
 import {
   createApplicationRuntime,
   listConfiguredPortalApplications,
 } from "../applicationRuntime.js";
 
-function createRuntimeConfig(tempDir: string): ResolvedGiteaOidcConfig {
+function createRuntimeConfig(tempDir: string): ResolvedXOidcConfig {
   const masterKey = Buffer.from(Array.from({ length: 32 }, (_, index) => index + 41));
   return {
     server: { url: "https://id.example.com" },
@@ -40,12 +40,12 @@ function createRuntimeConfig(tempDir: string): ResolvedGiteaOidcConfig {
         masterKey: masterKey.toString("base64url"),
       },
     },
-  } as ResolvedGiteaOidcConfig;
+  } as ResolvedXOidcConfig;
 }
 
 describe("createApplicationRuntime", () => {
   it("在 config 和 database Client 模式下生成一致的门户安全投影", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-portal-runtime-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-portal-runtime-"));
     const config = createRuntimeConfig(tempDir);
     config.clients[0]!.portal = {
       enabled: true,
@@ -79,7 +79,7 @@ describe("createApplicationRuntime", () => {
   });
 
   it("重启后恢复未完成的禁用并且不会重复推进状态", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-application-runtime-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-application-runtime-"));
     const config = createRuntimeConfig(tempDir);
     let firstRuntime: Awaited<ReturnType<typeof createApplicationRuntime>>;
     let secondRuntime: Awaited<ReturnType<typeof createApplicationRuntime>>;
@@ -146,7 +146,7 @@ describe("createApplicationRuntime", () => {
   });
 
   it("配置删除 system Client 后撤销 OIDC Artifact，重新加入时解除栅栏", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "gitea-oidc-system-client-runtime-"));
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-system-client-runtime-"));
     const configured = createRuntimeConfig(tempDir);
     const workerClient = {
       ...configured.clients[0]!,

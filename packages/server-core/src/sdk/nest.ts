@@ -2,14 +2,14 @@
  * Nest 接入工具
  */
 
-import type { GiteaOidcExpressOptions } from "./express.js";
+import type { XOidcExpressOptions } from "./express.js";
 
 /**
  * 创建 Nest Guard
  * @param options bearer token 校验配置
  */
-export function createGiteaOidcNestGuard(options: GiteaOidcExpressOptions) {
-  return class GiteaOidcNestGuard {
+export function createXOidcNestGuard(options: XOidcExpressOptions) {
+  return class XOidcNestGuard {
     /**
      * Nest Guard 入口
      * @param context ExecutionContext
@@ -40,6 +40,6 @@ export function createGiteaOidcNestGuard(options: GiteaOidcExpressOptions) {
  * 从请求上读取当前用户
  * @param request HTTP 请求
  */
-export function getGiteaOidcUser(request: any) {
+export function getXOidcUser(request: any) {
   return request.user;
 }

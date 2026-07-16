@@ -1,6 +1,6 @@
 # 生产运维手册
 
-本文面向值班、发布和故障处理人员，说明 gitea-oidc 上线后的启动停止、健康检查、备份恢复、
+本文面向值班、发布和故障处理人员，说明 X OIDC 上线后的启动停止、健康检查、备份恢复、
 升级回滚、监控和密钥轮换。首次部署请先完成[生产部署指南](./PRODUCTION_SETUP.md)。
 
 ## 运行时约定
@@ -13,10 +13,10 @@
 
 ## 日常操作
 
-以下命令假设部署目录为 `/srv/gitea-oidc`：
+以下命令假设部署目录为 `/srv/x-oidc`：
 
 ```bash
-cd /srv/gitea-oidc
+cd /srv/x-oidc
 
 docker compose --env-file .env.production ps
 docker compose --env-file .env.production logs --tail=200 idp
@@ -113,10 +113,10 @@ Client 也会产生记录。没有命中本服务签发 state 的匿名 callback
 一致性最强、最容易恢复的方式是停止唯一实例后归档整个数据目录：
 
 ```bash
-cd /srv/gitea-oidc
+cd /srv/x-oidc
 docker compose --env-file .env.production stop idp
-BACKUP_FILE="/srv/gitea-oidc/backup/data-$(date +%Y%m%d-%H%M%S).tar.gz"
-sudo tar -C /srv/gitea-oidc/data \
+BACKUP_FILE="/srv/x-oidc/backup/data-$(date +%Y%m%d-%H%M%S).tar.gz"
+sudo tar -C /srv/x-oidc/data \
   -czf "$BACKUP_FILE" .
 sudo chmod 0600 "$BACKUP_FILE"
 docker compose --env-file .env.production up -d idp
@@ -157,7 +157,7 @@ Redis 中的短期 state 可以过期，但 OIDC Grant、Refresh Token、撤销�
 SQLite 恢复流程：
 
 ```bash
-cd /srv/gitea-oidc
+cd /srv/x-oidc
 docker compose --env-file .env.production stop idp
 sudo mv data "data.failed-$(date +%Y%m%d-%H%M%S)"
 sudo install -d -m 0700 data
@@ -191,10 +191,10 @@ docker compose --env-file .env.production up -d idp
 
 ### 执行升级
 
-修改 `.env.production` 中的 `GITEA_OIDC_VERSION` 后执行：
+修改 `.env.production` 中的 `X_OIDC_VERSION` 后执行：
 
 ```bash
-cd /srv/gitea-oidc
+cd /srv/x-oidc
 docker compose --env-file .env.production config
 docker compose --env-file .env.production pull idp
 docker compose --env-file .env.production up -d idp
@@ -224,7 +224,7 @@ docker compose --env-file .env.production logs --tail=200 idp
 2. 保存失败版本的日志和数据目录副本。
 3. 恢复升级前的完整数据备份。
 4. 恢复与备份匹配的配置和密钥。
-5. 将 `GITEA_OIDC_VERSION` 改回原版本。
+5. 将 `X_OIDC_VERSION` 改回原版本。
 6. 启动旧版本并执行完整冒烟测试。
 
 不要只切换旧镜像并继续使用已升级数据库。多实例回滚时先停止全部实例，避免新旧版本并行写入同一

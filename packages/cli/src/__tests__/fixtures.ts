@@ -2,7 +2,7 @@ import {
   APPLICATION_CONNECTION_SCHEMA_VERSION,
   APPLICATION_CREDENTIAL_SCHEMA_VERSION,
   type ApplicationConnectionV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { vi } from "vitest";
 import type {
   CliDependencies,
@@ -32,7 +32,7 @@ export const connection: ApplicationConnectionV1 = {
     resourceServer: false,
   },
   recommendedConnector: {
-    packageName: "@gitea-oidc/node",
+    packageName: "@x-oidc/node",
     minimumVersion: "0.1.0",
   },
 };

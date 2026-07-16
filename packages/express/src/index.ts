@@ -6,8 +6,8 @@ import {
   OIDC_LOGIN_PATH,
   OIDC_LOGOUT_PATH,
   type WebConnectorCoreOptions,
-} from "@gitea-oidc/connector-core";
-import type { AuthSessionView } from "@gitea-oidc/node";
+} from "@x-oidc/connector-core";
+import type { AuthSessionView } from "@x-oidc/node";
 import {
   type NextFunction,
   type Request,
@@ -100,8 +100,8 @@ const enforceMethod =
 export function createExpressOidc(options: ExpressOidcOptions): ExpressOidc {
   const core = createWebConnectorCore(options);
   const router = Router({ caseSensitive: true, strict: true });
-  const authResolved = Symbol("@gitea-oidc/express/auth-resolved");
-  const authSession = Symbol("@gitea-oidc/express/auth-session");
+  const authResolved = Symbol("@x-oidc/express/auth-resolved");
+  const authSession = Symbol("@x-oidc/express/auth-session");
   type AuthenticatedRequestState = Request & Record<PropertyKey, unknown>;
 
   router.all(OIDC_LOGIN_PATH, enforceMethod("GET"));
@@ -202,5 +202,5 @@ export function createExpressOidc(options: ExpressOidcOptions): ExpressOidc {
   });
 }
 
-export type { WebConnectorCoreOptions } from "@gitea-oidc/connector-core";
-export type { AuthSessionView } from "@gitea-oidc/node";
+export type { WebConnectorCoreOptions } from "@x-oidc/connector-core";
+export type { AuthSessionView } from "@x-oidc/node";

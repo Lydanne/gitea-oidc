@@ -3,7 +3,7 @@
  */
 
 import type { RedisOidcAdapterOptions } from "../adapters/RedisOidcAdapter.js";
-import type { ResolvedGiteaOidcConfig } from "../config.js";
+import type { ResolvedXOidcConfig } from "../config.js";
 import type { AuthProviderConfig } from "./auth.js";
 
 export type RepositoryType = "memory" | "sqlite" | "pgsql";
@@ -75,18 +75,18 @@ export interface AuthConfig {
 }
 
 /**
- * 扩展的 Gitea OIDC 配置
+ * 扩展的 X OIDC 配置
  * 包含新的认证系统配置
  *
- * 注意：现在 GiteaOidcConfig 已经包含 auth 字段，
- * 所以这个接口实际上就是 GiteaOidcConfig 的别名
+ * 注意：现在 XOidcConfig 已经包含 auth 字段，
+ * 所以这个接口实际上就是 XOidcConfig 的别名
  */
-export type ExtendedGiteaOidcConfig = ResolvedGiteaOidcConfig;
+export type ExtendedXOidcConfig = ResolvedXOidcConfig;
 
 /**
  * 完整配置示例
  */
-export const exampleConfig: ExtendedGiteaOidcConfig = {
+export const exampleConfig: ExtendedXOidcConfig = {
   server: {
     host: "0.0.0.0",
     port: 3000,
@@ -201,7 +201,7 @@ export const exampleConfig: ExtendedGiteaOidcConfig = {
   admin: {
     enabled: true,
     basePath: "/admin",
-    allowedGroups: ["gitea-oidc-admins"],
+    allowedGroups: ["x-oidc-admins"],
     sessionTtlSeconds: 3600,
   },
 

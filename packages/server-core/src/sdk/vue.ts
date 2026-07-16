@@ -4,14 +4,14 @@
 
 import { defineComponent, h, ref } from "vue";
 import type { ProviderApiRequest } from "../types/providerApi.js";
-import { GiteaOidcClient, type GiteaOidcClientOptions } from "./client.js";
+import { XOidcClient, type XOidcClientOptions } from "./client.js";
 
 /**
  * 创建 Provider API 调用组合式函数
  * @param options SDK 客户端配置
  */
-export function useProviderRequest(options: GiteaOidcClientOptions) {
-  const client = new GiteaOidcClient(options);
+export function useProviderRequest(options: XOidcClientOptions) {
+  const client = new XOidcClient(options);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -39,8 +39,8 @@ export function useProviderRequest(options: GiteaOidcClientOptions) {
 /**
  * OIDC 登录按钮组件
  */
-export const GiteaOidcLoginButton = defineComponent({
-  name: "GiteaOidcLoginButton",
+export const XOidcLoginButton = defineComponent({
+  name: "XOidcLoginButton",
   props: {
     href: { type: String, required: true },
     label: { type: String, default: "登录" },
@@ -62,8 +62,8 @@ export const GiteaOidcLoginButton = defineComponent({
 /**
  * 用户菜单组件
  */
-export const GiteaOidcUserMenu = defineComponent({
-  name: "GiteaOidcUserMenu",
+export const XOidcUserMenu = defineComponent({
+  name: "XOidcUserMenu",
   props: {
     user: { type: Object, required: true },
     logoutHref: { type: String, default: "" },

@@ -15,10 +15,10 @@ import {
 import { registerOidcAuditEvents } from "./audit/oidcAuditEvents.js";
 import {
   DEFAULT_AUDIT_CONFIG,
-  type GiteaOidcConfig,
   loadConfig,
-  type ResolvedGiteaOidcConfig,
+  type ResolvedXOidcConfig,
   resolveApplicationsConfig,
+  type XOidcConfig,
 } from "./config.js";
 // 认证系统导入
 import { AuthCoordinator } from "./core/AuthCoordinator.js";
@@ -109,7 +109,7 @@ const INTERACTION_CONTENT_SECURITY_POLICY = [
  * @returns Fastify 应用实例
  */
 export async function createIdentityServer(
-  customConfig?: GiteaOidcConfig,
+  customConfig?: XOidcConfig,
   options: IdentityServerOptions = {},
 ): Promise<FastifyInstance> {
   const config = await resolveRuntimeConfig(customConfig);
@@ -117,7 +117,7 @@ export async function createIdentityServer(
 }
 
 async function createIdentityServerFromConfig(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   options: IdentityServerOptions,
 ): Promise<FastifyInstance> {
   const publicDir = path.resolve(options.publicDir ?? DEFAULT_PUBLIC_DIR);
@@ -127,7 +127,7 @@ async function createIdentityServerFromConfig(
           level: config.logging.level,
           serializers: {
             req(request) {
-              const pathname = new URL(request.url, "http://gitea-oidc.local").pathname;
+              const pathname = new URL(request.url, "http://x-oidc.local").pathname;
               return { method: request.method, url: pathname, remoteAddress: request.ip };
             },
           },
@@ -470,7 +470,7 @@ async function createIdentityServerFromConfig(
     // 添加中间件打印所有OIDC请求
     app.addHook("preHandler", (request, reply, done) => {
       if (request.url.startsWith("/oidc")) {
-        const pathname = new URL(request.url, "http://gitea-oidc.local").pathname;
+        const pathname = new URL(request.url, "http://x-oidc.local").pathname;
         Logger.info(`[OIDC请求] ${request.method} ${pathname}`);
         if (request.query && Object.keys(request.query).length > 0) {
           Logger.debug("[查询参数]", sanitizeForLog(request.query));
@@ -765,7 +765,7 @@ function acquireIdentityServerLease(): () => void {
  * 创建并监听 OIDC 服务器，保留旧版 `start(config)` 的公开契约。
  */
 export async function start(
-  customConfig?: GiteaOidcConfig,
+  customConfig?: XOidcConfig,
   options: IdentityServerOptions = {},
 ): Promise<FastifyInstance> {
   const config = await resolveRuntimeConfig(customConfig);
@@ -790,9 +790,7 @@ export async function start(
   return app;
 }
 
-async function resolveRuntimeConfig(
-  customConfig?: GiteaOidcConfig,
-): Promise<ResolvedGiteaOidcConfig> {
+async function resolveRuntimeConfig(customConfig?: XOidcConfig): Promise<ResolvedXOidcConfig> {
   return customConfig === undefined ? loadConfig() : validateRuntimeConfig(customConfig);
 }
 
@@ -802,7 +800,7 @@ async function resolveRuntimeConfig(
  * `loadConfig()` 已经会验证配置文件；这里覆盖 `start(customConfig)` 路径，避免集成方
  * 直接传配置时绕过生产环境安全校验。
  */
-export function validateRuntimeConfig(config: GiteaOidcConfig): ResolvedGiteaOidcConfig {
+export function validateRuntimeConfig(config: XOidcConfig): ResolvedXOidcConfig {
   const validation = validateConfig(config);
   printValidationResult(validation);
 
@@ -828,7 +826,7 @@ function assertStrongProviderTokenKey(tokenEncryptionKey: string): void {
 }
 
 function createStateStore(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
 ): StateStore & { destroy?: () => Promise<void> | void } {
   const stateStoreConfig = config.auth.stateStore ?? { type: "memory" as const };
   if (stateStoreConfig.type === "redis") {
@@ -844,7 +842,7 @@ function createStateStore(
   });
 }
 
-function toLogLevel(level: ResolvedGiteaOidcConfig["logging"]["level"]): LogLevel {
+function toLogLevel(level: ResolvedXOidcConfig["logging"]["level"]): LogLevel {
   return {
     debug: LogLevel.DEBUG,
     info: LogLevel.INFO,
@@ -926,7 +924,7 @@ function readRequestedScopes(params: unknown): string[] {
 
 function isTrustedInteractionPost(
   request: { headers: Record<string, unknown> },
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   uid: string,
 ): boolean {
   const contentType = request.headers["content-type"];

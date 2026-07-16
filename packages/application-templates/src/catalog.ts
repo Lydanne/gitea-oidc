@@ -1,4 +1,4 @@
-import { ApplicationTemplateFormV1Schema } from "@gitea-oidc/contracts";
+import { ApplicationTemplateFormV1Schema } from "@x-oidc/contracts";
 import { createImmutableJsonSnapshot } from "./jsonSnapshot.js";
 import type {
   ApplicationTemplateDefinition,

@@ -17,7 +17,7 @@ describePosix("jwksManager file permissions", () => {
   });
 
   it("creates JWKS private key files with owner-only permissions", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "gitea-oidc-jwks-"));
+    tempDir = mkdtempSync(join(tmpdir(), "x-oidc-jwks-"));
     const filePath = join(tempDir, "jwks.json");
     const previousUmask = process.umask(0);
 
@@ -31,7 +31,7 @@ describePosix("jwksManager file permissions", () => {
   });
 
   it("tightens permissions before loading an existing JWKS file", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "gitea-oidc-jwks-"));
+    tempDir = mkdtempSync(join(tmpdir(), "x-oidc-jwks-"));
     const filePath = join(tempDir, "jwks.json");
     writeFileSync(filePath, JSON.stringify({ keys: [{ kty: "RSA", kid: "test-key" }] }), {
       encoding: "utf-8",
@@ -44,7 +44,7 @@ describePosix("jwksManager file permissions", () => {
   });
 
   it("concurrent initialization reuses one atomically persisted key set", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "gitea-oidc-jwks-"));
+    tempDir = mkdtempSync(join(tmpdir(), "x-oidc-jwks-"));
     const filePath = join(tempDir, "jwks.json");
 
     const results = await Promise.all(

@@ -1,6 +1,6 @@
 import { chmodSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { issuerUrlSchema } from "@gitea-oidc/contracts";
+import { issuerUrlSchema } from "@x-oidc/contracts";
 import Database from "better-sqlite3";
 import {
   ApplicationConflictError,

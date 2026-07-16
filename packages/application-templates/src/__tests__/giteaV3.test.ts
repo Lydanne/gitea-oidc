@@ -1,4 +1,4 @@
-import { safeParseIntegrationGuideV1 } from "@gitea-oidc/contracts";
+import { safeParseIntegrationGuideV1 } from "@x-oidc/contracts";
 import { describe, expect, it } from "vitest";
 import {
   GITEA_TEMPLATE_V3_FORM,

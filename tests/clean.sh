@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Docker 资源清理脚本
-# 用于清理 gitea-oidc 相关的 Docker 资源
+# 用于清理 x-oidc 相关的 Docker 资源
 # 可以从任何位置运行
 
 set -e
@@ -38,8 +38,8 @@ if [ -n "$PROJECT_ROOT" ]; then
 fi
 
 # 配置
-IMAGE_NAME="gitea-oidc"
-CONTAINER_NAME="gitea-oidc-test"
+IMAGE_NAME="x-oidc"
+CONTAINER_NAME="x-oidc-test"
 
 echo -e "${BLUE}🧹 开始清理 Docker 资源${NC}"
 

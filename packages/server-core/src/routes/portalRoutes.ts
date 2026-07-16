@@ -5,13 +5,13 @@
  * BFF Session Cookie，OIDC access token 仅在回调中完成身份校验，不会返回前端或持久化。
  */
 
-import { type PortalApplicationListV1, parsePortalApplicationListV1 } from "@gitea-oidc/contracts";
+import { type PortalApplicationListV1, parsePortalApplicationListV1 } from "@x-oidc/contracts";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { readFileSync } from "fs";
 import type { Provider } from "oidc-provider";
 import { join } from "path";
-import type { ResolvedGiteaOidcConfig } from "../config.js";
+import type { ResolvedXOidcConfig } from "../config.js";
 import {
   DistributedPortalSessionStore,
   PORTAL_LOGIN_STATE_TTL_SECONDS,
@@ -33,9 +33,9 @@ import {
 } from "../utils/portalClient.js";
 import { userHasAnyGroup } from "../utils/userGroups.js";
 
-const PORTAL_COOKIE_NAME = "gitea_oidc_portal_session";
-const PORTAL_LOGIN_COOKIE_NAME = "gitea_oidc_portal_login";
-const PORTAL_ACTION_HEADER = "x-gitea-oidc-portal-action";
+const PORTAL_COOKIE_NAME = "x_oidc_portal_session";
+const PORTAL_LOGIN_COOKIE_NAME = "x_oidc_portal_login";
+const PORTAL_ACTION_HEADER = "x-oidc-portal-action";
 interface HeaderTarget {
   header?: (name: string, value: string) => unknown;
   setHeader?: (name: string, value: string) => unknown;
@@ -60,7 +60,7 @@ interface PortalGrantLike {
 
 export interface PortalRoutesOptions {
   app: FastifyInstance;
-  config: ResolvedGiteaOidcConfig;
+  config: ResolvedXOidcConfig;
   oidcProvider: Provider;
   userRepository: UserRepository;
   auditLogRepository?: AuditLogRepository;
@@ -376,8 +376,8 @@ function injectPortalRuntimeConfig(
   const htmlElement = /<html(?=[\s>])/iu;
   if (!htmlElement.test(html)) throw new Error("用户门户 index.html 缺少 html 根元素");
   const attributes = [
-    `data-gitea-oidc-portal-base-path="${escapeHtmlAttribute(runtime.basePath)}"`,
-    `data-gitea-oidc-admin-base-path="${escapeHtmlAttribute(runtime.adminBasePath)}"`,
+    `data-x-oidc-portal-base-path="${escapeHtmlAttribute(runtime.basePath)}"`,
+    `data-x-oidc-admin-base-path="${escapeHtmlAttribute(runtime.adminBasePath)}"`,
   ].join(" ");
   const withRuntime = html.replace(htmlElement, `<html ${attributes}`);
   const headElement = /<head(?=[\s>])[^>]*>/iu;
@@ -433,9 +433,9 @@ function normalizePortalReturnPath(basePath: string, value?: string): string {
 }
 
 async function exchangePortalCode(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
-  client: ResolvedGiteaOidcConfig["clients"][number],
+  client: ResolvedXOidcConfig["clients"][number],
   code: string,
   codeVerifier: string,
 ): Promise<{ access_token: string }> {
@@ -559,7 +559,7 @@ function omitUndefined<T extends Record<string, unknown>>(value: T): T {
 }
 
 function buildPortalCookie(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
   value: string,
   maxAge: number,
@@ -568,7 +568,7 @@ function buildPortalCookie(
 }
 
 function buildPortalLoginCookie(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
   value: string,
   maxAge: number,
@@ -577,7 +577,7 @@ function buildPortalLoginCookie(
 }
 
 function buildCookie(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   name: string,
   basePath: string,
   value: string,
@@ -627,7 +627,7 @@ function matchesPortalLoginBinding(expectedHash: string, binding: string): boole
 
 function isPortalLogoutRequestAllowed(
   request: FastifyRequest,
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
 ): boolean {
   return (
@@ -650,7 +650,7 @@ function isJsonRequest(request: FastifyRequest): boolean {
 
 function isTrustedPortalRequestSource(
   request: FastifyRequest,
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
 ): boolean {
   const expectedOrigin = new URL(config.server.url).origin;
@@ -670,7 +670,7 @@ function isTrustedPortalRequestSource(
 }
 
 function buildPortalEndSessionUrl(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   clientId: string,
   postLogoutRedirectUri: string,
 ): string {

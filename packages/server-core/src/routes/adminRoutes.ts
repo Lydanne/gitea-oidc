@@ -2,7 +2,7 @@
  * 内置后台管理路由
  */
 
-import { safeParseRotateApplicationCredentialRequestV1 } from "@gitea-oidc/contracts";
+import { safeParseRotateApplicationCredentialRequestV1 } from "@x-oidc/contracts";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { readFileSync } from "fs";
@@ -20,7 +20,7 @@ import {
   type AdminSessionStoreLike,
   DistributedAdminSessionStore,
 } from "../admin/AdminSessionStore.js";
-import type { ResolvedGiteaOidcConfig } from "../config.js";
+import type { ResolvedXOidcConfig } from "../config.js";
 import { AuthCoordinator } from "../core/AuthCoordinator.js";
 import { ProviderApiService } from "../provider-api/ProviderApiService.js";
 import { NoopAuditLogRepository } from "../repositories/NoopAuditLogRepository.js";
@@ -60,9 +60,9 @@ import { Logger } from "../utils/Logger.js";
 import { sanitizeForLog } from "../utils/logSanitizer.js";
 import { normalizeUserGroups, userHasAnyGroup } from "../utils/userGroups.js";
 
-const ADMIN_COOKIE_NAME = "gitea_oidc_admin_session";
-const ADMIN_LOGIN_COOKIE_NAME = "gitea_oidc_admin_login";
-const ADMIN_ACTION_HEADER = "x-gitea-oidc-admin-action";
+const ADMIN_COOKIE_NAME = "x_oidc_admin_session";
+const ADMIN_LOGIN_COOKIE_NAME = "x_oidc_admin_login";
+const ADMIN_ACTION_HEADER = "x-oidc-admin-action";
 const ADMIN_CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
@@ -161,7 +161,7 @@ export interface AdminRoutesOptions {
   app: FastifyInstance;
 
   /** 完整配置 */
-  config: ResolvedGiteaOidcConfig;
+  config: ResolvedXOidcConfig;
 
   /** OIDC Provider 实例 */
   oidcProvider: Provider;
@@ -913,8 +913,8 @@ function injectAdminRuntimeConfig(
   }
 
   const attributes = [
-    `data-gitea-oidc-admin-base-path="${escapeHtmlAttribute(runtime.basePath)}"`,
-    `data-gitea-oidc-applications-enabled="${String(runtime.applicationsEnabled)}"`,
+    `data-x-oidc-admin-base-path="${escapeHtmlAttribute(runtime.basePath)}"`,
+    `data-x-oidc-applications-enabled="${String(runtime.applicationsEnabled)}"`,
   ].join(" ");
   const withRuntimeAttributes = html.replace(htmlElement, `<html ${attributes}`);
   const headElement = /<head(?=[\s>])[^>]*>/i;
@@ -1166,7 +1166,7 @@ function matchesAdminLoginBinding(expectedHash: string, binding: string): boolea
 }
 
 function buildAdminCookie(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
   value: string,
   maxAge: number,
@@ -1183,7 +1183,7 @@ function buildAdminCookie(
 }
 
 function buildAdminLoginCookie(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
   value: string,
   maxAge: number,
@@ -1201,7 +1201,7 @@ function buildAdminLoginCookie(
 
 function isAdminMutationRequestAllowed(
   request: FastifyRequest,
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
 ): boolean {
   return (
@@ -1227,7 +1227,7 @@ function isJsonRequest(request: FastifyRequest): boolean {
 
 function isTrustedAdminRequestSource(
   request: FastifyRequest,
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
 ): boolean {
   const expectedOrigin = new URL(config.server.url).origin;
@@ -1731,9 +1731,9 @@ function normalizeAdminReturnPath(basePath: string, value?: string): string {
 }
 
 function resolveAdminClient(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
-): ResolvedGiteaOidcConfig["clients"][number] {
+): ResolvedXOidcConfig["clients"][number] {
   const client = findAdminClient(config, basePath);
 
   if (!client) {
@@ -1747,9 +1747,9 @@ function resolveAdminClient(
 }
 
 async function exchangeAdminCode(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
   basePath: string,
-  client: ResolvedGiteaOidcConfig["clients"][number],
+  client: ResolvedXOidcConfig["clients"][number],
   code: string,
 ): Promise<{ access_token: string }> {
   const body = new URLSearchParams({

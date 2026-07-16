@@ -1,20 +1,20 @@
-# `@gitea-oidc/express`
+# `@x-oidc/express`
 
-基于 `@gitea-oidc/node` 的 Express 4/5 OIDC 连接器。它注册完整的浏览器登录路由并提供
+基于 `@x-oidc/node` 的 Express 4/5 OIDC 连接器。它注册完整的浏览器登录路由并提供
 `optionalAuth`、`requireAuth` 和类型安全的 `req.auth`，不在 Express 层保存或解析 Token。
 
 ## 当前状态
 
-该包目前是 monorepo 内部预发布包，版本为 `0.0.0` 且保持 `private: true`。公开发布前会通过实际
+该包目前是 monorepo 内部预发布包，从 `2.0.0` 起与全部 workspace 包同步版本并保持 `private: true`。公开发布前会通过实际
 tarball 分别验证 Express 4 和 Express 5 的运行与类型消费。
 
 ## 创建连接器
 
-先按 `@gitea-oidc/node` 文档创建使用持久化 store 和跨实例 refresh lock 的客户端，再注入
+先按 `@x-oidc/node` 文档创建使用持久化 store 和跨实例 refresh lock 的客户端，再注入
 Express 连接器：
 
 ```typescript
-import { createExpressOidc } from "@gitea-oidc/express";
+import { createExpressOidc } from "@x-oidc/express";
 import express from "express";
 import { nodeOidcClient } from "./oidc-client.js";
 
@@ -73,11 +73,11 @@ await oidc.close();
 ## 验证
 
 登录、callback、Cookie、auth 投影、logout、错误和生命周期合同由私有
-`@gitea-oidc/connector-testkit` 统一执行。Express 包另行保留 Express 4 Promise 转发、异步错误
+`@x-oidc/connector-testkit` 统一执行。Express 包另行保留 Express 4 Promise 转发、异步错误
 middleware 和只读 `request.auth` 等框架专属测试。
 
 ```bash
-pnpm --filter @gitea-oidc/express typecheck
-pnpm --filter @gitea-oidc/express test
-pnpm --filter @gitea-oidc/express build
+pnpm --filter @x-oidc/express typecheck
+pnpm --filter @x-oidc/express test
+pnpm --filter @x-oidc/express build
 ```

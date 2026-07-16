@@ -1,15 +1,15 @@
 import "reflect-metadata";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import type { AuthSessionView, NodeOidcClient } from "@gitea-oidc/node";
 import { HttpException } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
+import type { AuthSessionView, NodeOidcClient } from "@x-oidc/node";
 import { describe, expect, it, vi } from "vitest";
 import { NestOidcService } from "../nestOidcService.js";
 
 const NOW = Date.parse("2026-07-10T08:00:00.000Z");
 const SESSION_ID = "s".repeat(43);
-const SESSION_COOKIE_NAME = `__Host-gitea_oidc_session_${createHash("sha256")
+const SESSION_COOKIE_NAME = `__Host-x_oidc_session_${createHash("sha256")
   .update("https://app.example.com")
   .digest("base64url")
   .slice(0, 16)}`;

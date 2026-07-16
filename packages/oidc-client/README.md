@@ -1,4 +1,4 @@
-# `@gitea-oidc/node`
+# `@x-oidc/node`
 
 面向 Node.js 的框架无关 OIDC Relying Party 核心。它负责 Authorization Code + PKCE、
 state/nonce 校验、一次性登录事务、服务端会话、Refresh Token 轮换和 RP-Initiated Logout；
@@ -6,7 +6,7 @@ Express、Fastify、Nest 等连接器只需要适配请求、响应和 Cookie，
 
 ## 当前状态
 
-该包目前是 monorepo 内部预发布包，版本为 `0.0.0` 且保持 `private: true`。运行时要求
+该包目前是 monorepo 内部预发布包，从 `2.0.0` 起与全部 workspace 包同步版本并保持 `private: true`。运行时要求
 Node.js `>=20.19.0`。包只构建一份 ESM 事实源，同时声明 `import`、`require` 和 `default` 条件；
 CommonJS 通过该 Node 版本的 `require(esm)` 加载。OIDC 协议实现基于 `openid-client` v6。
 
@@ -19,11 +19,11 @@ CommonJS 通过该 Node 版本的 `require(esm)` 加载。OIDC 协议实现基�
 环境变量建议统一使用以下名称：
 
 ```dotenv
-GITEA_OIDC_ISSUER=https://id.example.com
-GITEA_OIDC_CLIENT_ID=replace-with-client-id
-GITEA_OIDC_CLIENT_SECRET=replace-with-one-time-secret
-GITEA_OIDC_REDIRECT_URI=https://app.example.com/oidc/callback
-GITEA_OIDC_SCOPES=openid profile email offline_access
+X_OIDC_ISSUER=https://id.example.com
+X_OIDC_CLIENT_ID=replace-with-client-id
+X_OIDC_CLIENT_SECRET=replace-with-one-time-secret
+X_OIDC_REDIRECT_URI=https://app.example.com/oidc/callback
+X_OIDC_SCOPES=openid profile email offline_access
 ```
 
 Secret 不属于 connection，不能写入接入说明、日志、错误、前端配置或版本库。
@@ -38,12 +38,12 @@ import {
   type AuthSessionStore,
   type LoginTransactionStore,
   type RefreshLock,
-} from "@gitea-oidc/node";
+} from "@x-oidc/node";
 import {
   APPLICATION_CREDENTIAL_SCHEMA_VERSION,
   parseApplicationConnectionV1,
   parseApplicationCredentialV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 
 declare const transactionStore: LoginTransactionStore;
 declare const sessionStore: AuthSessionStore;
@@ -58,7 +58,7 @@ const client = createNodeOidcClient({
     issuer: connectionJson.issuer,
     clientId: connectionJson.clientId,
     kind: "client_secret",
-    clientSecret: process.env.GITEA_OIDC_CLIENT_SECRET,
+    clientSecret: process.env.X_OIDC_CLIENT_SECRET,
   }),
   transactionStore,
   sessionStore,
@@ -71,7 +71,7 @@ const client = createNodeOidcClient({
 `client.close()` 会观察同一个完成或失败结果；关闭开始后所有新操作都返回 `CLIENT_CLOSED`，已被
 客户端接受的登录、回调、会话、刷新和退出操作会完成后才关闭内部资源。
 
-单机生产部署可以直接使用官方私有预览包 `@gitea-oidc/node-sqlite`。它提供 AES-256-GCM 静态
+单机生产部署可以直接使用官方私有预览包 `@x-oidc/node-sqlite`。它提供 AES-256-GCM 静态
 加密、transaction 原子消费、session CAS 和跨进程 refresh lease；完整示例见
 [`packages/oidc-client-sqlite/README.md`](../oidc-client-sqlite/README.md)。多主机部署仍需后续共享
 Redis/PostgreSQL adapter。
@@ -79,7 +79,7 @@ Redis/PostgreSQL adapter。
 单进程开发和测试可以显式使用内存模式：
 
 ```typescript
-import { createInMemoryNodeOidcClient } from "@gitea-oidc/node";
+import { createInMemoryNodeOidcClient } from "@x-oidc/node";
 
 const client = createInMemoryNodeOidcClient({ connection, credential });
 ```
@@ -175,7 +175,7 @@ if (result.warnings.length > 0) {
 所有公开方法使用稳定的 `NodeOidcError`：
 
 ```typescript
-import { isNodeOidcError } from "@gitea-oidc/node";
+import { isNodeOidcError } from "@x-oidc/node";
 
 try {
   await client.completeCallback({ transactionId, callbackParameters });
@@ -200,7 +200,7 @@ JWKS、revocation、userinfo 和 logout 等端点必须仍位于完全相同的 
 
 主入口的 `createNodeOidcClient` 和 `createInMemoryNodeOidcClient` 不接受协议适配器、时钟或随机数替身，
 JavaScript 调用即使附带这些额外字段也会被忽略。仓库测试只能从
-`@gitea-oidc/node/internal/testing` 使用这些危险注入点；生产连接器不得导入或透传该子路径。
+`@x-oidc/node/internal/testing` 使用这些危险注入点；生产连接器不得导入或透传该子路径。
 
 ## 当前边界
 

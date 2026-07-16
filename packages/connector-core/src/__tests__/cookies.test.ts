@@ -36,10 +36,10 @@ describe("connector cookies", () => {
     expect(configuration).toEqual({
       secure: true,
       transaction: {
-        name: "__Host-gitea_oidc_transaction_default",
+        name: "__Host-x_oidc_transaction_default",
         path: "/",
       },
-      session: { name: "__Host-gitea_oidc_session_default", path: "/" },
+      session: { name: "__Host-x_oidc_session_default", path: "/" },
     });
     expect(transaction).toContain("HttpOnly");
     expect(transaction).toContain("SameSite=Lax");
@@ -48,7 +48,7 @@ describe("connector cookies", () => {
     expect(transaction).not.toContain("Domain=");
     expect(session).toContain("Path=/;");
     expect(() =>
-      createCookieConfiguration(true, { transaction: "__Secure-gitea_oidc_transaction" }),
+      createCookieConfiguration(true, { transaction: "__Secure-x_oidc_transaction" }),
     ).toThrow();
     expect(
       createCookieConfiguration(
@@ -72,7 +72,7 @@ describe("connector cookies", () => {
       maxAgeSeconds: 60,
     });
 
-    expect(configuration.session.name).toBe("gitea_oidc_session_default");
+    expect(configuration.session.name).toBe("x_oidc_session_default");
     expect(header).not.toContain("Secure");
     expect(() => createCookieConfiguration(false, { transaction: "__Host-transaction" })).toThrow();
     expect(() => createCookieConfiguration(false, { session: "__Host-session" })).toThrow();
@@ -149,7 +149,7 @@ describe("connector cookies", () => {
   });
 
   it("rejects duplicate, padded and malformed target cookie values", () => {
-    const name = "gitea_oidc_session";
+    const name = "x_oidc_session";
 
     expect(readUniqueOpaqueCookie(undefined, name)).toEqual({ kind: "missing" });
     expect(readUniqueOpaqueCookie(`other=x; ${name}=${OPAQUE}`, name)).toEqual({
@@ -165,7 +165,7 @@ describe("connector cookies", () => {
 
   it("clears cookies with matching attributes and an epoch expiry", () => {
     const header = serializeOpaqueCookie({
-      name: "__Host-gitea_oidc_session",
+      name: "__Host-x_oidc_session",
       value: "",
       path: "/",
       secure: true,

@@ -1,6 +1,6 @@
 # 快速开始指南
 
-本指南用于本地开发验证：启动 gitea-oidc、使用本地密码登录，并把一个本地 Gitea 接入 OIDC。
+本指南用于本地开发验证：启动 X OIDC、使用本地密码登录，并把一个本地 Gitea 接入 OIDC。
 生产上线不要直接复用本地配置，请改用[生产部署指南](./PRODUCTION_SETUP.md)。
 
 ## 前置条件
@@ -18,10 +18,10 @@ pnpm install
 ## 2. 创建本地配置
 
 ```bash
-cp example.gitea-oidc.config.json gitea-oidc.config.json
+cp example.x-oidc.config.json x-oidc.config.json
 ```
 
-项目也支持 `gitea-oidc.config.js`。如果两个文件同时存在，JS 配置优先。配置文件和运行时数据库
+项目也支持 `x-oidc.config.js`。如果两个文件同时存在，JS 配置优先。配置文件和运行时数据库
 已经被 `.gitignore` 排除，不要提交真实密钥。
 
 示例配置默认使用：
@@ -49,7 +49,7 @@ chmod 0600 .htpasswd
 ```
 
 用户名为 `admin`，密码是刚才交互输入的值。示例配置中的 `local.config.adminUsers` 会让该用户获得
-`gitea-oidc-admins` 组，从而访问内置管理后台。
+`x-oidc-admins` 组，从而访问内置管理后台。
 
 ## 4. 启动服务
 
@@ -156,7 +156,7 @@ pnpm build
 
 ### 管理后台提示无权限
 
-确认用户的 `groups` 包含 `gitea-oidc-admins`，或命中自定义的 `admin.allowedGroups`。
+确认用户的 `groups` 包含 `x-oidc-admins`，或命中自定义的 `admin.allowedGroups`。
 
 ### 启动提示 `portal_client_required`
 

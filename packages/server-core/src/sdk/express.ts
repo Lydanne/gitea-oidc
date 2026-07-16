@@ -5,7 +5,7 @@
 /**
  * Express 中间件配置
  */
-export interface GiteaOidcExpressOptions {
+export interface XOidcExpressOptions {
   /** userinfo 端点 URL */
   userInfoEndpoint: string;
 }
@@ -14,7 +14,7 @@ export interface GiteaOidcExpressOptions {
  * 创建 Express bearer token 中间件
  * @param options 中间件配置
  */
-export function createGiteaOidcExpressMiddleware(options: GiteaOidcExpressOptions) {
+export function createXOidcExpressMiddleware(options: XOidcExpressOptions) {
   return async (req: any, res: any, next: any) => {
     const authorization = req.headers?.authorization;
     if (!authorization) {

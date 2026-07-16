@@ -33,7 +33,7 @@ const navItems = computed(() => [
       <div class="brand">
         <span class="brand-mark">GO</span>
         <span>
-          <strong>Gitea OIDC</strong>
+          <strong>X OIDC</strong>
           <small>Admin Console</small>
         </span>
       </div>

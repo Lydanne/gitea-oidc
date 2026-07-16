@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { applicationTemplateCatalog } from "@gitea-oidc/application-templates";
+import { applicationTemplateCatalog } from "@x-oidc/application-templates";
 import {
   ApplicationSecretEncryptor,
   ApplicationService,
@@ -7,10 +7,10 @@ import {
   OidcClientProjector,
   SqliteApplicationRepository,
   type SystemClientImportInput,
-} from "@gitea-oidc/applications";
-import { type PortalApplicationListV1, parsePortalApplicationListV1 } from "@gitea-oidc/contracts";
+} from "@x-oidc/applications";
+import { type PortalApplicationListV1, parsePortalApplicationListV1 } from "@x-oidc/contracts";
 import type { ApplicationClientProjectionSource } from "../adapters/ApplicationClientAdapter.js";
-import { type ResolvedGiteaOidcConfig, resolveApplicationsConfig } from "../config.js";
+import { type ResolvedXOidcConfig, resolveApplicationsConfig } from "../config.js";
 
 export interface ApplicationAuthorizationPolicy {
   applicationId: string;
@@ -75,7 +75,7 @@ export interface ApplicationRuntime {
 
 /** 组装私有应用域，并通过显式 facade 避免公开服务声明泄漏 workspace 私有类型。 */
 export async function createApplicationRuntime(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
 ): Promise<ApplicationRuntime | undefined> {
   const applicationsConfig = resolveApplicationsConfig(config);
   if (!applicationsConfig.enabled || applicationsConfig.clientSource !== "database") {
@@ -226,7 +226,7 @@ export async function createApplicationRuntime(
 
 /** config Client 模式下生成与数据库模式一致的普通用户门户安全投影。 */
 export function listConfiguredPortalApplications(
-  config: ResolvedGiteaOidcConfig,
+  config: ResolvedXOidcConfig,
 ): PortalApplicationListV1 {
   const applications = config.clients
     .filter((client) => client.portal !== undefined && client.portal.enabled !== false)

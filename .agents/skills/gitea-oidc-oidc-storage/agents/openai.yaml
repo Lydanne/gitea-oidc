@@ -1,4 +1,0 @@
-interface:
-  display_name: "Gitea OIDC Storage"
-  short_description: "Maintain OIDC storage adapters safely"
-  default_prompt: "Use $gitea-oidc-oidc-storage to change an OIDC persistence adapter."

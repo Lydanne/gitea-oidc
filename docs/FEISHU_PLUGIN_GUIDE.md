@@ -35,7 +35,7 @@
 2. 进入「开发者后台」→「企业自建应用」
 3. 点击「创建企业自建应用」
 4. 填写应用信息：
-   - **应用名称**：例如 "Gitea OIDC 登录"
+   - **应用名称**：例如 "X OIDC 登录"
    - **应用描述**：描述应用用途
    - **应用图标**：上传应用图标
 
@@ -100,7 +100,7 @@
 
 ### 方式一：使用 JavaScript 配置文件（推荐）
 
-编辑 `gitea-oidc.config.js`：
+编辑 `x-oidc.config.js`：
 
 ```javascript
 export default {
@@ -171,7 +171,7 @@ export default {
 
 ### 方式二：使用 JSON 配置文件
 
-编辑 `gitea-oidc.config.json`：
+编辑 `x-oidc.config.json`：
 
 ```json
 {
@@ -297,7 +297,7 @@ http(s)://your-server:port/auth/feishu/callback
 │                                                              │
 │  5. 用户登录飞书账号并授权                                   │
 │     ┌────────────────────────────────┐                      │
-│     │  是否允许 "Gitea OIDC 登录"    │                      │
+│     │  是否允许 "X OIDC 登录"    │                      │
 │     │  访问你的基本信息？             │                      │
 │     │                                 │                      │
 │     │  [拒绝]          [同意]        │ ← 用户点击同意       │
@@ -396,7 +396,7 @@ userMapping: {
 
 **解决方案**：
 
-1. 检查 `gitea-oidc.config.js` 中的 `redirectUri`
+1. 检查 `x-oidc.config.js` 中的 `redirectUri`
 2. 检查飞书开放平台「安全设置」中的重定向 URL
 3. 确保两者完全一致（协议、域名、端口、路径）
 4. 不要使用 `localhost`，使用实际的外网地址
@@ -512,7 +512,7 @@ userMapping: {
 ✅ **推荐做法**：
 
 ```javascript
-// gitea-oidc.config.js
+// x-oidc.config.js
 export default {
   auth: {
     providers: {
@@ -656,7 +656,7 @@ feishu: {
 ## 完整配置示例
 
 ```javascript
-// gitea-oidc.config.js
+// x-oidc.config.js
 export default {
   server: {
     host: '0.0.0.0',
@@ -694,7 +694,7 @@ export default {
   
   clients: [{
     client_id: 'gitea',
-    client_secret: process.env.GITEA_OIDC_CLIENT_SECRET || 'change-this-client-secret',
+    client_secret: process.env.X_OIDC_CLIENT_SECRET || 'change-this-client-secret',
     redirect_uris: ['https://gitea.example.com/user/oauth2/oidc/callback'],
     response_types: ['code'],
     grant_types: ['authorization_code', 'refresh_token'],

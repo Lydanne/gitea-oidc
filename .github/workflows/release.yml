@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       resume_tag:
-        description: Existing release tag to reconcile, for example v1.2.3
+        description: Existing release tag to reconcile, for example v2.0.0
         required: true
         type: string
 
@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-gitea-oidc
+  group: publish-x-oidc
   cancel-in-progress: false
 
 jobs:
@@ -26,6 +26,7 @@ jobs:
     name: Inspect release state
     runs-on: ubuntu-latest
     outputs:
+      packageName: ${{ steps.state.outputs.packageName }}
       version: ${{ steps.state.outputs.version }}
       tag: ${{ steps.state.outputs.tag }}
       prerelease: ${{ steps.state.outputs.prerelease }}
@@ -66,6 +67,7 @@ jobs:
           WORKFLOW_REF_NAME: ${{ github.ref_name }}
           WORKFLOW_REF_TYPE: ${{ github.ref_type }}
         run: |
+          package_name=$(node -p "JSON.parse(require('fs').readFileSync('packages/server-core/package.json')).name")
           version=$(node -p "JSON.parse(require('fs').readFileSync('packages/server-core/package.json')).version")
           tag="v$version"
           source_sha=$(git rev-parse HEAD)
@@ -94,8 +96,8 @@ jobs:
             fi
           fi
 
-          npm_versions=$(npm view gitea-oidc versions --json --registry=https://registry.npmjs.org/)
-          npm_dist_tags=$(npm view gitea-oidc dist-tags --json --registry=https://registry.npmjs.org/)
+          npm_versions=$(node scripts/release/npm-view.mjs "$package_name" versions '[]')
+          npm_dist_tags=$(node scripts/release/npm-view.mjs "$package_name" dist-tags '{}')
           publish_metadata=$(NPM_DIST_TAGS_JSON="$npm_dist_tags" \
             node scripts/release/publish-metadata.mjs --format=github)
           printf '%s\n' "$publish_metadata" >> "$GITHUB_OUTPUT"
@@ -134,6 +136,7 @@ jobs:
           fi
 
           {
+            echo "packageName=$package_name"
             echo "sourceSha=$source_sha"
             echo "tagExists=$tag_exists"
             echo "npmPublished=$npm_published"
@@ -143,6 +146,7 @@ jobs:
           {
             echo "## Publish state"
             echo ""
+            echo "- npm package: $package_name"
             echo "- Version: $version"
             echo "- Tag: $tag"
             echo "- Source: $source_sha"
@@ -251,6 +255,7 @@ jobs:
       - name: Verify already-published package integrity
         if: needs.inspect.outputs.npmPublished == 'true'
         env:
+          PACKAGE_NAME: ${{ needs.inspect.outputs.packageName }}
           RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
         run: |
           tarball=$(find artifacts/npm -maxdepth 1 -name '*.tgz' -type f -print -quit)
@@ -260,7 +265,7 @@ jobs:
             const { readFileSync } = await import("node:fs");
             process.stdout.write(`sha512-${createHash("sha512").update(readFileSync(process.env.TARBALL)).digest("base64")}`);
           ')
-          remote_integrity=$(npm view "gitea-oidc@$RELEASE_VERSION" dist.integrity --json --registry=https://registry.npmjs.org/ | node -e 'let data="";process.stdin.on("data",chunk=>data+=chunk).on("end",()=>process.stdout.write(JSON.parse(data)))')
+          remote_integrity=$(npm view "$PACKAGE_NAME@$RELEASE_VERSION" dist.integrity --json --registry=https://registry.npmjs.org/ | node -e 'let data="";process.stdin.on("data",chunk=>data+=chunk).on("end",()=>process.stdout.write(JSON.parse(data)))')
           test "$local_integrity" = "$remote_integrity"
 
       - name: Publish with npm Trusted Publishing
@@ -317,9 +322,9 @@ jobs:
         id: targets
         run: |
           tags=()
-          registries=("ghcr.io/lydanne/gitea-oidc")
+          registries=("ghcr.io/lydanne/x-oidc")
           if [ -n "$DOCKERHUB_USERNAME" ]; then
-            registries+=("${DOCKERHUB_USERNAME,,}/gitea-oidc")
+            registries+=("${DOCKERHUB_USERNAME,,}/x-oidc")
           fi
 
           for image in "${registries[@]}"; do
@@ -384,7 +389,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/lydanne/gitea-oidc
+          images: ghcr.io/lydanne/x-oidc
           flavor: latest=false
           tags: type=raw,value=${{ needs.inspect.outputs.version }}
           labels: |

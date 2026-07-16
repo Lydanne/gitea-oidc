@@ -1,4 +1,4 @@
-import type { AuthSessionView, NodeOidcClient } from "@gitea-oidc/node";
+import type { AuthSessionView, NodeOidcClient } from "@x-oidc/node";
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { createFastifyOidc } from "../index.js";
@@ -31,13 +31,13 @@ describe("Fastify connector instance isolation", () => {
     const connectorA = createFastifyOidc({
       client: clientA,
       redirectUri: "https://app.example.com/oidc/callback",
-      cookieNames: { session: "__Host-gitea_oidc_session" },
+      cookieNames: { session: "__Host-x_oidc_session" },
       clock: () => NOW,
     });
     const connectorB = createFastifyOidc({
       client: clientB,
       redirectUri: "https://app.example.com/oidc/callback",
-      cookieNames: { session: "__Host-gitea_oidc_session" },
+      cookieNames: { session: "__Host-x_oidc_session" },
       clock: () => NOW,
     });
     const app = Fastify();
@@ -50,7 +50,7 @@ describe("Fastify connector instance isolation", () => {
     const response = await app.inject({
       method: "GET",
       url: "/cross-instance",
-      headers: { cookie: `__Host-gitea_oidc_session=${SESSION_ID}` },
+      headers: { cookie: `__Host-x_oidc_session=${SESSION_ID}` },
     });
 
     expect(response.statusCode).toBe(401);

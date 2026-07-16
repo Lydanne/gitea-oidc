@@ -1,7 +1,7 @@
 {
-  "name": "@gitea-oidc/contracts",
-  "version": "0.1.0",
-  "description": "Versioned public wire contracts for Gitea OIDC applications and connectors",
+  "name": "@x-oidc/contracts",
+  "version": "2.0.0",
+  "description": "Versioned public wire contracts for X OIDC applications and connectors",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

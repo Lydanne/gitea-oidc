@@ -24,7 +24,7 @@ describe("loadConfig", () => {
     vi.resetModules();
     mockValidateConfig.mockReset();
     mockPrintValidationResult.mockReset();
-    tempDir = mkdtempSync(join(tmpdir(), "gitea-oidc-config-"));
+    tempDir = mkdtempSync(join(tmpdir(), "x-oidc-config-"));
     cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
   });
 
@@ -46,7 +46,7 @@ describe("loadConfig", () => {
         },
       },
     };
-    writeFileSync(join(tempDir, "gitea-oidc.config.json"), JSON.stringify(jsonConfig));
+    writeFileSync(join(tempDir, "x-oidc.config.json"), JSON.stringify(jsonConfig));
 
     const validated = {
       valid: true,
@@ -71,6 +71,22 @@ describe("loadConfig", () => {
     expect(result).toBe(validated.config);
   });
 
+  it("保持 JS 配置优先于 JSON 配置", async () => {
+    writeFileSync(join(tempDir, "x-oidc.config.js"), "export default { server: { port: 4300 } };");
+    writeFileSync(join(tempDir, "x-oidc.config.json"), JSON.stringify({ server: { port: 4400 } }));
+    mockValidateConfig.mockImplementation((config) => ({
+      valid: true,
+      warnings: [],
+      errors: [],
+      config,
+    }));
+
+    const { loadConfig } = await importConfigModule();
+    const result = await loadConfig();
+
+    expect(result.server.port).toBe(4300);
+  });
+
   it("旧版配置省略 admin 时默认关闭且不注入后台 callback", async () => {
     const jsonConfig = {
       clients: [
@@ -84,7 +100,7 @@ describe("loadConfig", () => {
         },
       ],
     };
-    writeFileSync(join(tempDir, "gitea-oidc.config.json"), JSON.stringify(jsonConfig));
+    writeFileSync(join(tempDir, "x-oidc.config.json"), JSON.stringify(jsonConfig));
     mockValidateConfig.mockImplementation((config) => ({
       valid: true,
       warnings: [],
@@ -98,7 +114,7 @@ describe("loadConfig", () => {
     expect(result.admin).toEqual({
       enabled: false,
       basePath: "/admin",
-      allowedGroups: ["gitea-oidc-admins"],
+      allowedGroups: ["x-oidc-admins"],
       sessionTtlSeconds: 3600,
     });
     expect(result.portal).toEqual({
@@ -162,7 +178,7 @@ describe("loadConfig", () => {
       server: { port: 4100 },
       logging: { level: 'warn' }
     });`;
-    writeFileSync(join(tempDir, "gitea-oidc.config.js"), jsConfig);
+    writeFileSync(join(tempDir, "x-oidc.config.js"), jsConfig);
     const validated = {
       valid: true,
       warnings: [],
@@ -185,7 +201,7 @@ describe("loadConfig", () => {
 
   it("throws when JS config fails to load", async () => {
     const jsConfig = 'throw new Error("boom")';
-    writeFileSync(join(tempDir, "gitea-oidc.config.js"), jsConfig);
+    writeFileSync(join(tempDir, "x-oidc.config.js"), jsConfig);
 
     const { loadConfig } = await importConfigModule();
 
@@ -194,7 +210,7 @@ describe("loadConfig", () => {
   });
 
   it("throws when JSON parsing fails", async () => {
-    writeFileSync(join(tempDir, "gitea-oidc.config.json"), '{"server": ');
+    writeFileSync(join(tempDir, "x-oidc.config.json"), '{"server": ');
 
     const { loadConfig } = await importConfigModule();
 
@@ -214,7 +230,7 @@ describe("loadConfig", () => {
         issuer: "https://oidc.example.com/oidc",
       },
     };
-    writeFileSync(join(tempDir, "gitea-oidc.config.json"), JSON.stringify(jsonConfig));
+    writeFileSync(join(tempDir, "x-oidc.config.json"), JSON.stringify(jsonConfig));
 
     const validated = {
       valid: true,
@@ -251,7 +267,7 @@ describe("loadConfig", () => {
 
   it("replaces default auth providers when a config explicitly provides providers", async () => {
     writeFileSync(
-      join(tempDir, "gitea-oidc.config.json"),
+      join(tempDir, "x-oidc.config.json"),
       JSON.stringify({
         auth: {
           providers: {
@@ -290,7 +306,7 @@ describe("loadConfig", () => {
         issuer: 'https://oidc.example.com/oidc'
       }
     };`;
-    writeFileSync(join(tempDir, "gitea-oidc.config.js"), jsConfig);
+    writeFileSync(join(tempDir, "x-oidc.config.js"), jsConfig);
 
     const validated = {
       valid: true,
@@ -331,7 +347,7 @@ describe("loadConfig", () => {
         url: "http://localhost:3000",
       },
     };
-    writeFileSync(join(tempDir, "gitea-oidc.config.json"), JSON.stringify(jsonConfig));
+    writeFileSync(join(tempDir, "x-oidc.config.json"), JSON.stringify(jsonConfig));
 
     const validated = {
       valid: true,
@@ -356,10 +372,7 @@ describe("loadConfig", () => {
   });
 
   it("throws when validation fails instead of terminating the host process", async () => {
-    writeFileSync(
-      join(tempDir, "gitea-oidc.config.json"),
-      JSON.stringify({ server: { port: 4001 } }),
-    );
+    writeFileSync(join(tempDir, "x-oidc.config.json"), JSON.stringify({ server: { port: 4001 } }));
     const invalidResult = {
       valid: false,
       errors: [{ path: "server", message: "invalid", code: "invalid_type" }],

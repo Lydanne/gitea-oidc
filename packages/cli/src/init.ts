@@ -4,13 +4,13 @@ import {
   type ApplicationConnectionV1,
   type ApplicationCredentialV1,
   safeParseApplicationCredentialV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import type { CliDependencies, CliFileSystem, SecureTextFile } from "./dependencies.js";
 import { CliError, hasErrorCode } from "./errors.js";
 
 const MAXIMUM_PACKAGE_JSON_BYTES = 1024 * 1024;
 const MAXIMUM_CREDENTIAL_FILE_BYTES = 16 * 1024;
-const ENV_FILE_NAME = ".env.gitea-oidc";
+const ENV_FILE_NAME = ".env.x-oidc";
 const FRAMEWORK_CALLBACK_PATH = "/oidc/callback";
 
 export type DetectedFramework = "nestjs" | "fastify" | "express" | "node";
@@ -31,10 +31,10 @@ interface PackageManifest {
 }
 
 const FRAMEWORK_PACKAGES: Record<DetectedFramework, string> = {
-  nestjs: "@gitea-oidc/nestjs",
-  fastify: "@gitea-oidc/fastify",
-  express: "@gitea-oidc/express",
-  node: "@gitea-oidc/node",
+  nestjs: "@x-oidc/nestjs",
+  fastify: "@x-oidc/fastify",
+  express: "@x-oidc/express",
+  node: "@x-oidc/node",
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -116,13 +116,13 @@ export const renderEnv = (
   redirectUri: string = connection.redirectUris[0],
 ): string => {
   const entries: Array<[string, string]> = [
-    ["GITEA_OIDC_ISSUER", connection.issuer],
-    ["GITEA_OIDC_CLIENT_ID", connection.clientId],
-    ["GITEA_OIDC_REDIRECT_URI", redirectUri],
-    ["GITEA_OIDC_SCOPES", connection.scopes.join(" ")],
+    ["X_OIDC_ISSUER", connection.issuer],
+    ["X_OIDC_CLIENT_ID", connection.clientId],
+    ["X_OIDC_REDIRECT_URI", redirectUri],
+    ["X_OIDC_SCOPES", connection.scopes.join(" ")],
   ];
   if (connection.clientType === "confidential") {
-    entries.push(["GITEA_OIDC_CLIENT_SECRET", clientSecret ?? "[REDACTED: 通过安全输入提供]"]);
+    entries.push(["X_OIDC_CLIENT_SECRET", clientSecret ?? "[REDACTED: 通过安全输入提供]"]);
   }
   return `# 仅供 dotenv 或 Node.js --env-file 读取；禁止使用 shell source\n${entries
     .map(([key, value]) => `${key}=${encodeEnvValue(value)}`)
@@ -143,7 +143,7 @@ export const createInitPlan = async (
   if (!redirectUri) {
     throw new CliError(
       `检测到 ${framework}，但 connection 未注册 ${FRAMEWORK_CALLBACK_PATH} 回调；` +
-        "请在管理系统为应用添加该回调，或改用 @gitea-oidc/node 自行适配路由",
+        "请在管理系统为应用添加该回调，或改用 @x-oidc/node 自行适配路由",
     );
   }
   return {
@@ -267,13 +267,13 @@ export const writeInitFile = async (
     isIgnored = await dependencies.gitIgnoreChecker.isIgnored(dependencies.cwd, plan.targetPath);
   } catch (error) {
     throw new CliError(
-      "无法确认 .env.gitea-oidc 是否被 Git 忽略，未读取 Secret；请先检查 Git 仓库和 .gitignore",
+      "无法确认 .env.x-oidc 是否被 Git 忽略，未读取 Secret；请先检查 Git 仓库和 .gitignore",
       { cause: error },
     );
   }
   if (!isIgnored) {
     throw new CliError(
-      "未读取 Secret：请先执行 printf '\\n.env.gitea-oidc\\n' >> .gitignore，然后重试 --write",
+      "未读取 Secret：请先执行 printf '\\n.env.x-oidc\\n' >> .gitignore，然后重试 --write",
     );
   }
 

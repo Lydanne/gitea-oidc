@@ -14,7 +14,7 @@ describe("ProviderApiService", () => {
     probeMock = vi.fn().mockResolvedValue("valid");
     tokenRepository = new MemoryProviderTokenRepository();
     service = new ProviderApiService({
-      adminGroups: ["gitea-oidc-admins"],
+      adminGroups: ["x-oidc-admins"],
       tokenRepository,
     });
     service.registerClient({
@@ -62,7 +62,7 @@ describe("ProviderApiService", () => {
     await service.request(
       "feishu",
       { method: "GET", path: "/contact/v3/users", tokenKind: "app", operation: "contact.user.get" },
-      { userId: "user-1", groups: ["gitea-oidc-admins"] },
+      { userId: "user-1", groups: ["x-oidc-admins"] },
     );
 
     expect(requestMock).toHaveBeenCalled();

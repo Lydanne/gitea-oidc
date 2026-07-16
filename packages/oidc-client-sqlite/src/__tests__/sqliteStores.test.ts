@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { LoginTransaction, SensitiveAuthSessionRecord } from "@gitea-oidc/node";
+import type { LoginTransaction, SensitiveAuthSessionRecord } from "@x-oidc/node";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSqliteOidcStores } from "../index.js";
@@ -62,7 +62,7 @@ const directories: string[] = [];
 const storesToClose: Array<ReturnType<typeof createSqliteOidcStores>> = [];
 
 const createDatabasePath = (): string => {
-  const directory = mkdtempSync(join(tmpdir(), "gitea-oidc-node-sqlite-"));
+  const directory = mkdtempSync(join(tmpdir(), "x-oidc-node-sqlite-"));
   directories.push(directory);
   return join(directory, "sessions.db");
 };

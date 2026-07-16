@@ -1,3 +1,5 @@
+import { HttpException, Injectable, type OnApplicationShutdown } from "@nestjs/common";
+import { HttpAdapterHost } from "@nestjs/core";
 import {
   connectorError,
   createConnectorRequestDrain,
@@ -5,10 +7,8 @@ import {
   type MappedConnectorError,
   mapConnectorError,
   type WebConnectorCore,
-} from "@gitea-oidc/connector-core";
-import { type AuthSessionView, NodeOidcError } from "@gitea-oidc/node";
-import { HttpException, Injectable, type OnApplicationShutdown } from "@nestjs/common";
-import { HttpAdapterHost } from "@nestjs/core";
+} from "@x-oidc/connector-core";
+import { type AuthSessionView, NodeOidcError } from "@x-oidc/node";
 import { createNestOidcRequestAuthContext } from "./requestAuth.js";
 import type { NestOidcModuleOptions } from "./types.js";
 

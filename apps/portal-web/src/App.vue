@@ -206,7 +206,7 @@ onMounted(() => {
     </main>
 
     <footer class="footer">
-      <span>Gitea OIDC</span>
+      <span>X OIDC</span>
       <span aria-hidden="true">·</span>
       <span>统一身份与应用入口</span>
     </footer>

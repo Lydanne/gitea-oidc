@@ -43,15 +43,15 @@ OIDC Adapter 保存授权码、Token、Grant、Session、撤销状态等协议�
 
 部署要求：
 
-- 只有一个 gitea-oidc 实例访问该文件。
+- 只有一个 X OIDC 实例访问该文件。
 - 使用本地持久化磁盘，不使用 NFS 或多个容器共享写入。
 - 数据目录权限建议为 `0700`，数据库和 JWKS 文件权限建议为 `0600`。
 - 备份时停止唯一实例并归档完整数据目录，或使用 SQLite Online Backup API。
 - 不要运行中只复制主 `.db` 文件而忽略 `-wal` 和 `-shm`。
 
 ```bash
-chmod 0700 /srv/gitea-oidc/data
-chmod 0600 /srv/gitea-oidc/data/*.db
+chmod 0700 /srv/x-oidc/data
+chmod 0600 /srv/x-oidc/data/*.db
 ```
 
 ## Redis Adapter
@@ -64,7 +64,7 @@ URL 方式：
     "type": "redis",
     "redis": {
       "url": "redis://:your-password@redis.example.internal:6379/0",
-      "keyPrefix": "gitea-oidc:oidc:"
+      "keyPrefix": "x-oidc:oidc:"
     }
   },
   "auth": {
@@ -72,7 +72,7 @@ URL 方式：
       "type": "redis",
       "redis": {
         "url": "redis://:your-password@redis.example.internal:6379/0",
-        "keyPrefix": "gitea-oidc:state:"
+        "keyPrefix": "x-oidc:state:"
       }
     }
   }
@@ -90,7 +90,7 @@ URL 方式：
       "port": 6379,
       "password": "your-password",
       "database": 0,
-      "keyPrefix": "gitea-oidc:oidc:"
+      "keyPrefix": "x-oidc:oidc:"
     }
   }
 }
@@ -105,7 +105,7 @@ URL 方式：
 | `port` | Redis 端口 | 客户端默认值 |
 | `password` | Redis 密码 | 无 |
 | `database` | Redis 数据库编号，`0` 到 `15` | `0` |
-| `keyPrefix` | 键前缀 | OIDC 为 `oidc:`，state 为 `gitea-oidc:state:` |
+| `keyPrefix` | 键前缀 | OIDC 为 `oidc:`，state 为 `x-oidc:state:` |
 
 生产要求：
 
@@ -134,7 +134,7 @@ URL 方式：
 ## 使用 JavaScript 配置和环境变量
 
 应用不会自动读取 `REDIS_URL`、`SQLITE_DB_PATH` 等环境变量。必须在
-`gitea-oidc.config.js` 中显式映射：
+`x-oidc.config.js` 中显式映射：
 
 ```javascript
 const requiredEnv = (name) => {
@@ -147,16 +147,16 @@ export default {
   adapter: {
     type: "redis",
     redis: {
-      url: requiredEnv("GITEA_OIDC_REDIS_URL"),
-      keyPrefix: "gitea-oidc:oidc:"
+      url: requiredEnv("X_OIDC_REDIS_URL"),
+      keyPrefix: "x-oidc:oidc:"
     }
   },
   auth: {
     stateStore: {
       type: "redis",
       redis: {
-        url: requiredEnv("GITEA_OIDC_REDIS_URL"),
-        keyPrefix: "gitea-oidc:state:"
+        url: requiredEnv("X_OIDC_REDIS_URL"),
+        keyPrefix: "x-oidc:state:"
       }
     }
   }
@@ -188,9 +188,9 @@ Refresh Token 和撤销记录不再可见，通常需要用户重新登录。
 确认服务用户对数据目录有读写和创建 WAL 文件的权限，同时避免让其他用户读取数据库：
 
 ```bash
-chown -R gitea-oidc:gitea-oidc /srv/gitea-oidc/data
-chmod 0700 /srv/gitea-oidc/data
-chmod 0600 /srv/gitea-oidc/data/*.db
+chown -R x-oidc:x-oidc /srv/x-oidc/data
+chmod 0700 /srv/x-oidc/data
+chmod 0600 /srv/x-oidc/data/*.db
 ```
 
 容器运行用户与宿主文件所有者不一致时，先确认镜像实际 UID/GID，再调整所有权。

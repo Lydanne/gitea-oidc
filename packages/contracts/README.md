@@ -1,6 +1,6 @@
-# `@gitea-oidc/contracts`
+# `@x-oidc/contracts`
 
-Gitea OIDC 应用控制面、Node SDK、框架连接器和管理端共用的公开 wire contract。
+X OIDC 应用控制面、Node SDK、框架连接器和管理端共用的公开 wire contract。
 该包只包含 TypeScript 类型、版本常量、Zod schema 和解析函数，不依赖服务端实现或数据库。
 
 ## 当前发布状态
@@ -10,7 +10,7 @@ Gitea OIDC 应用控制面、Node SDK、框架连接器和管理端共用的公�
 不要把下面命令写入生产项目。
 
 ```bash
-pnpm add @gitea-oidc/contracts zod
+pnpm add @x-oidc/contracts zod
 ```
 
 运行环境要求现代 Node.js `>=20.19.0`。包以 ESM 为事实源；该 Node 版本及更高版本也可以
@@ -18,7 +18,7 @@ pnpm add @gitea-oidc/contracts zod
 
 ## Monorepo 边界与构建顺序
 
-`@gitea-oidc/contracts` 是 wire contract 的唯一事实源，由以下 workspace 消费：
+`@x-oidc/contracts` 是 wire contract 的唯一事实源，由以下 workspace 消费：
 
 - `packages/applications`：在领域服务和仓储边界解析公开 DTO。
 - `apps/admin-web`：复用 schema 版本、请求和响应类型，不复制服务端类型。
@@ -37,8 +37,8 @@ pnpm build:admin
 根 `pnpm build` 已按依赖顺序编排。修改 contract 后至少运行：
 
 ```bash
-pnpm --filter @gitea-oidc/contracts test
-pnpm --filter @gitea-oidc/contracts test:pack
+pnpm --filter @x-oidc/contracts test
+pnpm --filter @x-oidc/contracts test:pack
 ```
 
 ## 连接描述与一次性凭据
@@ -50,7 +50,7 @@ pnpm --filter @gitea-oidc/contracts test:pack
 import {
   parseApplicationConnectionV1,
   type ApplicationCredentialV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 
 const connection = parseApplicationConnectionV1(await response.json());
 
@@ -83,7 +83,7 @@ connection 对象。明文 Secret 只能放在 `ApplicationCredentialV1` 或创�
 import {
   CUSTOM_APPLICATION_SCHEMA_VERSION,
   parseCreateCustomApplicationRequestV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 
 const request = parseCreateCustomApplicationRequestV1({
   schemaVersion: CUSTOM_APPLICATION_SCHEMA_VERSION,

@@ -255,7 +255,7 @@ describe("LocalAuthProvider", () => {
       userRepository.findByProviderAndExternalId.mockResolvedValue({
         sub: "user-1",
         groups: [
-          { id: "gitea-oidc-admins", name: "gitea-oidc-admins" },
+          { id: "x-oidc-admins", name: "x-oidc-admins" },
           { id: "team-a", name: "team-a" },
         ],
       });

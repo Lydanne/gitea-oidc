@@ -40,13 +40,13 @@ confidential Client Secret 无法解密；必须把密钥和应用数据库一�
 
 ## 配置应用管理
 
-推荐使用 `gitea-oidc.config.js` 从环境变量读取主密钥。把下面片段合并进完整生产配置：
+推荐使用 `x-oidc.config.js` 从环境变量读取主密钥。把下面片段合并进完整生产配置：
 
 ```javascript
-const applicationMasterKey = process.env.GITEA_OIDC_APPLICATION_MASTER_KEY;
+const applicationMasterKey = process.env.X_OIDC_APPLICATION_MASTER_KEY;
 
 if (!applicationMasterKey) {
-  throw new Error("缺少 GITEA_OIDC_APPLICATION_MASTER_KEY");
+  throw new Error("缺少 X_OIDC_APPLICATION_MASTER_KEY");
 }
 
 export default {
@@ -120,8 +120,8 @@ Client。
    Refresh Token。
 4. 提交前检查模板预览中的 Issuer、Redirect URI、Post Logout Redirect URI、scopes、PKCE 和
    结构化接入步骤。
-5. 下载 `*.gitea-oidc.connection.json`；它是可重复获取的公开接入描述，不包含任何 Secret。
-6. confidential Client 还要立即下载 `*.gitea-oidc.credential.json`，并把文件内容转存到业务应用的
+5. 下载 `*.x-oidc.connection.json`；它是可重复获取的公开接入描述，不包含任何 Secret。
+6. confidential Client 还要立即下载 `*.x-oidc.credential.json`，并把文件内容转存到业务应用的
    Secret Manager。
 7. 使用公开 connection 和一次性 credential 配置业务应用的 OIDC 客户端。
 
@@ -215,21 +215,21 @@ Secret；public Client 不使用 Client Secret。
 
 monorepo 当前提供以下私有预览包：
 
-- `@gitea-oidc/node`：框架无关的 Authorization Code + PKCE 核心，包含 discovery、state、nonce、
+- `@x-oidc/node`：框架无关的 Authorization Code + PKCE 核心，包含 discovery、state、nonce、
   transaction、Session、Refresh Token 并发控制和退出；
-- `@gitea-oidc/node-sqlite`：加密 SQLite transaction/session store 和跨进程 refresh lock；
-- `@gitea-oidc/express`：Express 4/5 固定路由、中间件和认证投影；
-- `@gitea-oidc/fastify`：Fastify 5 plugin、hook 和认证投影；
-- `@gitea-oidc/nestjs`：NestJS 10/11 动态模块、Guard 和参数装饰器，支持 Express/Fastify adapter；
-- `@gitea-oidc/cli`：connection 严格校验、脱敏打印、discovery 诊断和项目初始化。
+- `@x-oidc/node-sqlite`：加密 SQLite transaction/session store 和跨进程 refresh lock；
+- `@x-oidc/express`：Express 4/5 固定路由、中间件和认证投影；
+- `@x-oidc/fastify`：Fastify 5 plugin、hook 和认证投影；
+- `@x-oidc/nestjs`：NestJS 10/11 动态模块、Guard 和参数装饰器，支持 Express/Fastify adapter；
+- `@x-oidc/cli`：connection 严格校验、脱敏打印、discovery 诊断和项目初始化。
 
 业务应用只需要公开 connection 和与其四个绑定字段完全一致的一次性 credential，不需要管理 API
 权限。CLI 默认 dry-run，不读取 Secret、不写文件；`init --write` 只有在交互确认、目标 env 文件已
 被 Git 忽略且凭据输入满足安全约束时才写入 `0600` 文件。当前未实现 setup code，不能通过 CLI
 远程领取 Secret。
 
-生产代码使用 `@gitea-oidc/node` 时必须注入持久化 transaction/session store 和跨实例 refresh
-lock；单机部署可以直接使用 `@gitea-oidc/node-sqlite`。内存实现仅供单进程开发测试。框架连接器
+生产代码使用 `@x-oidc/node` 时必须注入持久化 transaction/session store 和跨实例 refresh
+lock；单机部署可以直接使用 `@x-oidc/node-sqlite`。内存实现仅供单进程开发测试。框架连接器
 固定暴露 `GET /oidc/login`、
 `GET /oidc/callback` 和同源 `POST /oidc/logout`，不会把 Access Token、Refresh Token、ID Token
 或内部 Session ID 投影到业务请求。
@@ -246,12 +246,12 @@ lock；单机部署可以直接使用 `@gitea-oidc/node-sqlite`。内存实现�
 Docker 部署应把所有持久化文件放到同一个受保护 volume，例如：
 
 ```bash
-docker run -d --name gitea-oidc -p 3000:3000 \
+docker run -d --name x-oidc -p 3000:3000 \
   -e NODE_ENV=production \
-  --env-file /srv/gitea-oidc/gitea-oidc.env \
-  -v /srv/gitea-oidc/data:/app/data \
-  -v /srv/gitea-oidc/gitea-oidc.config.js:/app/gitea-oidc.config.js:ro \
-  lydamirror/gitea-oidc:<version>
+  --env-file /srv/x-oidc/x-oidc.env \
+  -v /srv/x-oidc/data:/app/data \
+  -v /srv/x-oidc/x-oidc.config.js:/app/x-oidc.config.js:ro \
+  lydamirror/x-oidc:<version>
 ```
 
 生产环境使用已发布的固定版本号，不要使用 `latest`。完整 Compose 和上线流程见
@@ -278,9 +278,9 @@ docker run -d --name gitea-oidc -p 3000:3000 \
 最简单的一致性备份方式是先停止唯一实例，再归档整个数据 volume：
 
 ```bash
-docker stop gitea-oidc
-tar -C /srv/gitea-oidc/data -czf /srv/backup/gitea-oidc-data-YYYYMMDD.tar.gz .
-docker start gitea-oidc
+docker stop x-oidc
+tar -C /srv/x-oidc/data -czf /srv/backup/x-oidc-data-YYYYMMDD.tar.gz .
+docker start x-oidc
 ```
 
 运行中直接复制单个 `.db` 文件可能遗漏 WAL 中尚未 checkpoint 的事务。若业务不能停机，应使用

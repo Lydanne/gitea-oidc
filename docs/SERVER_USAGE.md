@@ -30,9 +30,9 @@ pnpm start
 ### 安装
 
 ```bash
-npm install gitea-oidc
+npm install @x-oidc/server-core
 # 或
-pnpm add gitea-oidc
+pnpm add @x-oidc/server-core
 ```
 
 ### 使用示例
@@ -40,10 +40,10 @@ pnpm add gitea-oidc
 #### 示例 1: 使用自定义配置
 
 ```typescript
-import { start } from 'gitea-oidc/server';
-import type { GiteaOidcConfig } from 'gitea-oidc/config';
+import { start } from '@x-oidc/server-core/server';
+import type { XOidcConfig } from '@x-oidc/server-core/config';
 
-const customConfig: GiteaOidcConfig = {
+const customConfig: XOidcConfig = {
   server: {
     host: '0.0.0.0',
     port: 4000,
@@ -121,7 +121,7 @@ const customConfig: GiteaOidcConfig = {
   admin: {
     enabled: true,
     basePath: '/admin',
-    allowedGroups: ['gitea-oidc-admins'],
+    allowedGroups: ['x-oidc-admins'],
     sessionTtlSeconds: 3600,
   },
   portal: {
@@ -168,11 +168,11 @@ console.log('OIDC 服务器已启动');
 #### 示例 2: 使用配置文件
 
 ```typescript
-import { start } from 'gitea-oidc/server';
+import { start } from '@x-oidc/server-core/server';
 
 // 不传入配置参数，会自动从以下位置加载配置：
-// 1. gitea-oidc.config.js (优先)
-// 2. gitea-oidc.config.json (备选)
+// 1. x-oidc.config.js (优先)
+// 2. x-oidc.config.json (备选)
 // 3. 没有配置文件时使用开发默认配置
 const app = await start();
 console.log('OIDC 服务器已启动');
@@ -183,12 +183,12 @@ console.log('OIDC 服务器已启动');
 #### 示例 3: 集成到现有 Express/Fastify 应用
 
 ```typescript
-import { start } from 'gitea-oidc/server';
-import type { GiteaOidcConfig } from 'gitea-oidc/config';
+import { start } from '@x-oidc/server-core/server';
+import type { XOidcConfig } from '@x-oidc/server-core/config';
 
 // 在你的应用中启动 OIDC 服务器
 async function setupOIDC() {
-  const config: Partial<GiteaOidcConfig> = {
+  const config: Partial<XOidcConfig> = {
     server: {
       host: '0.0.0.0',
       port: 3000,
@@ -200,7 +200,7 @@ async function setupOIDC() {
   };
 
   try {
-    const oidcApp = await start(config as GiteaOidcConfig);
+    const oidcApp = await start(config as XOidcConfig);
     console.log('✅ OIDC 服务器已启动');
     return oidcApp;
   } catch (error) {
@@ -217,7 +217,7 @@ setupOIDC();
 
 ### 完整配置接口
 
-请参考 `packages/server-core/src/config.ts` 中的 `GiteaOidcConfig` 接口定义，了解所有可配置选项。
+请参考 `packages/server-core/src/config.ts` 中的 `XOidcConfig` 接口定义，了解所有可配置选项。
 
 ### 关键配置项
 
@@ -280,8 +280,8 @@ process.on('SIGTERM', async () => {
 `groups` 是兼容 Gitea 的完整名称路径和 ID 路径字符串数组，`groups_tree` 保留完整层级。
 
 ```typescript
-import { userToClaims } from 'gitea-oidc';
-import type { UserInfo } from 'gitea-oidc';
+import { userToClaims } from '@x-oidc/server-core';
+import type { UserInfo } from '@x-oidc/server-core';
 
 const user: UserInfo = {
   id: '6a8706b9-c93d-4f4e-a5ad-6d5f0808df47',
@@ -367,7 +367,7 @@ const claims = userToClaims(user);
 
 ## 更多信息
 
-- [完整配置示例](../example.gitea-oidc.config.json)
+- [完整配置示例](../example.x-oidc.config.json)
 - [用户门户部署与使用指南](./USER_PORTAL.md)
 - [认证插件开发](./dev/PLUGIN_ROUTES_GUIDE.md)
 - [生产环境配置](./PRODUCTION_SETUP.md)

@@ -1,12 +1,12 @@
-# `@gitea-oidc/nestjs`
+# `@x-oidc/nestjs`
 
 面向 NestJS 10/11 的 OIDC 连接器。该包通过 Nest `HttpAdapterHost` 操作通用 HTTP 边界，运行时
 同时支持 `@nestjs/platform-express` 和 `@nestjs/platform-fastify`，不依赖
-`@gitea-oidc/express`，也不会在 Nest 层保存或解析 Token。
+`@x-oidc/express`，也不会在 Nest 层保存或解析 Token。
 
 ## 当前状态
 
-该包目前是 monorepo 内部预发布包，版本为 `0.0.0` 且保持 `private: true`。公开发布前会继续通过
+该包目前是 monorepo 内部预发布包，从 `2.0.0` 起与全部 workspace 包同步版本并保持 `private: true`。公开发布前会继续通过
 实际 tarball 验证 NestJS 10/11 的类型消费和两种 HTTP adapter 的运行时行为。
 
 ## 安装前提
@@ -14,7 +14,7 @@
 应用应安装 Nest 核心依赖和一种 HTTP adapter：
 
 ```bash
-pnpm add @gitea-oidc/nestjs @nestjs/common @nestjs/core reflect-metadata rxjs
+pnpm add @x-oidc/nestjs @nestjs/common @nestjs/core reflect-metadata rxjs
 pnpm add @nestjs/platform-express
 ```
 
@@ -32,7 +32,7 @@ pnpm add @nestjs/platform-fastify
 
 ```typescript
 import { Module } from "@nestjs/common";
-import { NestOidcModule } from "@gitea-oidc/nestjs";
+import { NestOidcModule } from "@x-oidc/nestjs";
 import { nodeOidcClient } from "./oidc-client.js";
 
 @Module({
@@ -93,7 +93,7 @@ import {
   NestOidcRequiredAuthGuard,
   OidcAuth,
   OptionalOidcAuth,
-} from "@gitea-oidc/nestjs";
+} from "@x-oidc/nestjs";
 
 @Controller("profile")
 export class ProfileController {
@@ -136,7 +136,7 @@ interceptor 中等待它。
 ## 验证
 
 ```bash
-pnpm --filter @gitea-oidc/nestjs test
-pnpm --filter @gitea-oidc/nestjs typecheck
-pnpm --filter @gitea-oidc/nestjs build
+pnpm --filter @x-oidc/nestjs test
+pnpm --filter @x-oidc/nestjs typecheck
+pnpm --filter @x-oidc/nestjs build
 ```

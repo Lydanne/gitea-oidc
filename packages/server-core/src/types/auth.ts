@@ -918,7 +918,7 @@ export interface LocalAuthConfig {
   /** 本地用户默认用户组 */
   defaultGroups?: string[];
 
-  /** 本地管理员用户名列表，命中后会附加 gitea-oidc-admins 组 */
+  /** 本地管理员用户名列表，命中后会附加 x-oidc-admins 组 */
   adminUsers?: string[];
 }
 

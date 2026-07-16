@@ -2,7 +2,7 @@ import {
   type ApplicationTemplateFormV1,
   type IntegrationGuideV1,
   IntegrationGuideV1Schema,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { z } from "zod";
 import { GiteaTemplateContextV1Schema } from "./giteaV1.js";
 import {

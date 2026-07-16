@@ -411,7 +411,7 @@ const downloadJson = (value: unknown, filename: string) => {
 };
 
 const connectionFilename = (application: ApplicationDetails["application"]) =>
-  `${application.slug || application.id}.gitea-oidc.connection.json`;
+  `${application.slug || application.id}.x-oidc.connection.json`;
 
 /** 公开 connection 可重复下载，响应中不包含任何凭据。 */
 const downloadApplicationConnection = async (details: ApplicationDetails) => {
@@ -460,7 +460,7 @@ const downloadCreatedCredential = () => {
   }
   downloadJson(
     result.credentialDelivery.credential,
-    `${result.application.slug || result.application.id}.gitea-oidc.credential.json`,
+    `${result.application.slug || result.application.id}.x-oidc.credential.json`,
   );
 };
 

@@ -44,7 +44,7 @@ export class ProviderTokenRepositoryFactory {
 
         const host = config.pgsql.host;
         const port = config.pgsql.port || 5432;
-        const database = config.pgsql.database || "gitea_oidc";
+        const database = config.pgsql.database || "x_oidc";
         const user = config.pgsql.user || "postgres";
         const password = config.pgsql.password ? `:${config.pgsql.password}` : "";
         return new PgsqlProviderTokenRepository(

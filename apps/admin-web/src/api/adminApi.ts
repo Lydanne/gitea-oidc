@@ -8,7 +8,7 @@ import {
   parseCreateTemplateApplicationOutcomeResponseV1,
   parseIntegrationGuideV1,
   parseRotateApplicationCredentialResponseV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { adminRuntimeConfig, toAdminPath } from "../runtimeConfig";
 import type {
   AdminSession,

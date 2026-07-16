@@ -9,7 +9,7 @@ import {
   resourceSchema,
   scopeSchema,
   uniqueStringArraySchema,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { z } from "zod";
 import { APPLICATION_TEMPLATE_SNAPSHOT_SCHEMA_VERSION } from "./types.js";
 

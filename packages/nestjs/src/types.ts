@@ -1,5 +1,5 @@
-import type { WebConnectorCoreOptions } from "@gitea-oidc/connector-core";
 import type { InjectionToken, ModuleMetadata } from "@nestjs/common";
+import type { WebConnectorCoreOptions } from "@x-oidc/connector-core";
 
 export type NestOidcModuleOptions = WebConnectorCoreOptions;
 

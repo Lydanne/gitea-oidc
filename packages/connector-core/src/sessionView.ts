@@ -1,4 +1,4 @@
-import type { AuthSessionView, AuthUserProfile } from "@gitea-oidc/node";
+import type { AuthSessionView, AuthUserProfile } from "@x-oidc/node";
 import { connectorError } from "./errors.js";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

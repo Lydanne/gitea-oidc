@@ -1,4 +1,4 @@
-import { safeParseIntegrationGuideV1 } from "@gitea-oidc/contracts";
+import { safeParseIntegrationGuideV1 } from "@x-oidc/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GITEA_CLIENT_ID_PLACEHOLDER,
@@ -134,8 +134,8 @@ describe("GiteaTemplateV1", () => {
     expect(cli).toContain("--provider openidConnect");
     expect(cli).toContain("--auto-discover-url");
     expect(cli).toContain("--scopes 'openid,profile,email'");
-    expect(cli).toContain('--key "$GITEA_OIDC_CLIENT_ID"');
-    expect(cli).toContain('--secret "$GITEA_OIDC_CLIENT_SECRET"');
+    expect(cli).toContain('--key "$X_OIDC_CLIENT_ID"');
+    expect(cli).toContain('--secret "$X_OIDC_CLIENT_SECRET"');
     expect(cli).not.toContain(GITEA_CLIENT_SECRET_PLACEHOLDER);
     expect(cli).not.toContain("real-client-id");
     expect(cli).not.toContain("real-client-secret");

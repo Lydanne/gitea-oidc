@@ -4,12 +4,12 @@ import {
   parseApplicationTemplateSnapshot,
   ResolvedApplicationTemplateSchema,
   type TemplateCatalog,
-} from "@gitea-oidc/application-templates";
+} from "@x-oidc/application-templates";
 import {
   APPLICATION_CREDENTIAL_SCHEMA_VERSION,
   ApplicationTemplatePreviewV1Schema,
   parsePortalApplicationListV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import type { ApplicationSecretEncryptor } from "./applicationSecretEncryptor.js";
 import {
   ApplicationConflictError,

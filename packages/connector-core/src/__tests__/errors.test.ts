@@ -1,4 +1,4 @@
-import { NodeOidcError } from "@gitea-oidc/node";
+import { NodeOidcError } from "@x-oidc/node";
 import { describe, expect, it } from "vitest";
 import { connectorError, mapConnectorError } from "../index.js";
 

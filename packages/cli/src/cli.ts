@@ -8,7 +8,7 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const MINIMUM_TIMEOUT_MS = 100;
 const MAXIMUM_TIMEOUT_MS = 120_000;
 
-const HELP = `用法：gitea-oidc <命令> [选项]
+const HELP = `用法：x-oidc <命令> [选项]
 
 命令：
   config validate <connection.json>
@@ -207,8 +207,8 @@ const executeCommand = async (command: Command, dependencies: CliDependencies): 
   dependencies.stdout.write(
     result === "written"
       ? connection.clientType === "confidential"
-        ? "已安全创建 .env.gitea-oidc（权限 0600）\n"
-        : "已创建 .env.gitea-oidc（不含 client secret）\n"
+        ? "已安全创建 .env.x-oidc（权限 0600）\n"
+        : "已创建 .env.x-oidc（不含 client secret）\n"
       : "已取消，未写入文件\n",
   );
 };

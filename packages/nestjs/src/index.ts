@@ -1,4 +1,4 @@
-export type { AuthSessionView } from "@gitea-oidc/node";
+export type { AuthSessionView } from "@x-oidc/node";
 export * from "./decorators.js";
 export * from "./guards.js";
 export * from "./module.js";

@@ -1,11 +1,11 @@
-# `@gitea-oidc/application-templates`
+# `@x-oidc/application-templates`
 
-Gitea OIDC 内置应用模板包。它负责校验产品输入、派生 OIDC Client 配置，并生成结构化接入说明；
+X OIDC 内置应用模板包。它负责校验产品输入、派生 OIDC Client 配置，并生成结构化接入说明；
 不访问网络、不读取数据库，也不接收或保存 Client Secret。
 
 ## 当前状态
 
-该包目前是 monorepo 内部包，版本为 `0.0.0` 且保持 `private: true`。`gitea@1` 和 `gitea@2`
+该包目前是 monorepo 内部包，从 `2.0.0` 起与全部 workspace 包同步版本并保持 `private: true`。`gitea@1` 和 `gitea@2`
 继续支持目标版本 `1.24`、`1.25` 和 `1.26`；`gitea@3` 专门支持 `1.27`。历史模板用于保持已有
 快照稳定，新建应用默认选择 `gitea@3`。
 
@@ -58,7 +58,7 @@ OIDC Provider 会精确匹配该地址，部署时必须确保 Gitea 对外 Base
 持久化引用必须包含模板版本。`getLatest()` 只适合创建向导选择当前版本，不能用于重新解析已有应用。
 
 ```typescript
-import { applicationTemplateCatalog } from "@gitea-oidc/application-templates";
+import { applicationTemplateCatalog } from "@x-oidc/application-templates";
 
 const result = applicationTemplateCatalog.resolve(
   { id: "gitea", version: 3 },
@@ -124,8 +124,8 @@ warning 和 steps 节点，不包含 HTML。说明同时覆盖 Gitea 管理后�
 gitea admin auth add-oauth \
   --name 'company-sso' \
   --provider openidConnect \
-  --key "$GITEA_OIDC_CLIENT_ID" \
-  --secret "$GITEA_OIDC_CLIENT_SECRET" \
+  --key "$X_OIDC_CLIENT_ID" \
+  --secret "$X_OIDC_CLIENT_SECRET" \
   --auto-discover-url 'https://id.example.com/oidc/.well-known/openid-configuration' \
   --scopes 'openid,profile,email'
 ```
@@ -138,7 +138,7 @@ gitea admin auth add-oauth \
 ## 验证
 
 ```bash
-pnpm --filter @gitea-oidc/application-templates typecheck
-pnpm --filter @gitea-oidc/application-templates test
-pnpm --filter @gitea-oidc/application-templates build
+pnpm --filter @x-oidc/application-templates typecheck
+pnpm --filter @x-oidc/application-templates test
+pnpm --filter @x-oidc/application-templates build
 ```

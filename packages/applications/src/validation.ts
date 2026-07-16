@@ -5,7 +5,7 @@ import {
   safeParseCreateCustomApplicationRequestV1,
   safeParseCreateTemplateApplicationRequestV1,
   safeParsePreviewApplicationTemplateRequestV1,
-} from "@gitea-oidc/contracts";
+} from "@x-oidc/contracts";
 import { ApplicationValidationError } from "./errors.js";
 import type {
   CreateCustomApplicationRequestV1,

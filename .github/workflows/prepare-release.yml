@@ -1,0 +1,164 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump inferred from commits or explicitly selected
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+          - prerelease
+          - stable
+      preid:
+        description: Optional prerelease channel; empty keeps the current channel or starts with rc
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release pull request
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout main with tags
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Plan version
+        id: plan
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+          RELEASE_PREID: ${{ inputs.preid }}
+        run: |
+          args=(--bump "$RELEASE_BUMP" --format github)
+          if [ "$RELEASE_BUMP" = "prerelease" ] && [ -n "$RELEASE_PREID" ]; then
+            args+=(--preid "$RELEASE_PREID")
+          fi
+          node scripts/release/plan-version.mjs "${args[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize plan
+        env:
+          CURRENT_VERSION: ${{ steps.plan.outputs.currentVersion }}
+          NEXT_VERSION: ${{ steps.plan.outputs.nextVersion }}
+          RELEASE_BUMP: ${{ steps.plan.outputs.bump }}
+          RELEASE_NEEDED: ${{ steps.plan.outputs.releaseNeeded }}
+          COMMIT_COUNT: ${{ steps.plan.outputs.commitCount }}
+        run: |
+          {
+            echo "## Release plan"
+            echo ""
+            echo "- Current version: $CURRENT_VERSION"
+            echo "- Selected bump: $RELEASE_BUMP"
+            echo "- Next version: $NEXT_VERSION"
+            echo "- Release needed: $RELEASE_NEEDED"
+            echo "- Analyzed commits: $COMMIT_COUNT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check existing release branch
+        if: steps.plan.outputs.releaseNeeded == 'true'
+        id: branch
+        env:
+          NEXT_VERSION: ${{ steps.plan.outputs.nextVersion }}
+        run: |
+          branch="release/v$NEXT_VERSION"
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure release commit identity
+        if: steps.plan.outputs.releaseNeeded == 'true' && steps.branch.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create release preparation commit
+        if: steps.plan.outputs.releaseNeeded == 'true' && steps.branch.outputs.exists == 'false'
+        env:
+          NEXT_VERSION: ${{ steps.plan.outputs.nextVersion }}
+        run: |
+          pnpm release:prepare "$NEXT_VERSION" --ci
+          pnpm release:version-check
+
+      - name: Verify and commit release scope
+        if: steps.plan.outputs.releaseNeeded == 'true' && steps.branch.outputs.exists == 'false'
+        env:
+          NEXT_VERSION: ${{ steps.plan.outputs.nextVersion }}
+        run: |
+          git status --porcelain=v1 | while IFS= read -r entry; do
+            file=${entry#???}
+            case "$file" in
+              CHANGELOG.md|apps/idp-server/package.json|packages/server-core/package.json) ;;
+              *) echo "Unexpected file in release commit: $file" >&2; exit 1 ;;
+            esac
+          done
+          git add -- CHANGELOG.md apps/idp-server/package.json packages/server-core/package.json
+          git commit --message "chore(server-core): 准备发布 v$NEXT_VERSION"
+          test "$(git status --porcelain)" = ""
+
+      - name: Push release branch
+        if: steps.plan.outputs.releaseNeeded == 'true' && steps.branch.outputs.exists == 'false'
+        env:
+          RELEASE_BRANCH: ${{ steps.branch.outputs.name }}
+        run: |
+          git switch -c "$RELEASE_BRANCH"
+          git push origin "HEAD:refs/heads/$RELEASE_BRANCH"
+
+      - name: Ensure release pull request and CI
+        if: steps.plan.outputs.releaseNeeded == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_VERSION: ${{ steps.plan.outputs.nextVersion }}
+          RELEASE_BRANCH: ${{ steps.branch.outputs.name }}
+        run: |
+          pr_url=$(gh pr list \
+            --base main \
+            --head "$RELEASE_BRANCH" \
+            --state open \
+            --json url \
+            --jq '.[0].url // ""')
+          if [ -z "$pr_url" ]; then
+            pr_url=$(gh pr create \
+              --base main \
+              --head "$RELEASE_BRANCH" \
+              --title "chore(server-core): 准备发布 v$NEXT_VERSION" \
+              --body "自动生成版本、更新变更日志并同步运行入口版本。合并后由 release.yml 发布不可变产物。")
+          fi
+          echo "Release pull request: $pr_url"
+          gh workflow run ci-check.yml --ref "$RELEASE_BRANCH"
+
+      - name: Report no release
+        if: steps.plan.outputs.releaseNeeded != 'true'
+        run: echo "No releasable Conventional Commit was found after the base tag."

@@ -68,7 +68,8 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     fi
 fi
 
-HTPASSWD_FILE="${PROJECT_ROOT}/.htpasswd"
+HTPASSWD_FILE="${PROJECT_ROOT}/tests/data/docker-test.htpasswd"
+node "${PROJECT_ROOT}/tests/create-test-htpasswd.mjs" "${HTPASSWD_FILE}"
 # 停止并删除已存在的容器
 if docker ps -a --format 'table {{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo -e "${YELLOW}🛑 停止并删除已存在的容器...${NC}"
@@ -95,10 +96,10 @@ fi
 # 运行容器
 docker run -d \
     --name "${CONTAINER_NAME}" \
+    -e NODE_ENV=development \
     -p "${HOST_PORT}:${CONTAINER_PORT}" \
-    -v "${CONFIG_FILE}:${CONTAINER_CONFIG_FILE}" \
-    -v "${HTPASSWD_FILE}:/app/.htpasswd" \
-    -v "${PROJECT_ROOT}/gitea-server/data:/app/gitea-server/data" \
+    -v "${CONFIG_FILE}:${CONTAINER_CONFIG_FILE}:ro" \
+    -v "${HTPASSWD_FILE}:/app/.htpasswd:ro" \
     --restart unless-stopped \
     "${FULL_IMAGE_NAME}"
 

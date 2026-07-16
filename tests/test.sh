@@ -103,7 +103,7 @@ fi
 
 # 检查 HTTP 响应
 echo -e "${YELLOW}测试 HTTP 响应...${NC}"
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${HOST_PORT}/" || echo "000")
+HTTP_STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" "http://localhost:${HOST_PORT}/" || echo "000")
 
 if [ "${HTTP_STATUS}" != "200" ]; then
     echo -e "${RED}❌ HTTP 响应码: ${HTTP_STATUS} (期望: 200)${NC}"

@@ -170,9 +170,20 @@ Temporary Items
 gitea-oidc.config.*
 .pnpm-store
 tests/data
+.htpasswd
+*.htpasswd
+artifacts/
+gitea-server/data/
+gitea-server/config/*
+!gitea-server/config/.gitkeep
 
 # SQLite / OIDC 持久化文件（包含敏感数据或加密会话索引）
 jwks.json
+**/*jwks*.json
+*.pem
+*.key
+*.p12
+*.pfx
 *.db
 *.db-shm
 *.db-wal

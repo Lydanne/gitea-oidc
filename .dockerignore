@@ -1,10 +1,62 @@
-.htpasswd
-gitea-oidc.config.js
-gitea-oidc.config.json
+# Version control and editor state
 .git
+.github
+.vscode
+.idea
+.DS_Store
+Dockerfile
+.dockerignore
+
+# Package managers and generated output
 **/node_modules
 **/dist
 **/coverage
-*.db
-*.db-shm
-*.db-wal
+.pnpm-store
+.npm
+.yarn
+.cache
+*.tgz
+
+# Local configuration and credentials
+**/.env
+**/.env.*
+**/.npmrc
+**/.htpasswd
+**/*.htpasswd
+**/.pgpass
+**/.my.cnf
+gitea-oidc.config.js
+gitea-oidc.config.json
+
+# OIDC signing material and private keys
+**/*jwks*.json
+**/*.pem
+**/*.key
+**/*.rsa
+**/*.p12
+**/*.pfx
+**/id_rsa
+**/id_rsa.*
+**/id_ed25519
+**/id_ed25519.*
+
+# Databases, journals, queues, and local runtime data
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*
+**/*-journal
+**/*.bolt
+**/*.ldb
+gitea-server/data
+gitea-server/config
+tests/data
+
+# Logs and transient runtime files
+**/*.log
+**/*.pid
+**/*.seed
+**/*.lock
+report.*.json

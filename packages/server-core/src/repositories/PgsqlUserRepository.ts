@@ -5,6 +5,7 @@ import type {
   UserDeleteResult,
   UserFindOrCreateResult,
   UserInfo,
+  UserListCountOptions,
   UserRepository,
   UserUpdateResult,
 } from "../types/auth.js";
@@ -369,29 +370,18 @@ export class PgsqlUserRepository implements UserRepository {
   async list(options?: ListOptions): Promise<UserInfo[]> {
     const listOptions = normalizeUserListOptions(options);
     await this.ready;
-    let sql = "SELECT * FROM users";
-    const params: any[] = [];
-    let paramIndex = 1;
+    const where = buildPgsqlUserWhere(listOptions);
+    let sql = `SELECT * FROM users${where.sql}`;
+    const params = [...where.params];
+    let paramIndex = params.length + 1;
 
-    // 过滤
-    const conditions: string[] = [];
-    if (listOptions.filter) {
-      for (const [key, value] of Object.entries(listOptions.filter)) {
-        const columnName = key === "authProvider" ? '"authProvider"' : key;
-        conditions.push(`${columnName} = $${paramIndex++}`);
-        params.push(value);
-      }
-    }
-
-    if (conditions.length > 0) {
-      sql += ` WHERE ${conditions.join(" AND ")}`;
-    }
-
-    // 排序
+    // 排序；分页必须使用唯一的 sub 作为次排序键，避免重复值导致跨页漂移。
     if (listOptions.sortBy) {
       const sortBy = getUserListSortColumn(listOptions.sortBy);
       const sortOrder = listOptions.sortOrder === "desc" ? "DESC" : "ASC";
-      sql += ` ORDER BY ${sortBy} ${sortOrder}`;
+      sql += ` ORDER BY ${sortBy} ${sortOrder} NULLS LAST, sub ASC`;
+    } else if (listOptions.offset !== undefined || listOptions.limit !== undefined) {
+      sql += " ORDER BY sub ASC";
     }
 
     // 分页
@@ -408,6 +398,22 @@ export class PgsqlUserRepository implements UserRepository {
     try {
       const result = await client.query(sql, params);
       return result.rows.map((row) => this.userFromRow(row));
+    } finally {
+      client.release();
+    }
+  }
+
+  async count(options?: UserListCountOptions): Promise<number> {
+    const listOptions = normalizeUserListOptions(options);
+    await this.ready;
+    const where = buildPgsqlUserWhere(listOptions);
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM users${where.sql}`,
+        where.params,
+      );
+      return Number.parseInt(result.rows[0].count, 10);
     } finally {
       client.release();
     }
@@ -529,4 +535,35 @@ export class PgsqlUserRepository implements UserRepository {
       throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
     }
   }
+}
+
+function buildPgsqlUserWhere(options: ListOptions): {
+  sql: string;
+  params: Array<string | number>;
+} {
+  const conditions: string[] = [];
+  const params: Array<string | number> = [];
+
+  if (options.search) {
+    params.push(options.search);
+    const placeholder = `$${params.length}`;
+    conditions.push(`(
+      POSITION(LOWER(${placeholder}) IN LOWER(sub)) > 0 OR
+      POSITION(LOWER(${placeholder}) IN LOWER(username)) > 0 OR
+      POSITION(LOWER(${placeholder}) IN LOWER(name)) > 0 OR
+      POSITION(LOWER(${placeholder}) IN LOWER(email)) > 0 OR
+      POSITION(LOWER(${placeholder}) IN LOWER("authProvider")) > 0
+    )`);
+  }
+
+  for (const [key, value] of Object.entries(options.filter ?? {})) {
+    const columnName = key === "authProvider" ? '"authProvider"' : key;
+    params.push(value);
+    conditions.push(`${columnName} = $${params.length}`);
+  }
+
+  return {
+    sql: conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "",
+    params,
+  };
 }

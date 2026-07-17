@@ -133,7 +133,7 @@ ApplicationRepository 扩展为多实例。相关约束见[应用管理接入指
 ```http
 POST /portal/logout HTTP/1.1
 Content-Type: application/json
-X-Gitea-OIDC-Portal-Action: logout
+x-oidc-portal-action: logout
 Origin: https://id.example.com
 
 {}

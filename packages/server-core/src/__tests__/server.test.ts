@@ -702,6 +702,37 @@ describe("server dynamic applications", () => {
 });
 
 describe("server resource cleanup", () => {
+  it("rejects oversized interaction login bodies before authentication", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-login-body-limit-"));
+    const config = createValidRuntimeConfig();
+    config.logging.enabled = false;
+    config.auth.userRepository = { type: "memory", memory: {} };
+    config.auth.providers.local.enabled = false;
+    config.providerApi.enabled = false;
+    config.admin.enabled = false;
+    config.adapter = { type: "memory" };
+    config.jwks = { filePath: join(tempDir, "jwks.json"), keyId: "test-key" };
+    const app = await createIdentityServer(config, { publicDir: "public" });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/interaction/not-a-real-interaction/login",
+        payload: new URLSearchParams({
+          authMethod: "local",
+          username: "alice",
+          password: "x".repeat(9 * 1024),
+        }).toString(),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+
+      expect(response.statusCode).toBe(413);
+    } finally {
+      await app.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it("serves admin assets from a custom basePath", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-admin-base-path-"));
     const config = createValidRuntimeConfig();

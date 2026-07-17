@@ -5,7 +5,11 @@
  * BFF Session Cookie，OIDC access token 仅在回调中完成身份校验，不会返回前端或持久化。
  */
 
-import { type PortalApplicationListV1, parsePortalApplicationListV1 } from "@x-oidc/contracts";
+import {
+  PORTAL_ACTION_HEADER,
+  type PortalApplicationListV1,
+  parsePortalApplicationListV1,
+} from "@x-oidc/contracts";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { readFileSync } from "fs";
@@ -35,7 +39,6 @@ import { userHasAnyGroup } from "../utils/userGroups.js";
 
 const PORTAL_COOKIE_NAME = "x_oidc_portal_session";
 const PORTAL_LOGIN_COOKIE_NAME = "x_oidc_portal_login";
-const PORTAL_ACTION_HEADER = "x-oidc-portal-action";
 interface HeaderTarget {
   header?: (name: string, value: string) => unknown;
   setHeader?: (name: string, value: string) => unknown;

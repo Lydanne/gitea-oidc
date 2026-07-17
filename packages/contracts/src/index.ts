@@ -6,6 +6,7 @@ export * from "./credentialRotation.js";
 export * from "./customApplication.js";
 export * from "./integrationGuide.js";
 export * from "./portalApplication.js";
+export * from "./requestHeaders.js";
 export {
   clientIdSchema,
   issuerUrlSchema,

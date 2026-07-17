@@ -144,7 +144,7 @@ Provider API 代理。
   安全响应头；OAuth 登录按钮只接受 HTTP(S) 或站内绝对路径 URL，Provider 返回的 raw HTML
   片段仍按可信插件代码处理。
 - 使用后台 cookie session 的写接口会校验同源 `Origin`/`Referer`、JSON
-  `Content-Type` 和 `X-Gitea-OIDC-Admin-Action: 1` 请求头。
+  `Content-Type` 和 `x-oidc-admin-action: 1` 请求头。
 - 后台用户 API 只返回管理台需要的账号字段，不返回 `metadata` 或 `providerProfile.raw`
   等 Provider 原始档案。
 - 审计日志只保存事件摘要。用户更新只记录发生变化的字段名和状态迁移，不保存字段新旧值、密码、
@@ -195,21 +195,27 @@ Provider API 代理。
 ]
 ```
 
-管理 API 只接受对象树，传入旧版 `string[]` 会返回 `400`。响应中的 `groups` 也始终为
-对象树；权限匹配同时识别节点的 `id` 和 `name`。
+管理 API 只接受对象树，传入 `string[]` 会返回 `400`。响应中的 `groups` 也始终为对象树。
+`admin.allowedGroups` 只匹配从根节点到目标节点的完整 ID 路径或完整名称路径，例如
+`engineering/backend` 或 `研发中心/后端组`；裸写子节点 `backend` 不会匹配。路径段内的 `%`
+和 `/` 分别转义为 `%25` 和 `%2F`，配置时必须使用转义后的完整路径。
 
 用户表还会保存一个自动生成的 UUID `id`。该字段目前仅用于内部持久化，不替代 OIDC
 `sub`，也不会出现在管理 API 响应或 OIDC Claim 中。
 
 `GET /admin/api/users` 支持以下查询参数：
 
+- 模糊搜索：`search` 最长 200 个字符，不区分大小写匹配用户 `sub`、用户名、姓名、邮箱和
+  `authProvider`。
 - 过滤字段：`username`、`name`、`email`、`authProvider`、`status`。
-- 排序字段：`sortBy=username|name|email|authProvider|status|createdAt|updatedAt`。
+- 排序字段：`sortBy=username|name|email|authProvider|status|createdAt|updatedAt|lastLoginAt`。
 - 排序方向：`sortOrder=asc|desc`。
 - 分页字段：`offset` 为非负整数，`limit` 为 `1` 到 `500` 的整数；未传 `limit`
   时默认返回前 100 条。
 
-其它查询字段会返回 `400`。后台不会把任意 `sortBy` 或过滤字段透传给数据库。
+成功响应为 `{ "items": AdminUser[], "total": number, "allTotal": number }`。`total` 是应用搜索和
+过滤条件后、分页前的用户总数，`allTotal` 是不应用这些条件的全部用户总数。其它查询字段会返回
+`400`。后台不会把任意 `sortBy` 或过滤字段透传给数据库。
 
 ## 审计日志
 

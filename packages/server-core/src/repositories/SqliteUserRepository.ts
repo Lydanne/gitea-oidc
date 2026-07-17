@@ -10,6 +10,7 @@ import type {
   UserDeleteResult,
   UserFindOrCreateResult,
   UserInfo,
+  UserListCountOptions,
   UserRepository,
   UserUpdateResult,
 } from "../types/auth.js";
@@ -378,28 +379,17 @@ export class SqliteUserRepository implements UserRepository {
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
     const listOptions = normalizeUserListOptions(options);
-    let sql = "SELECT * FROM users";
-    const params: any[] = [];
+    const where = buildSqliteUserWhere(listOptions);
+    let sql = `SELECT * FROM users${where.sql}`;
+    const params = [...where.params];
 
-    // 过滤
-    const conditions: string[] = [];
-    if (listOptions.filter) {
-      for (const [key, value] of Object.entries(listOptions.filter)) {
-        const columnName = key === "authProvider" ? '"authProvider"' : key;
-        conditions.push(`${columnName} = ?`);
-        params.push(value);
-      }
-    }
-
-    if (conditions.length > 0) {
-      sql += ` WHERE ${conditions.join(" AND ")}`;
-    }
-
-    // 排序
+    // 排序；分页必须使用唯一的 sub 作为次排序键，避免重复值导致跨页漂移。
     if (listOptions.sortBy) {
       const sortBy = getUserListSortColumn(listOptions.sortBy);
       const sortOrder = listOptions.sortOrder === "desc" ? "DESC" : "ASC";
-      sql += ` ORDER BY ${sortBy} ${sortOrder}`;
+      sql += ` ORDER BY (${sortBy} IS NULL) ASC, ${sortBy} ${sortOrder}, sub ASC`;
+    } else if (listOptions.offset !== undefined || listOptions.limit !== undefined) {
+      sql += " ORDER BY sub ASC";
     }
 
     // 分页
@@ -413,6 +403,15 @@ export class SqliteUserRepository implements UserRepository {
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as any[];
     return rows.map((row) => this.userFromRow(row));
+  }
+
+  async count(options?: UserListCountOptions): Promise<number> {
+    const listOptions = normalizeUserListOptions(options);
+    const where = buildSqliteUserWhere(listOptions);
+    const row = this.db
+      .prepare(`SELECT COUNT(*) as count FROM users${where.sql}`)
+      .get(...where.params) as { count: number };
+    return row.count;
   }
 
   async clear(): Promise<void> {
@@ -453,4 +452,34 @@ export class SqliteUserRepository implements UserRepository {
       throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
     }
   }
+}
+
+function buildSqliteUserWhere(options: ListOptions): {
+  sql: string;
+  params: Array<string | number>;
+} {
+  const conditions: string[] = [];
+  const params: Array<string | number> = [];
+
+  if (options.search) {
+    conditions.push(`(
+      instr(lower(sub), lower(?)) > 0 OR
+      instr(lower(username), lower(?)) > 0 OR
+      instr(lower(name), lower(?)) > 0 OR
+      instr(lower(email), lower(?)) > 0 OR
+      instr(lower("authProvider"), lower(?)) > 0
+    )`);
+    params.push(options.search, options.search, options.search, options.search, options.search);
+  }
+
+  for (const [key, value] of Object.entries(options.filter ?? {})) {
+    const columnName = key === "authProvider" ? '"authProvider"' : key;
+    conditions.push(`${columnName} = ?`);
+    params.push(value);
+  }
+
+  return {
+    sql: conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "",
+    params,
+  };
 }

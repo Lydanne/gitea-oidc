@@ -43,8 +43,8 @@ export function flattenUserGroups(groups: unknown): string[] {
   const values = new Set<string>();
   const visit = (nodes: UserGroup[], idPath: string[], namePath: string[]) => {
     for (const node of nodes) {
-      const nextIdPath = [...idPath, node.id];
-      const nextNamePath = [...namePath, node.name];
+      const nextIdPath = [...idPath, escapeUserGroupPathSegment(node.id)];
+      const nextNamePath = [...namePath, escapeUserGroupPathSegment(node.name)];
       values.add(nextNamePath.join("/"));
       values.add(nextIdPath.join("/"));
       if (node.children) visit(node.children, nextIdPath, nextNamePath);
@@ -57,16 +57,16 @@ export function flattenUserGroups(groups: unknown): string[] {
 /**
  * 判断用户组树是否命中任一权限分组。
  *
- * 权限配置既可以使用新的完整路径，也继续支持单节点 ID 或名称。
+ * 权限配置必须使用完整的 ID 或名称路径，避免不同组织的同名子节点越权。
  */
 export function userHasAnyGroup(groups: unknown, expected: Iterable<string>): boolean {
   const allowed = new Set(Array.from(expected));
   return userGroupPermissionValues(groups).some((value) => allowed.has(value));
 }
 
-/** 返回权限判断使用的完整路径和单节点兼容值。 */
+/** 返回权限判断和 Provider API Claims 使用的完整 ID、名称路径。 */
 export function userGroupPermissionValues(groups: unknown): string[] {
-  return Array.from(new Set([...flattenUserGroups(groups), ...collectUserGroupNodeValues(groups)]));
+  return flattenUserGroups(groups);
 }
 
 /** 移除命中指定 ID 或名称的节点；被移除节点的子节点会提升到当前层级。 */
@@ -145,15 +145,7 @@ function readNonEmptyString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-function collectUserGroupNodeValues(groups: unknown): string[] {
-  const values = new Set<string>();
-  const visit = (nodes: UserGroup[]) => {
-    for (const node of nodes) {
-      values.add(node.id);
-      values.add(node.name);
-      if (node.children) visit(node.children);
-    }
-  };
-  visit(normalizeUserGroups(groups));
-  return Array.from(values);
+/** 转义路径分隔符和转义符，确保任意两个原始节点值不会形成相同路径。 */
+function escapeUserGroupPathSegment(value: string): string {
+  return value.replaceAll("%", "%25").replaceAll("/", "%2F");
 }

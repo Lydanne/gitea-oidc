@@ -1,4 +1,5 @@
 import {
+  ADMIN_ACTION_HEADER,
   ApplicationTemplatePreviewV1Schema,
   ApplicationTemplateSummaryV1Schema,
   parseApplicationConnectionV1,
@@ -13,6 +14,8 @@ import { adminRuntimeConfig, toAdminPath } from "../runtimeConfig";
 import type {
   AdminSession,
   AdminUser,
+  AdminUserListQuery,
+  AdminUserPage,
   AdminUserPayload,
   AuditLogFilters,
   AuditLogPage,
@@ -27,7 +30,6 @@ import type {
 
 /** 管理台 API 基础路径。 */
 const adminApiBase = `${adminRuntimeConfig.basePath}/api`;
-const adminActionHeader = "X-Gitea-OIDC-Admin-Action";
 
 /** 统一处理后台 API 请求、登录跳转和错误文本。 */
 export const adminApiRequest = async <T>(
@@ -40,7 +42,7 @@ export const adminApiRequest = async <T>(
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(method === "GET" ? {} : { [adminActionHeader]: "1" }),
+      ...(method === "GET" ? {} : { [ADMIN_ACTION_HEADER]: "1" }),
       ...(options.headers ?? {}),
     },
   });
@@ -65,8 +67,15 @@ export const adminApiRequest = async <T>(
 /** 获取当前后台会话用户。 */
 export const fetchAdminSession = () => adminApiRequest<AdminSession>("/me");
 
-/** 获取后台用户列表。 */
-export const fetchAdminUsers = () => adminApiRequest<AdminUser[]>("/users");
+/** 按搜索、状态、排序和分页条件获取后台用户列表。 */
+export const fetchAdminUsers = (filters: AdminUserListQuery = {}) => {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return adminApiRequest<AdminUserPage>(`/users${suffix}`);
+};
 
 /** 按用户、事件、结果和时间范围查询审计日志。 */
 export const fetchAuditLogs = (filters: AuditLogFilters = {}) => {

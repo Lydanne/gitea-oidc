@@ -665,6 +665,11 @@ export interface UserRepository {
   list(options?: ListOptions): Promise<UserInfo[]>;
 
   /**
+   * 统计符合过滤和搜索条件的用户数量
+   */
+  count(options?: UserListCountOptions): Promise<number>;
+
+  /**
    * 清空所有用户（仅用于测试）
    */
   clear?(): Promise<void>;
@@ -703,7 +708,13 @@ export interface ListOptions {
 
   /** 过滤条件 */
   filter?: Record<string, any>;
+
+  /** 跨用户标识、名称、邮箱和认证 Provider 的模糊搜索 */
+  search?: string;
 }
+
+/** 用户列表总数仅受过滤和搜索条件影响。 */
+export type UserListCountOptions = Pick<ListOptions, "filter" | "search">;
 
 /**
  * OAuth State 数据

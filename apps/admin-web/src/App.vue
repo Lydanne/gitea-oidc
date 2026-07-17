@@ -15,8 +15,18 @@ const route = useRoute();
 const dashboard = useAdminDashboard();
 provideAdminDashboard(dashboard);
 
-const { loading, refreshing, error, me, users, providers, tokens, applicationsEnabled, loadAll } =
-  dashboard;
+const {
+  loading,
+  refreshing,
+  error,
+  me,
+  users,
+  userTotal,
+  providers,
+  tokens,
+  applicationsEnabled,
+  loadAll,
+} = dashboard;
 
 /** 当前路由标题。 */
 const currentTitle = computed(() => String(route.meta.title ?? "账号管理"));
@@ -72,7 +82,12 @@ onMounted(() => {
       {{ error }}
     </Message>
 
-    <DashboardStats :users="users" :providers="providers" :tokens="tokens" />
+    <DashboardStats
+      :users="users"
+      :user-total="userTotal"
+      :providers="providers"
+      :tokens="tokens"
+    />
 
     <RouterView />
   </AppShell>

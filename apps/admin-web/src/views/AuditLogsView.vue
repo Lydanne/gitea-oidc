@@ -6,16 +6,23 @@ import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import Toolbar from "primevue/toolbar";
 import { useToast } from "primevue/usetoast";
-import { computed, onMounted, ref, watch } from "vue";
-import { fetchAuditLogs } from "../api/adminApi";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { fetchAdminUsers, fetchAuditLogs } from "../api/adminApi";
 import StatusTag from "../components/StatusTag.vue";
 import { useAdminDashboardContext } from "../composables/adminDashboardContext";
-import type { AuditEventType, AuditLogFilters, AuditLogRecord, AuditOutcome } from "../types/admin";
+import type {
+  AdminUser,
+  AuditEventType,
+  AuditLogFilters,
+  AuditLogRecord,
+  AuditOutcome,
+} from "../types/admin";
 import { formatDate, getUserDisplayName } from "../utils/format";
 
 const toast = useToast();
-const { users, refreshing, setError } = useAdminDashboardContext();
+const { refreshing, setError } = useAdminDashboardContext();
 const logs = ref<AuditLogRecord[]>([]);
+const auditUsers = ref<AdminUser[]>([]);
 const total = ref(0);
 const loading = ref(false);
 const first = ref(0);
@@ -42,14 +49,14 @@ const outcomeOptions: Array<{ label: string; value: AuditOutcome }> = [
 ];
 
 const userOptions = computed(() =>
-  users.value.map((user) => ({
+  auditUsers.value.map((user) => ({
     label: `${getUserDisplayName(user)} (${user.sub})`,
     value: user.sub,
   })),
 );
 
 const userNames = computed(
-  () => new Map(users.value.map((user) => [user.sub, getUserDisplayName(user)])),
+  () => new Map(auditUsers.value.map((user) => [user.sub, getUserDisplayName(user)])),
 );
 
 const eventLabels = new Map(eventOptions.map((option) => [option.value, option.label]));
@@ -79,6 +86,30 @@ const loadLogs = async () => {
   }
 };
 
+let userOptionRequestSequence = 0;
+let userOptionTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** 审计筛选维护独立的服务端用户候选，不复用用户管理页的当前分页。 */
+const loadAuditUserOptions = async () => {
+  const requestSequence = ++userOptionRequestSequence;
+  try {
+    const page = await fetchAdminUsers({
+      search: userId.value.trim() || undefined,
+      sortBy: "username",
+      sortOrder: "asc",
+      offset: 0,
+      limit: 20,
+    });
+    if (requestSequence === userOptionRequestSequence) {
+      auditUsers.value = page?.items ?? [];
+    }
+  } catch {
+    if (requestSequence === userOptionRequestSequence) {
+      auditUsers.value = [];
+    }
+  }
+};
+
 const applyFilters = async () => {
   first.value = 0;
   await loadLogs();
@@ -105,7 +136,20 @@ const displayUser = (log: AuditLogRecord) =>
 const displayActor = (log: AuditLogRecord) =>
   (log.actorUserId ? userNames.value.get(log.actorUserId) : undefined) || log.actorUserId || "-";
 
-onMounted(loadLogs);
+watch(userId, () => {
+  if (userOptionTimer) clearTimeout(userOptionTimer);
+  userOptionTimer = setTimeout(() => {
+    void loadAuditUserOptions();
+  }, 250);
+});
+
+onMounted(() => {
+  void loadLogs();
+  void loadAuditUserOptions();
+});
+onBeforeUnmount(() => {
+  if (userOptionTimer) clearTimeout(userOptionTimer);
+});
 
 let refreshRequested = false;
 watch(refreshing, (value) => {

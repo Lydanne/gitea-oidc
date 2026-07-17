@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Button from "primevue/button";
 import Column from "primevue/column";
-import DataTable from "primevue/datatable";
+import DataTable, { type DataTablePageEvent, type DataTableSortEvent } from "primevue/datatable";
 import Dialog from "primevue/dialog";
 import IconField from "primevue/iconfield";
 import InputIcon from "primevue/inputicon";
@@ -10,12 +10,18 @@ import Select from "primevue/select";
 import Toolbar from "primevue/toolbar";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import StatusTag from "../components/StatusTag.vue";
 import UserDetailList from "../components/UserDetailList.vue";
 import UserFormFields from "../components/UserFormFields.vue";
 import { useAdminDashboardContext } from "../composables/adminDashboardContext";
-import type { AdminUser, UserForm, UserStatus } from "../types/admin";
+import type {
+  AdminUser,
+  AdminUserListQuery,
+  AdminUserSortField,
+  UserForm,
+  UserStatus,
+} from "../types/admin";
 import { userStatusOptions } from "../types/admin";
 import { formatDate, getUserDisplayName, getUserStatusSeverity } from "../utils/format";
 import { createBlankUserForm, formToPayload, userToForm } from "../utils/userForm";
@@ -23,10 +29,20 @@ import { flattenUserGroupNames } from "../utils/userGroups";
 
 const confirm = useConfirm();
 const toast = useToast();
-const { users, createUser, updateUser, deleteUser, setUserStatus, setError } =
-  useAdminDashboardContext();
-const keyword = ref("");
-const statusFilter = ref<UserStatus | null>(null);
+const {
+  users,
+  userListTotal,
+  usersLoading,
+  userListQuery,
+  loadUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  setUserStatus,
+  setError,
+} = useAdminDashboardContext();
+const keyword = ref(userListQuery.value.search ?? "");
+const statusFilter = ref<UserStatus | null>(userListQuery.value.status ?? null);
 const dialogVisible = ref(false);
 const dialogMode = ref<"create" | "detail" | "edit">("create");
 const selectedUser = ref<AdminUser | null>(null);
@@ -34,21 +50,20 @@ const userForm = ref<UserForm>(createBlankUserForm());
 const saving = ref(false);
 const busySub = ref("");
 
-/** 当前过滤后的用户列表。 */
-const visibleUsers = computed(() => {
-  const q = keyword.value.trim().toLowerCase();
-
-  return users.value.filter((user) => {
-    const matchesKeyword =
-      !q ||
-      [user.username, user.name, user.email, user.authProvider, user.status]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(q));
-    const matchesStatus = !statusFilter.value || (user.status ?? "active") === statusFilter.value;
-
-    return matchesKeyword && matchesStatus;
-  });
-});
+const first = computed(() => userListQuery.value.offset ?? 0);
+const rows = computed(() => userListQuery.value.limit ?? 8);
+const sortField = computed(() => userListQuery.value.sortBy ?? "username");
+const sortOrder = computed(() => (userListQuery.value.sortOrder === "desc" ? -1 : 1));
+const userSortFields = new Set<AdminUserSortField>([
+  "username",
+  "name",
+  "email",
+  "authProvider",
+  "status",
+  "createdAt",
+  "updatedAt",
+  "lastLoginAt",
+]);
 
 /** 用户弹窗标题。 */
 const dialogTitle = computed(() => {
@@ -63,6 +78,49 @@ const handleError = (err: unknown) => {
   setError(message);
   toast.add({ severity: "error", summary: "操作失败", detail: message, life: 3600 });
 };
+
+/** 根据视图状态请求服务端分页，搜索与状态过滤不再依赖当前页数据。 */
+const loadVisibleUsers = async (overrides: Partial<AdminUserListQuery> = {}) => {
+  try {
+    await loadUsers({
+      ...userListQuery.value,
+      search: keyword.value,
+      status: statusFilter.value ?? undefined,
+      ...overrides,
+    });
+  } catch (err) {
+    handleError(err);
+  }
+};
+
+const changePage = (event: DataTablePageEvent) =>
+  loadVisibleUsers({ offset: event.first, limit: event.rows });
+
+const changeSort = (event: DataTableSortEvent) => {
+  const nextSortField =
+    typeof event.sortField === "string" && userSortFields.has(event.sortField as AdminUserSortField)
+      ? (event.sortField as AdminUserSortField)
+      : "username";
+  return loadVisibleUsers({
+    offset: 0,
+    sortBy: nextSortField,
+    sortOrder: event.sortOrder === -1 ? "desc" : "asc",
+  });
+};
+
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(keyword, () => {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    void loadVisibleUsers({ offset: 0 });
+  }, 250);
+});
+watch(statusFilter, () => {
+  void loadVisibleUsers({ offset: 0 });
+});
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer);
+});
 
 /** 打开创建用户弹窗。 */
 const openCreate = () => {
@@ -156,7 +214,11 @@ const setStatus = async (user: AdminUser, status: UserStatus) => {
       <template #start>
         <IconField class="search-field">
           <InputIcon class="pi pi-search" />
-          <InputText v-model="keyword" placeholder="搜索用户名、邮箱、Provider 或状态" />
+          <InputText
+            v-model="keyword"
+            maxlength="200"
+            placeholder="搜索用户 ID、用户名、姓名、邮箱或 Provider"
+          />
         </IconField>
         <Select
           v-model="statusFilter"
@@ -174,14 +236,22 @@ const setStatus = async (user: AdminUser, status: UserStatus) => {
     </Toolbar>
 
     <DataTable
-      :value="visibleUsers"
+      :value="users"
       data-key="sub"
+      lazy
       paginator
-      :rows="8"
+      :first="first"
+      :rows="rows"
+      :total-records="userListTotal"
       :rows-per-page-options="[8, 16, 32]"
+      :loading="usersLoading"
+      :sort-field="sortField"
+      :sort-order="sortOrder"
       striped-rows
       scrollable
       table-style="min-width: 68rem"
+      @page="changePage"
+      @sort="changeSort"
     >
       <Column header="用户" sortable sort-field="username" style="min-width: 15rem">
         <template #body="{ data }">

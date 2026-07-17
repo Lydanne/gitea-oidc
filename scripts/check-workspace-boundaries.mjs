@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const boundaries = new Map([
   ["apps/admin-web", new Set(["@x-oidc/contracts"])],
-  ["apps/portal-web", new Set()],
+  ["apps/portal-web", new Set(["@x-oidc/contracts"])],
   ["apps/idp-server", new Set(["@x-oidc/server-core"])],
   ["packages/contracts", new Set()],
   ["packages/application-templates", new Set(["@x-oidc/contracts"])],

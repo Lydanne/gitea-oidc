@@ -2,7 +2,10 @@
  * 内置后台管理路由
  */
 
-import { safeParseRotateApplicationCredentialRequestV1 } from "@x-oidc/contracts";
+import {
+  ADMIN_ACTION_HEADER,
+  safeParseRotateApplicationCredentialRequestV1,
+} from "@x-oidc/contracts";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { readFileSync } from "fs";
@@ -62,7 +65,6 @@ import { normalizeUserGroups, userHasAnyGroup } from "../utils/userGroups.js";
 
 const ADMIN_COOKIE_NAME = "x_oidc_admin_session";
 const ADMIN_LOGIN_COOKIE_NAME = "x_oidc_admin_login";
-const ADMIN_ACTION_HEADER = "x-oidc-admin-action";
 const ADMIN_CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
@@ -81,6 +83,7 @@ const ADMIN_USER_LIST_FIELDS = ["roles"] as const;
 const ADMIN_USER_STATUS_VALUES = new Set(["active", "disabled", "locked", "pending"]);
 const ADMIN_USER_LIST_DEFAULT_LIMIT = 100;
 const ADMIN_USER_LIST_MAX_LIMIT = 500;
+const ADMIN_USER_LIST_MAX_SEARCH_LENGTH = 200;
 const ADMIN_AUDIT_LOG_DEFAULT_LIMIT = 100;
 const ADMIN_AUDIT_LOG_MAX_LIMIT = 500;
 const ADMIN_TOKEN_LIST_DEFAULT_LIMIT = 100;
@@ -452,8 +455,18 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     if (!query.ok) {
       return reply.code(400).send({ error: query.error });
     }
-    const users = await userRepository.list(query.value);
-    return users.map(toAdminUser);
+    const countOptions = {
+      ...(query.value.filter ? { filter: query.value.filter } : {}),
+      ...(query.value.search ? { search: query.value.search } : {}),
+    };
+    const filteredTotal = userRepository.count(countOptions);
+    const allTotal = Object.keys(countOptions).length > 0 ? userRepository.count() : filteredTotal;
+    const [users, total, unfilteredTotal] = await Promise.all([
+      userRepository.list(query.value),
+      filteredTotal,
+      allTotal,
+    ]);
+    return { items: users.map(toAdminUser), total, allTotal: unfilteredTotal };
   });
 
   app.get(`${basePath}/api/users/:sub`, async (request, reply) => {
@@ -1420,6 +1433,7 @@ function parseAdminUserListOptions(
   const input = query as Record<string, unknown>;
   const allowedKeys = new Set([
     ...USER_LIST_FILTER_FIELDS,
+    "search",
     "sortBy",
     "sortOrder",
     "offset",
@@ -1445,6 +1459,22 @@ function parseAdminUserListOptions(
   const value: ListOptions = {};
   if (Object.keys(filter).length > 0) {
     value.filter = filter;
+  }
+
+  if (input.search !== undefined) {
+    if (typeof input.search !== "string") {
+      return { ok: false, error: "User list search must be a string" };
+    }
+    const search = input.search.trim();
+    if (search.length > ADMIN_USER_LIST_MAX_SEARCH_LENGTH) {
+      return {
+        ok: false,
+        error: `User list search must not exceed ${ADMIN_USER_LIST_MAX_SEARCH_LENGTH} characters`,
+      };
+    }
+    if (search) {
+      value.search = search;
+    }
   }
 
   if (input.sortBy !== undefined) {

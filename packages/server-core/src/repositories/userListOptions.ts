@@ -16,6 +16,7 @@ const USER_LIST_SORT_SQL_COLUMNS: Record<string, string> = {
   status: "status",
   createdAt: '"createdAt"',
   updatedAt: '"updatedAt"',
+  lastLoginAt: '"lastLoginAt"',
 };
 
 /**
@@ -30,6 +31,16 @@ export function normalizeUserListOptions(options?: ListOptions): ListOptions {
 
   if (options.filter) {
     normalized.filter = normalizeUserListFilter(options.filter);
+  }
+
+  if (options.search !== undefined) {
+    if (typeof options.search !== "string") {
+      throw new Error("User list search must be a string");
+    }
+    const search = options.search.trim();
+    if (search) {
+      normalized.search = search;
+    }
   }
 
   if (options.sortBy !== undefined) {

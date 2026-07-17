@@ -10,8 +10,8 @@ Release。
 
 发布分为两个相互隔离的阶段：
 
-1. `Prepare Release` 只计算版本、更新版本文件和 `CHANGELOG.md`，然后创建发布 PR；同版本分支已存在时
-   复用分支、补建缺失 PR 并重新触发 CI。
+1. `Prepare Release` 只计算版本、更新版本文件和 `CHANGELOG.md`，然后创建发布 PR；同版本分支已存在时，
+   只有其记录的规划 SHA 仍等于当前 `main` 且只含一个自动发布提交才会复用。
 2. 发布 PR 通过 CI 并合并到 `main` 后，`Release` 校验该提交，创建 Git tag，发布 npm 和 Docker，
    最后创建 GitHub Release。
 
@@ -21,7 +21,7 @@ Release。
 相关工作流：
 
 - `.github/workflows/ci-check.yml`：普通 PR、发布 PR 和 `main` 的质量检查。
-- `.github/workflows/prepare-release.yml`：手动创建发布 PR，并幂等复用已存在的同版本分支。
+- `.github/workflows/prepare-release.yml`：手动创建发布 PR，并拒绝复用基于旧 `main` 的同版本分支。
 - `.github/workflows/release.yml`：发布 `main` 上已经合并的版本，并支持按 tag 恢复失败发布。
 
 ## 首次配置
@@ -37,6 +37,7 @@ Release。
 - 至少一名 Required reviewer。
 - 禁止发起人自行审批，并禁止绕过保护规则。
 - 将 Docker Hub Token 保存为 Environment secret，而不是写入仓库或工作流。
+- 首次创建 npm 包时，临时保存短期 `NPM_BOOTSTRAP_TOKEN`；首次发布完成后立即删除。
 
 发布工作流使用串行 concurrency，不取消正在进行的发布。维护者应等待当前发布结束后再启动下一次发布，
 避免 GitHub 对尚未开始的重复等待任务进行替换。
@@ -47,7 +48,11 @@ Release。
 
 ### npm Trusted Publisher
 
-npm 使用 GitHub Actions OIDC Trusted Publishing，不使用长期 `NPM_TOKEN`。
+npm 的常规发布使用 GitHub Actions OIDC Trusted Publishing，不使用长期 `NPM_TOKEN`。
+
+新包尚未存在于 npm Registry 时不能预先配置 Trusted Publisher。`@x-oidc/server-core` 的首次创建使用
+一次性 bootstrap 流程；完成后再配置本节的 Trusted Publisher。bootstrap 的详细顺序见
+[首次发布](#首次发布)。
 
 在 npm 的 `@x-oidc/server-core` 包设置中新增 GitHub Actions Trusted Publisher，并填写：
 
@@ -65,10 +70,13 @@ npm 使用 GitHub Actions OIDC Trusted Publishing，不使用长期 `NPM_TOKEN`�
 - owner、仓库名、工作流文件名和 Environment 名称必须与 GitHub 完全一致。
 - npm 发布 job 需要 `id-token: write`，工作流会使用满足 Trusted Publishing 要求的 Node.js 和 npm CLI。
 - `packages/server-core/package.json` 中的 `repository` 必须准确指向本 GitHub 仓库。
-- 工作流不应配置 `NODE_AUTH_TOKEN`、`NPM_TOKEN` 或执行 `npm config set ..._authToken`。
+- 常规 Trusted Publishing job 不配置 `NODE_AUTH_TOKEN`、`NPM_TOKEN`，也不执行
+  `npm config set ..._authToken`。
+- 一次性 bootstrap job 是唯一例外：Token 只从受保护的 `release` Environment secret 注入发布步骤，
+  工作流和日志不会写入 Token 值。
 
-首次 OIDC 发布成功并确认 npm provenance 后，删除 GitHub 中遗留的 `NPM_TOKEN`，并在 npm 撤销旧的
-Automation/Granular Access Token，避免长期凭据继续有效。
+首次 bootstrap 成功并确认 npm provenance 后，删除 GitHub 中的 `NPM_BOOTSTRAP_TOKEN`，并在 npm
+撤销对应短期 Token，避免一次性凭据继续有效。
 
 ### Docker 镜像仓库
 
@@ -94,7 +102,8 @@ Token 值。
 1. 确认计划发布的功能和修复已经合并到 `main`，且 `CI-CHECK` 通过。
 2. 进入 GitHub 仓库的 **Actions → Prepare Release → Run workflow**。
 3. 运行工作流并选择 `bump`；工作流始终从远端 `main` 规划，需要切换预发布通道时再填写 `preid`。
-4. 审查工作流创建的发布 PR；若同版本分支已存在，工作流会补建缺失 PR 并重新触发 CI，但不会覆盖分支。
+4. 审查工作流创建的发布 PR；若同版本分支仍精确基于当前 `main`，工作流会补建缺失 PR 并重新触发 CI，
+   但不会覆盖分支。
 5. 等待发布 PR 的必需检查通过，再将其合并到 `main`。
 
 发布 PR 应只包含本次发布需要的版本和变更日志调整。重点确认：
@@ -104,6 +113,12 @@ Token 值。
 - PR 的 base branch 是 `main`，没有混入功能代码或生成的私密文件。
 
 合并发布 PR 即表示批准对外发布。不要在合并前手工创建 tag、执行 `npm publish` 或推送 Docker tag。
+
+发布提交包含 `Release-Plan-Base: <main-sha>` trailer。再次运行准备工作流时会同时校验 trailer、Git
+merge-base 和提交数量。只要 `main` 已前进、trailer 缺失或发布分支混入额外提交，工作流就会停止；维护者应
+关闭旧 PR、删除旧发布分支，再从最新 `main` 重新运行，不要强制覆盖旧分支。`CI-CHECK` 还会对
+`release/v*` PR 重新执行同一校验；仓库分支保护必须把该检查设为 Required，并启用
+“Require branches to be up to date before merging”，确保 `main` 前进后旧发布 PR 不能直接合并。
 
 ### 自动 bump 规则
 
@@ -143,8 +158,8 @@ Token 值。
 1. 检测 `main` 上待发布的版本和提交 SHA，并拒绝非 `main` 或版本不一致的输入。
 2. 运行敏感文件检查、版本同步检查、发布脚本测试、依赖审计、lint、typecheck、单元测试、生产构建和
    tarball 验证。
-3. 在当前 `main` 提交上创建不可变的 `v<version>` Git tag。
-4. 从同一提交构建一次 npm tarball，并记录 SHA-256 校验值。
+3. 从同一提交构建一次 npm tarball，并记录 SHA-256 校验值。
+4. 在当前 `main` 提交上创建不可变的 `v<version>` Git tag。
 5. 通过 npm Trusted Publisher 的 OIDC 身份发布该 tarball。
 6. 构建并推送多架构 GHCR 镜像以及可选的 Docker Hub 镜像，写入 source、revision、version 和
    created OCI labels。
@@ -152,6 +167,15 @@ Token 值。
 
 GitHub Release 放在最后创建，避免“Release 已显示成功，但 npm 或 Docker 尚未发布”的假完成状态。
 发布工作流不会修改版本文件，也不会推送新的发布提交。
+
+首次创建 npm 包是唯一的顺序例外：自动运行发现包不存在后会在创建 Git tag 前明确失败；维护者从
+`main` 手工确认 bootstrap 后，工作流先在受保护 Environment 中发布并校验 npm tarball，再创建不可变
+Git tag。Environment 审批完成后、实际发布前还会再次确认该提交仍是最新 `main`。Token、审批、
+`main` 漂移或 npm 权限失败都不会留下 tag。
+
+普通 Trusted Publishing 和首次 bootstrap 都会在 `npm publish` 前实时查询 Registry。若 Registry 已经
+接收同版本但 runner 未收到成功响应，重跑会先核对远端 integrity，一致时跳过重复发布；远端产物不一致时
+立即停止。
 
 ## 稳定版和预发布标签
 
@@ -176,9 +200,9 @@ GitHub `latest`。如果该 npm 版本此前尚未发布，工作流使用唯一
 优先在原 GitHub Actions 运行中使用 **Re-run failed jobs**。原运行保留相同的提交 SHA 和发布上下文，
 是风险最低的恢复方式。
 
-如果原运行无法继续，必须从同一个 tag ref 手动运行 `Release`，并把 `resume_tag` 设置为该完整 tag。
-Checkout 输入不足以改变 npm provenance 使用的 GitHub 事件 SHA，因此“运行工作流的 ref”和
-`resume_tag` 必须同时指向同一 tag：
+除首次 npm bootstrap 外，如果原运行无法继续，必须从同一个 tag ref 手动运行 `Release`，并把
+`resume_tag` 设置为该完整 tag。Checkout 输入不足以改变 npm provenance 使用的 GitHub 事件 SHA，因此
+“运行工作流的 ref”和 `resume_tag` 必须同时指向同一 tag：
 
 ```bash
 gh workflow run release.yml --ref v2.3.0 --field resume_tag=v2.3.0
@@ -186,14 +210,18 @@ gh workflow run release.yml --ref v2.3.0 --field resume_tag=v2.3.0
 
 也可以在 Actions 页面先把 **Use workflow from** 选为 `v2.3.0`，再填写相同的 `resume_tag`。恢复流程
 会校验事件 SHA、tag、包版本和源码提交完全一致，不接受独立版本号或任意分支作为发布来源。
-手动工作流只负责协调已经存在的 tag，不能留空输入从当前 `main` 发布，也不能用同名 branch 代替 tag。
-如果失败发生在 tag 创建前，只能重跑原自动发布运行，避免把版本审批后的新提交带入旧版本。
+普通手动恢复只负责协调已经存在的 tag，不能留空输入从当前 `main` 发布，也不能用同名 branch 代替 tag。
+首次 bootstrap 是唯一例外：它必须从当前 `main` 精确确认包名和版本，并且只在 npm 包或当前版本需要首次
+创建、Git tag 尚不存在时生效。其他发生在 tag 创建前的失败只能重跑原自动发布运行，避免把版本审批后的
+新提交带入旧版本。
 
 | 失败位置 | 恢复方式 |
 | --- | --- |
 | Prepare Release PR 创建前 | 修复原因后重新运行准备工作流；此时没有外部发布物 |
 | 发布 PR 未合并 | 修正或关闭发布 PR；不要运行 Release |
 | 合并后、Git tag 创建前 | 重跑失败 job；工作流仍使用该发布提交 |
+| 首次 bootstrap 尚未发布 npm | 修正 Environment、Token 或审批后，从同一 `main` SHA 重新手工运行 bootstrap；此时没有 Git tag |
+| 首次 npm 已发布、Git tag 创建失败 | 以相同 `main` SHA 和 bootstrap 确认值重跑；先校验 Registry 完整性，再补建 tag，不会重复发布 |
 | Git tag 已创建、npm 尚未发布 | 重跑或以 `resume_tag` 恢复；校验 tag 指向后继续发布 npm |
 | npm 已发布、Docker 失败 | 以相同 tag 恢复；确认 npm 版本和 tarball 后跳过 npm，继续 Docker |
 | Docker 精确 tag 已存在 | 分别校验各镜像仓库的 OCI revision；一致时复用，不一致时停止 |
@@ -209,17 +237,35 @@ gh workflow run release.yml --ref v2.3.0 --field resume_tag=v2.3.0
 
 ## 首次发布
 
-X OIDC 所有 workspace 包从 `2.0.0` 开始并保持同步版本。首次发布按以下顺序操作：
+X OIDC 所有 workspace 包从 `2.0.0` 开始并保持同步版本。因为 npm 只允许已存在的包配置 Trusted
+Publisher，首次创建 `@x-oidc/server-core` 必须使用一次性 bootstrap：
 
 1. 在合并前运行 `pnpm release:version-check`，确认全部 workspace 包版本均为 `2.0.0`。
-2. 创建并保护 GitHub `release` Environment。
-3. 在 npm 配置 Trusted Publisher，精确填写 `release.yml` 和 `release`。
-4. 如需同步 Docker Hub，在 `release` Environment 配置 Variable `DOCKERHUB_USERNAME` 和 Secret
+2. 创建并保护 GitHub `release` Environment，配置 Required reviewer、禁止自行审批和禁止绕过保护规则。
+3. 在 npm 创建最短有效期、仅有 `@x-oidc` scope 发布权限的 Granular Access Token。发布账号必须有权
+   创建 `@x-oidc/server-core` 公共包；若 npm 要求发布绕过 2FA，只对该短期 Token 启用所需能力。
+4. 将 Token 保存为 `release` Environment secret `NPM_BOOTSTRAP_TOKEN`。不要保存到 Repository secret、
+   本地配置、Issue 或工作流文件。
+5. 如需同步 Docker Hub，在同一 Environment 配置 Variable `DOCKERHUB_USERNAME` 和 Secret
    `DOCKERHUB_TOKEN`；否则只使用默认 GHCR。
-5. 合并包含工作流、发布脚本、包元数据和 `2.0.0` 版本的首次发布 PR；该次 `main` 推送会直接触发
-   `Release`，不要为 `2.0.0` 额外运行 `Prepare Release`。
-6. 观察首次 OIDC 发布；核对 npm provenance、Docker tags 和 GitHub Release。
-7. 首次成功后撤销遗留的 npm Token，并删除旧的 `DOCKER_USERNAME`、`DOCKER_PASSWORD` 等无效 secrets。
+6. 合并包含工作流、发布脚本、包元数据和 `2.0.0` 版本的首次发布 PR。自动 `Release` 完成远端状态检查后，
+   发现 npm 包不存在就会在完整构建和创建 Git tag 前快速停止；这次红色门禁是预期行为。
+7. 在 Actions 页面选择 `Release`，把 **Use workflow from** 设为 `main`，保持 `resume_tag` 为空，并将
+   `bootstrap_confirmation` 精确填写为 `publish @x-oidc/server-core@2.0.0`。也可执行：
+
+   ```bash
+   gh workflow run release.yml \
+     --ref main \
+     --field 'bootstrap_confirmation=publish @x-oidc/server-core@2.0.0'
+   ```
+
+8. `release` Environment reviewer 核对包名、版本和 `main` SHA 后批准。工作流在发布前再次确认该 SHA
+   仍是当前 `main`，再发布 npm tarball并校验 Registry integrity；成功后才创建 `v2.0.0`，随后发布镜像和
+   GitHub Release。
+9. 在 npm 的包设置中按 [npm Trusted Publisher](#npm-trusted-publisher) 配置 `release.yml` 和
+   `release` Environment，并核对首次 npm provenance。
+10. 删除 GitHub Environment secret `NPM_BOOTSTRAP_TOKEN`，在 npm 撤销该 Token；后续发布只允许 OIDC
+    Trusted Publishing。再清理旧的 `NPM_TOKEN`、`DOCKER_USERNAME`、`DOCKER_PASSWORD` 等无效 secrets。
 
 迁移前可执行：
 
@@ -231,7 +277,8 @@ node -p "require('./packages/server-core/package.json').version"
 pnpm release:version-check
 ```
 
-首次 `2.0.0` 由当前代码直接发布；后续版本统一通过 `Prepare Release` 生成版本 PR。
+首次 `2.0.0` 使用上述受保护 bootstrap 创建 npm 包；后续版本统一通过 `Prepare Release` 生成版本 PR，
+并只使用 Trusted Publishing。
 
 ## 本地验证
 
@@ -277,6 +324,9 @@ tarball 和远端状态校验。
 
 依次核对 npm Trusted Publisher 的 owner、仓库、`release.yml` 和 `release` Environment 是否完全匹配，
 以及发布 job 是否具有 `id-token: write`。不要临时恢复长期 `NPM_TOKEN` 绕过配置错误。
+
+如果 Registry 中还没有 `@x-oidc/server-core`，这不是 OIDC 配置错误；应按[首次发布](#首次发布)执行一次性
+bootstrap。包已经存在后，工作流会拒绝再次使用 `NPM_BOOTSTRAP_TOKEN`。
 
 ### Docker Hub 登录或推送失败
 

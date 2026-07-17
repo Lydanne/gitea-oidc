@@ -54,86 +54,57 @@
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+以下步骤只依赖 npm tarball 中公开的入口，不需要克隆本仓库、复制仓库示例文件或运行 workspace 脚本。
+
+### 1. 创建项目并安装公开包
 
 ```bash
-pnpm install
+mkdir x-oidc-server
+cd x-oidc-server
+npm init -y
+npm pkg set type=module
+npm install @x-oidc/server-core bcrypt
 ```
 
-### 2. 配置
+需要 Node.js 22 或更高版本。这里单独安装 `bcrypt`，只用于生成本地开发账号的密码哈希。
+
+### 2. 创建本地开发账号
 
 ```bash
-# 复制示例配置（支持 .json 或 .js 格式，.js 优先级更高）
-cp example.x-oidc.config.json x-oidc.config.json
-# 或使用 .js 格式以支持动态配置
-# cp example.x-oidc.config.json x-oidc.config.js
-
-# 交互输入本地管理员密码并创建 bcrypt 密码文件
 read -r -s ADMIN_PASSWORD
 export ADMIN_PASSWORD
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
+node --input-type=module -e 'import bcrypt from "bcrypt"; console.log(`admin:${bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10)}`);' > .htpasswd
 unset ADMIN_PASSWORD
 chmod 0600 .htpasswd
 ```
 
-### 3. 启动服务器
+### 3. 创建并启动服务入口
 
-#### 方式 1: 直接启动（推荐）
+新建 `server.mjs`：
+
+```javascript
+import { runIdentityServerProcess } from "@x-oidc/server-core";
+
+await runIdentityServerProcess();
+```
+
+使用包内置的本地开发配置启动：
 
 ```bash
-# 开发模式（热重载）
-pnpm dev
-
-# 验证生产构建
-pnpm build:prod
+NODE_ENV=development node server.mjs
 ```
 
-服务器将在 `http://localhost:3000` 启动。本地示例已启用用户门户，访问根路径会进入 `/portal`；
-管理后台位于 `/admin`。完整本地验收流程见
-[快速开始指南](https://github.com/Lydanne/gitea-oidc/blob/main/docs/QUICK_START.md)。
-
-`pnpm start` 会进入生产模式，本地 HTTP/memory 示例会被安全校验拒绝。正式启动方式见
-[生产部署指南](https://github.com/Lydanne/gitea-oidc/blob/main/docs/PRODUCTION_SETUP.md)。
-
-#### 方式 2: 作为模块导入使用
-
-如果你需要在其他项目中集成此服务器，可以作为模块导入：
-
-```typescript
-import { start } from '@x-oidc/server-core/server';
-import type { XOidcConfig } from '@x-oidc/server-core/config';
-
-// 使用自定义配置启动
-const customConfig: XOidcConfig = {
-  server: {
-    host: '0.0.0.0',
-    port: 4000,
-    url: 'http://localhost:4000',
-    trustProxy: false,
-    corsOrigins: [],
-  },
-  // ... 其他配置
-};
-
-const app = await start(customConfig);
-
-// 或者不传入配置，使用配置文件
-const app = await start();
-```
-
-传入 `customConfig` 时同样会执行配置校验；生产环境中的非 HTTPS URL、弱密钥、
-memory 存储和不完整 Provider API allowlist 会直接阻止启动。详细示例请参考
-`docs/SERVER_USAGE.md`。
-
-### 4. 测试
+### 4. 验证 OIDC 发现端点
 
 ```bash
-# 运行测试
-pnpm test
-
-# 查看覆盖率
-pnpm test:coverage
+curl http://localhost:3000/oidc/.well-known/openid-configuration
 ```
+
+内置配置仅用于本机体验，使用 HTTP、memory 用户仓储和开发密钥，不能直接用于生产。部署前请在当前目录
+创建 `x-oidc.config.js` 或 `x-oidc.config.json`，并按照
+[生产部署指南](https://github.com/Lydanne/gitea-oidc/blob/main/docs/PRODUCTION_SETUP.md)配置 HTTPS、持久化
+存储、JWKS、强密钥和正式 OIDC Client。模块化创建和自定义 Fastify 生命周期见
+[服务端使用指南](https://github.com/Lydanne/gitea-oidc/blob/main/docs/SERVER_USAGE.md)。
 
 ## 📖 文档
 
@@ -502,85 +473,27 @@ SQLite。完整配置和备份要求见
 
 ## 🐳 Docker 使用
 
-项目提供官方 Docker 镜像，可用于快速部署。
-
-### 拉取镜像
-
-```bash
-# 拉取最新版本
-docker pull lydamirror/x-oidc:latest
-
-# 拉取指定版本
-docker pull lydamirror/x-oidc:<version>  # 例如 2.0.0，具体以实际发布的 tag 为准
-```
-
-### 运行容器
+镜像固定以 `NODE_ENV=production` 启动，没有生产配置时会拒绝启动。部署时必须固定精确版本，
+挂载只读配置和密钥，并为 UID/GID `10001:10001` 提供可写数据目录。
 
 ```bash
-# 基本运行
-docker run -d -p 3000:3000 lydamirror/x-oidc
-
-# 使用自定义配置（JSON 格式）
-docker run -p 3000:3000 \
+docker pull lydamirror/x-oidc:<version>
+docker run -d --name x-oidc \
+  -p 127.0.0.1:3000:3000 \
   -e NODE_ENV=production \
-  -v ./x-oidc.config.json:/app/x-oidc.config.json \
+  --env-file /srv/x-oidc/.env.production \
+  -v /srv/x-oidc/x-oidc.config.js:/app/x-oidc.config.js:ro \
+  -v /srv/x-oidc/data:/app/data \
+  -v /srv/x-oidc/secrets:/app/secrets:ro \
+  --restart unless-stopped \
   --log-opt max-size=10m \
-  --log-opt max-file=3 \
-  lydamirror/x-oidc
-
-# 使用自定义配置（JS 格式）
-docker run -p 3000:3000 \
-  -e NODE_ENV=production \
-  -v ./x-oidc.config.js:/app/x-oidc.config.js \
-  --log-opt max-size=10m \
-  --log-opt max-file=3 \
-  lydamirror/x-oidc
+  --log-opt max-file=5 \
+  lydamirror/x-oidc:<version>
 ```
 
-### 环境变量
-
-- `NODE_ENV`: 运行环境（默认 development）
-- `PORT`: 当前服务不会自动读取该变量，请通过配置文件 `server.port` 和容器端口映射控制实际监听端口
-
-### 数据持久化
-
-```bash
-# 使用 SQLite 持久化（OIDC 会话和应用管理数据）
-docker run -d -p 3000:3000 \
-  -v /host/data:/app/data \
-  -v ./x-oidc.config.json:/app/x-oidc.config.json \
-  lydamirror/x-oidc
-
-# 配置文件中设置：
-# "adapter": {
-#   "type": "sqlite",
-#   "sqlite": {
-#     "dbPath": "/app/data/oidc.db"
-#   }
-# }
-# "applications": {
-#   "enabled": true,
-#   "clientSource": "database",
-#   "repository": {
-#     "type": "sqlite",
-#     "sqlite": { "dbPath": "/app/data/applications.db" }
-#   }
-# }
-
-# 使用 Redis 持久化（分布式部署）
-docker run -d -p 3000:3000 \
-  -v ./x-oidc.config.json:/app/x-oidc.config.json \
-  lydamirror/x-oidc
-
-# 配置文件中设置：
-# "adapter": {
-#   "type": "redis",
-#   "redis": {
-#     "host": "redis",
-#     "port": 6379
-#   }
-# }
-```
+`PORT` 不会覆盖配置；监听端口由 `server.port` 和容器端口映射共同决定。完整的目录权限、生产配置、
+Compose、HTTPS 代理和上线验收见
+[生产部署指南](https://github.com/Lydanne/gitea-oidc/blob/main/docs/PRODUCTION_SETUP.md)。
 
 ## 🔐 生产环境
 

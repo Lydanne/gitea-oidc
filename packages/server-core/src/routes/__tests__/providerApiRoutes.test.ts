@@ -197,7 +197,13 @@ describe("registerProviderApiRoutes", () => {
       userRepository: {
         findById: vi.fn().mockResolvedValue({
           sub: "user-1",
-          groups: [{ id: "x-oidc-admins", name: "x-oidc-admins" }],
+          groups: [
+            {
+              id: "tenant-1",
+              name: "示例组织",
+              children: [{ id: "platform", name: "平台组" }],
+            },
+          ],
           roles: ["admin"],
           status: "active",
         }),
@@ -225,7 +231,11 @@ describe("registerProviderApiRoutes", () => {
     expect(providerApiService.request).toHaveBeenCalledWith(
       "feishu",
       expect.objectContaining({ operation: "authen.user_info", path: "/authen/v1/user_info" }),
-      { userId: "user-1", groups: ["x-oidc-admins"], roles: ["admin"] },
+      {
+        userId: "user-1",
+        groups: ["示例组织", "tenant-1", "示例组织/平台组", "tenant-1/platform"],
+        roles: ["admin"],
+      },
     );
   });
 

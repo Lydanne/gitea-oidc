@@ -218,6 +218,7 @@ describe("registerAdminRoutes", () => {
     const userRepository = {
       findById: vi.fn().mockResolvedValue(admin),
       list: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
     };
     const sessionStore = registerAdminRoutes({
       publicDir,
@@ -226,7 +227,7 @@ describe("registerAdminRoutes", () => {
         admin: {
           enabled: true,
           basePath: "/admin",
-          allowedGroups: ["x-oidc-admins"],
+          allowedGroups: ["platform/x-oidc-admins"],
           sessionTtlSeconds: 3600,
         },
         server: { url: "http://localhost:3000" },
@@ -252,6 +253,24 @@ describe("registerAdminRoutes", () => {
     expect(reply.code).toHaveBeenCalledWith(400);
     expect(reply.send).toHaveBeenCalledWith({ error: "Unsupported user sort field" });
     expect(userRepository.list).not.toHaveBeenCalled();
+    expect(userRepository.count).not.toHaveBeenCalled();
+
+    reply.code.mockClear();
+    reply.send.mockClear();
+    await handler(
+      {
+        headers: adminCookieHeader(session.id),
+        query: { search: "x".repeat(201) },
+      },
+      reply,
+    );
+
+    expect(reply.code).toHaveBeenCalledWith(400);
+    expect(reply.send).toHaveBeenCalledWith({
+      error: "User list search must not exceed 200 characters",
+    });
+    expect(userRepository.list).not.toHaveBeenCalled();
+    expect(userRepository.count).not.toHaveBeenCalled();
   });
 
   it("parses safe user list query options explicitly", async () => {
@@ -260,6 +279,7 @@ describe("registerAdminRoutes", () => {
     const userRepository = {
       findById: vi.fn().mockResolvedValue(admin),
       list: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockImplementation(async (options?: unknown) => (options ? 7 : 250)),
     };
     const sessionStore = registerAdminRoutes({
       publicDir,
@@ -287,6 +307,8 @@ describe("registerAdminRoutes", () => {
         headers: adminCookieHeader(session.id),
         query: {
           authProvider: "local",
+          status: "disabled",
+          search: "  alice  ",
           sortBy: "username",
           sortOrder: "desc",
           offset: "1",
@@ -296,14 +318,20 @@ describe("registerAdminRoutes", () => {
       { code: vi.fn().mockReturnThis(), send: vi.fn() },
     );
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ items: [], total: 7, allTotal: 250 });
     expect(userRepository.list).toHaveBeenCalledWith({
-      filter: { authProvider: "local" },
+      filter: { authProvider: "local", status: "disabled" },
+      search: "alice",
       sortBy: "username",
       sortOrder: "desc",
       offset: 1,
       limit: 2,
     });
+    expect(userRepository.count).toHaveBeenCalledWith({
+      filter: { authProvider: "local", status: "disabled" },
+      search: "alice",
+    });
+    expect(userRepository.count).toHaveBeenCalledWith();
   });
 
   it("uses a safe default limit for user list queries", async () => {
@@ -312,6 +340,7 @@ describe("registerAdminRoutes", () => {
     const userRepository = {
       findById: vi.fn().mockResolvedValue(admin),
       list: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(250),
     };
     const sessionStore = registerAdminRoutes({
       publicDir,
@@ -334,7 +363,7 @@ describe("registerAdminRoutes", () => {
     const session = sessionStore!.createSession("admin-1");
     const handler = app.get.mock.calls.find((call) => call[0] === "/admin/api/users")?.[1];
 
-    await handler(
+    const result = await handler(
       {
         headers: adminCookieHeader(session.id),
         query: {},
@@ -343,6 +372,9 @@ describe("registerAdminRoutes", () => {
     );
 
     expect(userRepository.list).toHaveBeenCalledWith({ limit: 100 });
+    expect(userRepository.count).toHaveBeenCalledWith({});
+    expect(userRepository.count).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ items: [], total: 250, allTotal: 250 });
   });
 
   it("builds the admin login URL and preserves the applications return path", async () => {
@@ -1400,6 +1432,7 @@ describe("registerAdminRoutes", () => {
     const userRepository = {
       findById: vi.fn().mockResolvedValue(admin),
       list: vi.fn().mockResolvedValue([admin]),
+      count: vi.fn().mockResolvedValue(1),
     };
     const sessionStore = registerAdminRoutes({
       publicDir,

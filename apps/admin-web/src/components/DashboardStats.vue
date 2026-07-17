@@ -5,6 +5,7 @@ import type { AdminUser, ProviderState, ProviderToken } from "../types/admin";
 /** 指标条属性。 */
 const props = defineProps<{
   users: AdminUser[];
+  userTotal: number;
   providers: ProviderState;
   tokens: ProviderToken[];
 }>();
@@ -21,7 +22,11 @@ const stats = computed(() => {
   ).length;
 
   return [
-    { label: "用户总数", value: props.users.length, detail: `${inactiveUsers} 个非活跃账号` },
+    {
+      label: "用户总数",
+      value: props.userTotal,
+      detail: `当前页 ${inactiveUsers} 个非活跃账号`,
+    },
     {
       label: "Provider",
       value: providerCount,
@@ -41,4 +46,3 @@ const stats = computed(() => {
     </article>
   </section>
 </template>
-

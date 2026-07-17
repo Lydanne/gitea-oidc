@@ -325,6 +325,18 @@ describe("MemoryUserRepository", () => {
       expect(users.every((u) => u.authProvider === "local")).toBe(true);
     });
 
+    it("应该支持跨字段且不区分大小写的搜索", async () => {
+      const users = await repository.list({ search: "USER2@EXAMPLE.COM" });
+
+      expect(users.map((user) => user.username)).toEqual(["user2"]);
+    });
+
+    it("应该统计与搜索和过滤条件匹配的总数", async () => {
+      await expect(
+        repository.count({ search: "user", filter: { authProvider: "local" } }),
+      ).resolves.toBe(2);
+    });
+
     it("应该支持排序", async () => {
       const users = await repository.list({ sortBy: "username", sortOrder: "desc" });
 
@@ -341,11 +353,21 @@ describe("MemoryUserRepository", () => {
     });
 
     it("应该支持分页", async () => {
+      const expectedSubs = (await repository.list())
+        .map((user) => user.sub)
+        .sort((a, b) => a.localeCompare(b));
       const users = await repository.list({ offset: 1, limit: 2 });
 
-      expect(users).toHaveLength(2);
-      expect(users[0].username).toBe("user2");
-      expect(users[1].username).toBe("user3");
+      expect(users.map((user) => user.sub)).toEqual(expectedSubs.slice(1, 3));
+    });
+
+    it("主排序值重复时使用 sub 保持稳定顺序", async () => {
+      const users = await repository.list({ sortBy: "authProvider", sortOrder: "asc" });
+      const localSubs = users
+        .filter((user) => user.authProvider === "local")
+        .map((user) => user.sub);
+
+      expect(localSubs).toEqual([...localSubs].sort((a, b) => a.localeCompare(b)));
     });
 
     it("应该支持组合查询选项", async () => {

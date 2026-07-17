@@ -26,6 +26,7 @@ describe("AuthCoordinator", () => {
     set: vi.fn(),
     get: vi.fn(),
     take: vi.fn(),
+    increment: vi.fn().mockResolvedValue(1),
     delete: vi.fn(),
     listAll: undefined as (() => any) | undefined,
   });
@@ -339,6 +340,141 @@ describe("AuthCoordinator", () => {
       const result = await coordinator.handleAuthentication(createContext());
       expect(provider.authenticate).toHaveBeenCalled();
       expect(result.success).toBe(true);
+    });
+
+    it.each([
+      { username: "a".repeat(129), password: "secret" },
+      { username: "alice", password: "密".repeat(342) },
+    ])("本地认证字段超出字节上限时不调用 Provider 或写审计", async (body) => {
+      const localProvider = createProvider({ name: "local" });
+      coordinator.registerProvider(localProvider);
+
+      const result = await coordinator.handleAuthentication(
+        createContext({ authMethod: "local", body: { authMethod: "local", ...body } }),
+      );
+
+      expect(result.error?.code).toBe("AUTH_2001");
+      expect(localProvider.authenticate).not.toHaveBeenCalled();
+      expect(stateStore.increment).toHaveBeenCalledTimes(2);
+      expect(auditLogRepository.append).not.toHaveBeenCalled();
+    });
+
+    it("本地认证字段类型非法时沿用缺参错误且不进入 Provider", async () => {
+      const localProvider = createProvider({ name: "local" });
+      coordinator.registerProvider(localProvider);
+
+      const result = await coordinator.handleAuthentication(
+        createContext({
+          authMethod: "local",
+          body: { authMethod: "local", username: ["alice"], password: "secret" },
+        }),
+      );
+
+      expect(result.error?.code).toBe("AUTH_1002");
+      expect(localProvider.authenticate).not.toHaveBeenCalled();
+      expect(stateStore.increment).toHaveBeenCalledTimes(2);
+      expect(auditLogRepository.append).not.toHaveBeenCalled();
+    });
+
+    it("本地认证按来源和 interaction 使用共享 StateStore 限流", async () => {
+      const localProvider = createProvider({ name: "local" });
+      coordinator.registerProvider(localProvider);
+      stateStore.increment.mockResolvedValueOnce(1).mockResolvedValueOnce(11);
+
+      const result = await coordinator.handleAuthentication(
+        createContext({
+          authMethod: "local",
+          interactionUid: "interaction-1",
+          request: { headers: {}, ip: "203.0.113.10" } as any,
+          body: { authMethod: "local", username: "unknown", password: "secret" },
+        }),
+      );
+
+      expect(result.error?.code).toBe("AUTH_2001");
+      expect(result.error?.userMessage).toBe("用户名或密码错误");
+      expect(result.error?.details).toEqual({ rateLimited: true });
+      expect(stateStore.increment).toHaveBeenNthCalledWith(
+        1,
+        expect.stringMatching(/^local-login-rate-limit:source:[a-f0-9]{64}$/),
+        60,
+      );
+      expect(stateStore.increment).toHaveBeenNthCalledWith(
+        2,
+        expect.stringMatching(/^local-login-rate-limit:interaction:[a-f0-9]{64}$/),
+        60,
+      );
+      expect(JSON.stringify(stateStore.increment.mock.calls)).not.toContain("203.0.113.10");
+      expect(JSON.stringify(stateStore.increment.mock.calls)).not.toContain("interaction-1");
+      expect(localProvider.authenticate).not.toHaveBeenCalled();
+      expect(auditLogRepository.append).not.toHaveBeenCalled();
+      expect(app.log.warn).toHaveBeenCalledWith(
+        { dimension: "interaction", maximum: 10 },
+        "Local authentication rate limit exceeded",
+      );
+    });
+
+    it("来源限流使更换 interaction 也不能继续调用本地 Provider", async () => {
+      const localProvider = createProvider({ name: "local" });
+      coordinator.registerProvider(localProvider);
+      stateStore.increment.mockResolvedValueOnce(121);
+
+      const result = await coordinator.handleAuthentication(
+        createContext({
+          authMethod: "local",
+          interactionUid: "new-interaction",
+          request: { headers: {}, ip: "203.0.113.10" } as any,
+          body: { authMethod: "local", username: "another-user", password: "secret" },
+        }),
+      );
+
+      expect(result.error?.code).toBe("AUTH_2001");
+      expect(stateStore.increment).toHaveBeenCalledTimes(1);
+      expect(localProvider.authenticate).not.toHaveBeenCalled();
+      expect(auditLogRepository.append).not.toHaveBeenCalled();
+    });
+
+    it("超过首次限流阈值后不再重复放大告警日志", async () => {
+      const localProvider = createProvider({ name: "local" });
+      coordinator.registerProvider(localProvider);
+      stateStore.increment.mockResolvedValueOnce(1).mockResolvedValueOnce(12);
+
+      const result = await coordinator.handleAuthentication(
+        createContext({
+          authMethod: "local",
+          body: { authMethod: "local", username: "unknown", password: "secret" },
+        }),
+      );
+
+      expect(result.error?.code).toBe("AUTH_2001");
+      expect(app.log.warn).not.toHaveBeenCalledWith(
+        expect.objectContaining({ dimension: "interaction" }),
+        "Local authentication rate limit exceeded",
+      );
+      expect(localProvider.authenticate).not.toHaveBeenCalled();
+      expect(auditLogRepository.append).not.toHaveBeenCalled();
+    });
+
+    it("本地认证限流存储失败时安全失败且不进入 Provider", async () => {
+      const localProvider = createProvider({ name: "local" });
+      coordinator.registerProvider(localProvider);
+      stateStore.increment.mockRejectedValueOnce(new Error("state unavailable"));
+
+      const result = await coordinator.handleAuthentication(
+        createContext({
+          authMethod: "local",
+          body: { authMethod: "local", username: "alice", password: "secret" },
+        }),
+      );
+
+      expect(result.error?.code).toBe("AUTH_5001");
+      expect(localProvider.authenticate).not.toHaveBeenCalled();
+      expect(auditLogRepository.append).not.toHaveBeenCalled();
+      expect(app.log.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.objectContaining({ message: "state unavailable" }),
+        }),
+        "Failed to enforce local authentication rate limit",
+      );
     });
 
     it("Provider 认证成功时等待 OIDC 最终授权事件记录登录", async () => {

@@ -3,7 +3,7 @@
  * 管理所有认证插件，协调认证流程
  */
 
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Provider } from "oidc-provider";
 import { NoopAuditLogRepository } from "../repositories/NoopAuditLogRepository.js";
@@ -368,6 +368,31 @@ export class AuthCoordinator implements IAuthCoordinator {
       };
     }
 
+    if (authMethod === LOCAL_AUTH_PROVIDER) {
+      try {
+        if (await this.isLocalAuthenticationRateLimited(context)) {
+          return {
+            success: false,
+            error: AuthErrors.invalidCredentials({ rateLimited: true }),
+          };
+        }
+      } catch (err) {
+        this.app.log.error(
+          { err: sanitizeForLog(err) },
+          "Failed to enforce local authentication rate limit",
+        );
+        return {
+          success: false,
+          error: AuthErrors.internalError(err instanceof Error ? err : undefined),
+        };
+      }
+
+      const invalidInput = validateLocalAuthenticationInput(context);
+      if (invalidInput) {
+        return invalidInput;
+      }
+    }
+
     try {
       // 检查插件是否可以处理该请求
       if (!provider.canHandle(context)) {
@@ -671,6 +696,34 @@ export class AuthCoordinator implements IAuthCoordinator {
     }
   }
 
+  private async isLocalAuthenticationRateLimited(context: AuthContext): Promise<boolean> {
+    const source = typeof context.request.ip === "string" ? context.request.ip : "unknown";
+    const dimensions = [
+      {
+        key: buildLocalLoginRateLimitKey("source", source),
+        maximum: LOCAL_LOGIN_SOURCE_MAX_ATTEMPTS,
+        dimension: "source",
+      },
+      {
+        key: buildLocalLoginRateLimitKey("interaction", context.interactionUid),
+        maximum: LOCAL_LOGIN_INTERACTION_MAX_ATTEMPTS,
+        dimension: "interaction",
+      },
+    ] as const;
+
+    for (const { key, maximum, dimension } of dimensions) {
+      const attempts = await this.stateStore.increment(key, LOCAL_LOGIN_RATE_LIMIT_TTL_SECONDS);
+      if (attempts > maximum) {
+        if (attempts === maximum + 1) {
+          this.app.log.warn({ dimension, maximum }, "Local authentication rate limit exceeded");
+        }
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private async recordLoginAudit(input: {
     context: AuthContext;
     provider: string;
@@ -732,6 +785,34 @@ function readAttemptedUsername(context: AuthContext): string | undefined {
   return typeof context.body.username === "string" ? context.body.username : undefined;
 }
 
+function validateLocalAuthenticationInput(context: AuthContext): AuthResult | null {
+  const { username, password } = context.body;
+  const missingParameters: string[] = [];
+  if (typeof username !== "string" || username.length === 0) {
+    missingParameters.push("username");
+  }
+  if (typeof password !== "string" || password.length === 0) {
+    missingParameters.push("password");
+  }
+  if (missingParameters.length > 0) {
+    return { success: false, error: AuthErrors.missingParameter(missingParameters) };
+  }
+
+  if (
+    Buffer.byteLength(username, "utf8") > LOCAL_LOGIN_USERNAME_MAX_BYTES ||
+    Buffer.byteLength(password, "utf8") > LOCAL_LOGIN_PASSWORD_MAX_BYTES
+  ) {
+    return { success: false, error: AuthErrors.invalidCredentials() };
+  }
+
+  return null;
+}
+
+function buildLocalLoginRateLimitKey(dimension: "source" | "interaction", value: string): string {
+  const digest = createHash("sha256").update(value).digest("hex");
+  return `local-login-rate-limit:${dimension}:${digest}`;
+}
+
 function readInteractionClientId(interaction: unknown): string | undefined {
   if (!interaction || typeof interaction !== "object") return undefined;
   const params = (interaction as { params?: unknown }).params;
@@ -788,3 +869,10 @@ function isPluginRequestPath(requestUrl: string, basePath: string): boolean {
     return false;
   }
 }
+
+const LOCAL_AUTH_PROVIDER = "local";
+const LOCAL_LOGIN_USERNAME_MAX_BYTES = 128;
+const LOCAL_LOGIN_PASSWORD_MAX_BYTES = 1024;
+const LOCAL_LOGIN_RATE_LIMIT_TTL_SECONDS = 60;
+const LOCAL_LOGIN_SOURCE_MAX_ATTEMPTS = 120;
+const LOCAL_LOGIN_INTERACTION_MAX_ATTEMPTS = 10;

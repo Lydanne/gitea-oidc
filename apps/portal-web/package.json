@@ -10,6 +10,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@x-oidc/contracts": "workspace:*",
     "vue": "^3.5.0"
   },
   "devDependencies": {

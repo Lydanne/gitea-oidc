@@ -99,10 +99,12 @@ describe("门户 API", () => {
         body: "{}",
         headers: expect.objectContaining({
           "Content-Type": "application/json",
-          "X-Gitea-OIDC-Portal-Action": "logout",
+          "x-oidc-portal-action": "logout",
         }),
       }),
     );
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(request.headers).not.toHaveProperty("X-Gitea-OIDC-Portal-Action");
     expect(assign).toHaveBeenCalledWith(
       "https://id.example.com/oidc/session/end?post_logout_redirect_uri=signed-out",
     );

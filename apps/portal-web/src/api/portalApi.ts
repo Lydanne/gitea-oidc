@@ -1,8 +1,8 @@
+import { PORTAL_ACTION_HEADER } from "@x-oidc/contracts";
 import { isPortalPath, portalRuntimeConfig, toPortalPath } from "../runtimeConfig";
 import type { PortalApplication, PortalSession } from "../types/portal";
 
 const portalApiBase = `${portalRuntimeConfig.basePath}/api`;
-const portalActionHeader = "X-Gitea-OIDC-Portal-Action";
 let loginRedirectStarted = false;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -136,7 +136,7 @@ export async function logoutPortal(): Promise<void> {
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
-      [portalActionHeader]: "logout",
+      [PORTAL_ACTION_HEADER]: "logout",
     },
     body: "{}",
   });

@@ -620,6 +620,32 @@ describe("validateConfig", () => {
     );
   });
 
+  it.each([
+    ":memory:",
+    "file::memory:?cache=shared",
+    "file:users?mode=memory&cache=shared",
+    " FILE:users?cache=shared&mode=memory ",
+  ])("should reject an in-memory SQLite user repository in production: %s", (dbPath) => {
+    vi.stubEnv("NODE_ENV", "production");
+    const config = createBaseConfig();
+    config.auth.userRepository = { type: "sqlite", sqlite: { dbPath } };
+    config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };
+    config.server.trustProxy = true;
+    config.server.trustedProxyIps = ["127.0.0.1"];
+
+    const result = validateConfig(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "auth.userRepository.sqlite.dbPath",
+          code: "production_storage_required",
+        }),
+      ]),
+    );
+  });
+
   it("requires HTTPS for disabled portal metadata in production database mode", () => {
     vi.stubEnv("NODE_ENV", "production");
     const config = createBaseConfig();

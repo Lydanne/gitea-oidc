@@ -9,6 +9,7 @@ import type {
   UserDeleteResult,
   UserFindOrCreateResult,
   UserInfo,
+  UserListCountOptions,
   UserRepository,
   UserUpdateResult,
 } from "../types/auth.js";
@@ -217,21 +218,9 @@ export class MemoryUserRepository implements UserRepository {
 
   async list(options?: ListOptions): Promise<UserInfo[]> {
     const listOptions = normalizeUserListOptions(options);
-    let users = Array.from(this.users.values());
+    let users = filterMemoryUsers(Array.from(this.users.values()), listOptions);
 
-    // 过滤
-    if (listOptions.filter) {
-      users = users.filter((user) => {
-        for (const [key, value] of Object.entries(listOptions.filter!)) {
-          if ((user as any)[key] !== value) {
-            return false;
-          }
-        }
-        return true;
-      });
-    }
-
-    // 排序
+    // 排序；分页必须使用唯一的 sub 作为次排序键，避免重复值导致跨页漂移。
     if (listOptions.sortBy) {
       const sortBy = listOptions.sortBy;
       const sortOrder = listOptions.sortOrder || "asc";
@@ -240,10 +229,14 @@ export class MemoryUserRepository implements UserRepository {
         const aVal = (a as any)[sortBy];
         const bVal = (b as any)[sortBy];
 
+        if (aVal == null && bVal != null) return 1;
+        if (aVal != null && bVal == null) return -1;
         if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
         if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
-        return 0;
+        return a.sub.localeCompare(b.sub);
       });
+    } else if (listOptions.offset !== undefined || listOptions.limit !== undefined) {
+      users.sort((a, b) => a.sub.localeCompare(b.sub));
     }
 
     // 分页
@@ -254,6 +247,11 @@ export class MemoryUserRepository implements UserRepository {
     }
 
     return users;
+  }
+
+  async count(options?: UserListCountOptions): Promise<number> {
+    const listOptions = normalizeUserListOptions(options);
+    return filterMemoryUsers(Array.from(this.users.values()), listOptions).length;
   }
 
   async clear(): Promise<void> {
@@ -279,6 +277,24 @@ export class MemoryUserRepository implements UserRepository {
       throw new Error(`Provider identity already exists: ${user.authProvider}/${user.externalId}`);
     }
   }
+}
+
+function filterMemoryUsers(users: UserInfo[], options: ListOptions): UserInfo[] {
+  const search = options.search?.toLowerCase();
+  return users.filter((user) => {
+    if (
+      search &&
+      ![user.sub, user.username, user.name, user.email, user.authProvider].some((value) =>
+        value.toLowerCase().includes(search),
+      )
+    ) {
+      return false;
+    }
+
+    return Object.entries(options.filter ?? {}).every(
+      ([key, value]) => (user as unknown as Record<string, unknown>)[key] === value,
+    );
+  });
 }
 
 function getProviderIndexKey(user: Pick<UserInfo, "authProvider" | "externalId">): string | null {

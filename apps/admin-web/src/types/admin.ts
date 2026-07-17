@@ -78,7 +78,28 @@ export interface UserGroup {
 /** PrimeVue Tag 支持的语义色。 */
 export type TagSeverity = "success" | "info" | "warn" | "danger" | "secondary" | "contrast";
 
-/** 后台用户对象，对应 `/admin/api/users` 返回值。 */
+/** 后台用户列表支持的排序字段。 */
+export type AdminUserSortField =
+  | "username"
+  | "name"
+  | "email"
+  | "authProvider"
+  | "status"
+  | "createdAt"
+  | "updatedAt"
+  | "lastLoginAt";
+
+/** 后台用户列表查询条件。 */
+export interface AdminUserListQuery {
+  search?: string;
+  status?: UserStatus;
+  sortBy?: AdminUserSortField;
+  sortOrder?: "asc" | "desc";
+  offset?: number;
+  limit?: number;
+}
+
+/** 后台用户对象，对应 `/admin/api/users` 响应中的单个列表项。 */
 export interface AdminUser {
   sub: string;
   username?: string;
@@ -93,6 +114,15 @@ export interface AdminUser {
   phone?: string;
   lastLoginAt?: string;
   lastSyncedAt?: string;
+}
+
+/** 后台用户服务端分页响应。 */
+export interface AdminUserPage {
+  items: AdminUser[];
+  /** 当前搜索与状态过滤条件下的总数。 */
+  total: number;
+  /** 不应用搜索和状态过滤的全部用户总数。 */
+  allTotal: number;
 }
 
 /** 后台用户创建或更新表单。 */

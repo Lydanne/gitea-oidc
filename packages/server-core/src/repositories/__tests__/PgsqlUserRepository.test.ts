@@ -328,10 +328,32 @@ describe("PgsqlUserRepository", () => {
     expect(client.query.mock.calls[0][0].replace(/\s+/g, " ")).toContain(
       'WHERE username = $1 AND "authProvider" = $2',
     );
-    expect(client.query.mock.calls[0][0]).toContain("ORDER BY username DESC");
+    expect(client.query.mock.calls[0][0]).toContain("ORDER BY username DESC NULLS LAST, sub ASC");
     expect(client.query.mock.calls[0][1]).toEqual(["alice", "local", 2, 1]);
     expect(users).toEqual(rows.map(expectedUserFromRow));
     expect(client.release).toHaveBeenCalled();
+  });
+
+  it("should search user fields and count the filtered result", async () => {
+    const listClient = setupNextClient(() => ({ rows: [createRow({ username: "alice" })] }));
+    const countClient = setupNextClient(() => ({ rows: [{ count: "12" }] }));
+
+    await repository.list({
+      search: "Ali",
+      filter: { status: "active" },
+      offset: 10,
+      limit: 5,
+    });
+    await expect(repository.count({ search: "Ali", filter: { status: "active" } })).resolves.toBe(
+      12,
+    );
+
+    const listSql = listClient.query.mock.calls[0][0].replace(/\s+/g, " ");
+    expect(listSql).toContain("POSITION(LOWER($1) IN LOWER(username)) > 0");
+    expect(listSql).toContain("status = $2");
+    expect(listClient.query.mock.calls[0][1]).toEqual(["Ali", "active", 5, 10]);
+    expect(countClient.query.mock.calls[0][0]).toContain("SELECT COUNT(*) as count FROM users");
+    expect(countClient.query.mock.calls[0][1]).toEqual(["Ali", "active"]);
   });
 
   it("should list users using name/email filters并按 provider 排序", async () => {
@@ -351,7 +373,7 @@ describe("PgsqlUserRepository", () => {
 
     const normalizedSql = client.query.mock.calls[0][0].replace(/\s+/g, " ");
     expect(normalizedSql).toContain('WHERE name = $1 AND email = $2 AND "authProvider" = $3');
-    expect(normalizedSql).toContain('ORDER BY "authProvider" ASC');
+    expect(normalizedSql).toContain('ORDER BY "authProvider" ASC NULLS LAST, sub ASC');
     expect(client.query.mock.calls[0][1]).toEqual(["Pgsql User", "pg@example.com", "local"]);
     expect(users).toEqual(rows.map(expectedUserFromRow));
   });

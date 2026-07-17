@@ -99,6 +99,7 @@ const INTERACTION_CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "frame-ancestors 'none'",
 ].join("; ");
+const INTERACTION_LOGIN_ROUTE_OPTIONS = { bodyLimit: 8 * 1024 };
 
 /**
  * 创建尚未监听端口的 OIDC 服务器。
@@ -672,11 +673,9 @@ async function createIdentityServerFromConfig(
     });
 
     // 登录处理（使用认证插件系统）
-    app.post("/interaction/:uid/login", async (request, reply) => {
+    app.post("/interaction/:uid/login", INTERACTION_LOGIN_ROUTE_OPTIONS, async (request, reply) => {
       const { uid } = request.params as { uid: string };
       const body = request.body as Record<string, any>;
-
-      Logger.info(`[登录尝试] UID: ${uid}, 认证方式: ${body.authMethod}`);
 
       try {
         // 必须先由 oidc-provider 校验 interaction cookie 与 uid，再调用本地认证。
@@ -717,9 +716,9 @@ async function createIdentityServerFromConfig(
           Logger.info(`[Login 完成] 用户 ${result.userId}`);
         } else {
           // 记录详细错误日志
-          if (result.error) {
+          if (result.error && result.error.details?.rateLimited !== true) {
             Logger.warn(`[登录失败] ${formatAuthError(result.error)}`);
-          } else {
+          } else if (!result.error) {
             Logger.warn("[登录失败] 未知错误");
           }
 

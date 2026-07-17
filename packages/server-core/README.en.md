@@ -29,10 +29,10 @@ user repositories, and pluggable OIDC persistence adapters.
   - [Architecture Overview](#architecture-overview)
   - [Getting Started](#getting-started)
     - [Prerequisites](#prerequisites)
-    - [1. Install dependencies](#1-install-dependencies)
-    - [2. Create configuration](#2-create-configuration)
-    - [3. Create `.htpasswd` (local auth)](#3-create-htpasswd-local-auth)
-    - [4. Run the server](#4-run-the-server)
+    - [1. Create a consumer project](#1-create-a-consumer-project)
+    - [2. Create a local development account](#2-create-a-local-development-account)
+    - [3. Create and run the server entry](#3-create-and-run-the-server-entry)
+    - [4. Verify discovery](#4-verify-discovery)
   - [Configuration Overview](#configuration-overview)
   - [Gitea Integration](#gitea-integration)
   - [Docker \& Deployment](#docker--deployment)
@@ -121,87 +121,63 @@ For a more detailed design, see (Chinese):
 ### Prerequisites
 
 - Node.js **>= 22.0.0**
-- `pnpm` (recommended; `npm`/`yarn` also work with minor changes)
+- npm (included with Node.js)
 
-### 1. Install dependencies
+These steps use only public files in the npm tarball. They do not require a repository checkout,
+repository example files, or workspace scripts.
 
-```bash
-pnpm install
-```
-
-### 2. Create configuration
-
-Copy the example config and adjust it to your environment:
+### 1. Create a consumer project
 
 ```bash
-cp example.x-oidc.config.json x-oidc.config.json
+mkdir x-oidc-server
+cd x-oidc-server
+npm init -y
+npm pkg set type=module
+npm install @x-oidc/server-core bcrypt
 ```
 
-Important fields (development example):
+`bcrypt` is installed directly only to generate the password hash for this local development
+account.
 
-```json
-{
-  "server": {
-    "host": "0.0.0.0",
-    "port": 3000,
-    "url": "http://localhost:3000"
-  },
-  "oidc": {
-    "issuer": "http://localhost:3000/oidc",
-    "cookieKeys": [
-      "change-this-to-a-random-string-in-production",
-      "and-another-one-for-key-rotation"
-    ]
-  },
-  "clients": [
-    {
-      "client_id": "gitea",
-      "client_secret": "gitea-client-secret-change-in-production",
-      "redirect_uris": [
-        "http://localhost:3001/user/oauth2/gitea/callback"
-      ],
-      "post_logout_redirect_uris": ["http://localhost:3001/"],
-      "response_types": ["code"],
-      "grant_types": ["authorization_code", "refresh_token"],
-      "token_endpoint_auth_method": "client_secret_basic"
-    }
-  ]
-}
-```
-
-> Note: Because the OIDC provider is mounted under `/oidc`,
-> `oidc.issuer` must include `/oidc`, e.g. `https://auth.example.com/oidc`.
-
-### 3. Create `.htpasswd` (local auth)
+### 2. Create a local development account
 
 ```bash
 read -r -s ADMIN_PASSWORD
 export ADMIN_PASSWORD
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
+node --input-type=module -e 'import bcrypt from "bcrypt"; console.log(`admin:${bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10)}`);' > .htpasswd
 unset ADMIN_PASSWORD
 chmod 0600 .htpasswd
 ```
 
-### 4. Run the server
+### 3. Create and run the server entry
 
-```bash
-# Development (with watch)
-pnpm dev
+Create `server.mjs`:
 
-# Validate the production build
-pnpm build:prod
+```javascript
+import { runIdentityServerProcess } from "@x-oidc/server-core";
+
+await runIdentityServerProcess();
 ```
 
-`pnpm start` runs with production validation, so the local HTTP/memory example is intentionally
-rejected. Follow `docs/PRODUCTION_SETUP.md` before starting a production process.
+Start with the built-in local development configuration:
 
-The default dev URL is: `http://localhost:3000`.
+```bash
+NODE_ENV=development node server.mjs
+```
 
-You can verify the OIDC discovery document at:
+### 4. Verify discovery
 
 ```bash
 curl http://localhost:3000/oidc/.well-known/openid-configuration
 ```
+
+The built-in configuration is for local evaluation only. It uses HTTP, memory user storage, and
+development secrets and must not be deployed as-is. Before production, create
+`x-oidc.config.js` or `x-oidc.config.json` in the consumer project and follow the
+[production guide](https://github.com/Lydanne/gitea-oidc/blob/main/docs/PRODUCTION_SETUP.md) for
+HTTPS, persistent storage, JWKS, strong secrets, and registered OIDC Clients. See the
+[server usage guide](https://github.com/Lydanne/gitea-oidc/blob/main/docs/SERVER_USAGE.md) for
+programmatic configuration and custom Fastify lifecycle management.
 
 ---
 
@@ -257,48 +233,34 @@ For more detailed, step-by-step instructions (Chinese), see `docs/QUICK_START.md
 
 ## Docker & Deployment
 
-A simple way to run the IdP in production is via Docker:
+The image always starts with `NODE_ENV=production` and refuses to boot without a valid production
+configuration. Pin an exact version, mount configuration and secrets read-only, and provide a
+writable data directory owned by UID/GID `10001:10001`.
 
 ```bash
-# Pull latest image
-docker pull lydamirror/x-oidc:latest
-
-# Run with default ports
-docker run -d -p 3000:3000 lydamirror/x-oidc
-```
-
-With a custom JSON config:
-
-```bash
-docker run -p 3000:3000 \
+docker pull lydamirror/x-oidc:<version>
+docker run -d --name x-oidc \
+  -p 127.0.0.1:3000:3000 \
   -e NODE_ENV=production \
-  -v ./x-oidc.config.json:/app/x-oidc.config.json \
-  lydamirror/x-oidc
+  --env-file /srv/x-oidc/.env.production \
+  -v /srv/x-oidc/x-oidc.config.js:/app/x-oidc.config.js:ro \
+  -v /srv/x-oidc/data:/app/data \
+  -v /srv/x-oidc/secrets:/app/secrets:ro \
+  --restart unless-stopped \
+  lydamirror/x-oidc:<version>
 ```
 
-See `README.md` (Chinese) for more detailed production recommendations:
-
-- HTTPS & reverse proxy
-- SQLite / Redis adapters for persistence
-- PostgreSQL/SQLite user repositories
+See the
+[production guide](https://github.com/Lydanne/gitea-oidc/blob/main/docs/PRODUCTION_SETUP.md) for
+directory permissions, complete configuration, Compose, HTTPS proxying, and acceptance checks.
 
 ---
 
 ## Development & Testing
 
-Scripts (from `package.json`):
-
-- `pnpm dev` – run in development mode with watch
-- `pnpm build` / `pnpm build:prod` – build with Rolldown
-- `pnpm start` – run the built server
-- `pnpm test` – run Vitest tests
-- `pnpm test:coverage` – run tests with V8 coverage
-- `pnpm release` – drive the automated release process
-
-GitHub Actions workflows:
-
-- `.github/workflows/ci-check.yml` – CI for PRs (lint, test, build, Docker build)
-- `.github/workflows/release.yml` – test → build → npm publish → Docker build & push
+Repository development commands and CI workflows are not included in the npm tarball. Contributors
+should clone the repository and follow the
+[development workflow](https://github.com/Lydanne/gitea-oidc/blob/main/docs/dev/DEVELOPMENT_WORKFLOW.md).
 
 ---
 

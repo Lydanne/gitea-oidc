@@ -11,7 +11,11 @@ on:
     inputs:
       resume_tag:
         description: Existing release tag to reconcile, for example v2.0.0
-        required: true
+        required: false
+        type: string
+      bootstrap_confirmation:
+        description: 'First npm publish only: type publish @x-oidc/server-core@<version>'
+        required: false
         type: string
 
 permissions:
@@ -36,7 +40,10 @@ jobs:
       dockerChannel: ${{ steps.state.outputs.dockerChannel }}
       sourceSha: ${{ steps.state.outputs.sourceSha }}
       tagExists: ${{ steps.state.outputs.tagExists }}
+      packageExists: ${{ steps.state.outputs.packageExists }}
       npmPublished: ${{ steps.state.outputs.npmPublished }}
+      bootstrapMode: ${{ steps.state.outputs.bootstrapMode }}
+      bootstrapRequired: ${{ steps.state.outputs.bootstrapRequired }}
       shouldRelease: ${{ steps.state.outputs.shouldRelease }}
     steps:
       - name: Checkout pushed commit
@@ -47,10 +54,17 @@ jobs:
           fetch-depth: 0
 
       - name: Checkout recovery tag
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_confirmation == ''
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.resume_tag }}
+          fetch-depth: 0
+
+      - name: Checkout bootstrap source
+        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_confirmation != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -63,6 +77,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           RESUME_TAG: ${{ inputs.resume_tag }}
+          BOOTSTRAP_CONFIRMATION: ${{ inputs.bootstrap_confirmation }}
           WORKFLOW_SHA: ${{ github.sha }}
           WORKFLOW_REF_NAME: ${{ github.ref_name }}
           WORKFLOW_REF_TYPE: ${{ github.ref_type }}
@@ -71,28 +86,45 @@ jobs:
           version=$(node -p "JSON.parse(require('fs').readFileSync('packages/server-core/package.json')).version")
           tag="v$version"
           source_sha=$(git rev-parse HEAD)
+          bootstrap_requested=false
+          if [ -n "$BOOTSTRAP_CONFIRMATION" ]; then
+            bootstrap_requested=true
+          fi
 
           if [ "$EVENT_NAME" = "push" ]; then
             git fetch origin main --tags
             git merge-base --is-ancestor "$source_sha" origin/main
           fi
 
-          if [ -n "$RESUME_TAG" ] && [ "$RESUME_TAG" != "$tag" ]; then
-            echo "Recovery tag $RESUME_TAG does not match package version $tag" >&2
-            exit 1
-          fi
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ -z "$RESUME_TAG" ]; then
-              echo "Manual releases require an existing resume_tag." >&2
-              exit 1
-            fi
-            if [ "$WORKFLOW_REF_TYPE" != "tag" ] || [ "$WORKFLOW_REF_NAME" != "$RESUME_TAG" ]; then
-              echo "Recovery must be dispatched from tag ref $RESUME_TAG, not $WORKFLOW_REF_TYPE $WORKFLOW_REF_NAME." >&2
-              exit 1
-            fi
-            if [ "$WORKFLOW_SHA" != "$source_sha" ]; then
-              echo "Recovery event SHA $WORKFLOW_SHA does not match tag source $source_sha." >&2
-              exit 1
+            if [ "$bootstrap_requested" = "true" ]; then
+              if [ -n "$RESUME_TAG" ]; then
+                echo "Bootstrap and resume_tag cannot be used together." >&2
+                exit 1
+              fi
+              if [ "$WORKFLOW_REF_TYPE" != "branch" ] || [ "$WORKFLOW_REF_NAME" != "main" ]; then
+                echo "npm bootstrap must be dispatched from the main branch." >&2
+                exit 1
+              fi
+              git fetch origin main --tags
+              main_sha=$(git rev-parse origin/main)
+              if [ "$WORKFLOW_SHA" != "$source_sha" ] || [ "$source_sha" != "$main_sha" ]; then
+                echo "Bootstrap source must equal the current main HEAD $main_sha." >&2
+                exit 1
+              fi
+            else
+              if [ -z "$RESUME_TAG" ]; then
+                echo "Manual releases require resume_tag or bootstrap_confirmation." >&2
+                exit 1
+              fi
+              if [ "$WORKFLOW_REF_TYPE" != "tag" ] || [ "$WORKFLOW_REF_NAME" != "$RESUME_TAG" ]; then
+                echo "Recovery must be dispatched from tag ref $RESUME_TAG, not $WORKFLOW_REF_TYPE $WORKFLOW_REF_NAME." >&2
+                exit 1
+              fi
+              if [ "$WORKFLOW_SHA" != "$source_sha" ]; then
+                echo "Recovery event SHA $WORKFLOW_SHA does not match tag source $source_sha." >&2
+                exit 1
+              fi
             fi
           fi
 
@@ -103,29 +135,26 @@ jobs:
           printf '%s\n' "$publish_metadata" >> "$GITHUB_OUTPUT"
           current_channel_version=$(printf '%s\n' "$publish_metadata" | sed -n 's/^currentChannelVersion=//p')
           advance_channel=$(printf '%s\n' "$publish_metadata" | sed -n 's/^advanceChannel=//p')
-          npm_published=$(VERSIONS_JSON="$npm_versions" VERSION="$version" node --input-type=module -e '
-            const parsed = JSON.parse(process.env.VERSIONS_JSON);
-            const versions = Array.isArray(parsed) ? parsed : [parsed];
-            process.stdout.write(String(versions.includes(process.env.VERSION)));
-          ')
 
           tag_exists=false
           if git show-ref --verify --quiet "refs/tags/$tag"; then
             tag_exists=true
           fi
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$tag_exists" != "true" ]; then
-            echo "Recovery tag $tag does not exist; only the original push run may create it." >&2
-            exit 1
-          fi
-          if [ "$npm_published" = "true" ] && [ "$tag_exists" != "true" ]; then
-            echo "Published npm version $version has no immutable source tag $tag" >&2
-            exit 1
-          fi
 
-          should_release=false
-          if [ "$npm_published" != "true" ] || [ -n "$RESUME_TAG" ]; then
-            should_release=true
-          fi
+          release_mode=$(EVENT_NAME="$EVENT_NAME" \
+            RESUME_TAG="$RESUME_TAG" \
+            BOOTSTRAP_CONFIRMATION="$BOOTSTRAP_CONFIRMATION" \
+            PACKAGE_NAME="$package_name" \
+            RELEASE_VERSION="$version" \
+            TAG_EXISTS="$tag_exists" \
+            NPM_VERSIONS_JSON="$npm_versions" \
+            node scripts/release/release-mode.mjs)
+          printf '%s\n' "$release_mode" >> "$GITHUB_OUTPUT"
+          package_exists=$(printf '%s\n' "$release_mode" | sed -n 's/^packageExists=//p')
+          npm_published=$(printf '%s\n' "$release_mode" | sed -n 's/^npmPublished=//p')
+          bootstrap_mode=$(printf '%s\n' "$release_mode" | sed -n 's/^bootstrapMode=//p')
+          bootstrap_required=$(printf '%s\n' "$release_mode" | sed -n 's/^bootstrapRequired=//p')
+          should_release=$(printf '%s\n' "$release_mode" | sed -n 's/^shouldRelease=//p')
 
           if [ "$should_release" = "true" ] && [ "$tag_exists" = "true" ]; then
             tag_sha=$(git rev-parse "$tag^{commit}")
@@ -139,8 +168,6 @@ jobs:
             echo "packageName=$package_name"
             echo "sourceSha=$source_sha"
             echo "tagExists=$tag_exists"
-            echo "npmPublished=$npm_published"
-            echo "shouldRelease=$should_release"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -151,16 +178,37 @@ jobs:
             echo "- Tag: $tag"
             echo "- Source: $source_sha"
             echo "- Tag exists: $tag_exists"
+            echo "- npm package exists: $package_exists"
             echo "- npm published: $npm_published"
+            echo "- Bootstrap mode: $bootstrap_mode"
+            echo "- Bootstrap required: $bootstrap_required"
             echo "- Current channel version: ${current_channel_version:-none}"
             echo "- Advance floating channel: $advance_channel"
             echo "- Reconciliation required: $should_release"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  bootstrap-required:
+    name: Require one-time npm bootstrap
+    needs: inspect
+    if: needs.inspect.outputs.bootstrapRequired == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop before creating an immutable tag
+        env:
+          PACKAGE_NAME: ${{ needs.inspect.outputs.packageName }}
+          RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
+        run: |
+          echo "The npm package does not exist yet; no Git tag was created." >&2
+          echo "Configure the protected release Environment and NPM_BOOTSTRAP_TOKEN, then dispatch Release from main with:" >&2
+          echo "bootstrap_confirmation=publish $PACKAGE_NAME@$RELEASE_VERSION" >&2
+          exit 1
+
   verify:
     name: Verify and pack release
     needs: inspect
-    if: needs.inspect.outputs.shouldRelease == 'true'
+    if: >-
+      needs.inspect.outputs.shouldRelease == 'true' &&
+      needs.inspect.outputs.bootstrapRequired != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout immutable source
@@ -195,10 +243,114 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  bootstrap-npm:
+    name: Bootstrap first npm package
+    needs: [inspect, verify]
+    if: needs.inspect.outputs.bootstrapMode == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.sourceSha }}
+
+      - name: Setup Node.js and npm registry
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install provenance-capable npm client
+        run: npm install --global npm@11.5.1
+
+      - name: Download exact npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-${{ needs.inspect.outputs.tag }}
+          path: artifacts/npm
+
+      - name: Verify tarball checksum
+        working-directory: artifacts/npm
+        run: sha256sum --check SHA256SUMS
+
+      - name: Publish first npm version before creating Git tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+          NPM_DIST_TAG: ${{ needs.inspect.outputs.publishDistTag }}
+          PACKAGE_NAME: ${{ needs.inspect.outputs.packageName }}
+          RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
+          SOURCE_SHA: ${{ needs.inspect.outputs.sourceSha }}
+        run: |
+          git fetch --no-tags origin main
+          current_main_sha=$(git rev-parse origin/main)
+          if [ "$current_main_sha" != "$SOURCE_SHA" ]; then
+            echo "main advanced to $current_main_sha after bootstrap approval; refusing to publish $SOURCE_SHA." >&2
+            exit 1
+          fi
+          npm_versions=$(node scripts/release/npm-view.mjs "$PACKAGE_NAME" versions '[]')
+          registry_state=$(NPM_VERSIONS_JSON="$npm_versions" RELEASE_VERSION="$RELEASE_VERSION" \
+            node --input-type=module -e '
+              import { resolveNpmRegistryState } from "./scripts/release/release-mode.mjs";
+              process.stdout.write(resolveNpmRegistryState(
+                JSON.parse(process.env.NPM_VERSIONS_JSON),
+                process.env.RELEASE_VERSION,
+              ));
+            ')
+          if [ "$registry_state" = "version-exists" ]; then
+            echo "$PACKAGE_NAME@$RELEASE_VERSION already exists; verifying its integrity instead of publishing again."
+            exit 0
+          fi
+          if [ "$registry_state" = "package-exists" ]; then
+            echo "$PACKAGE_NAME now exists; configure Trusted Publisher instead of reusing the bootstrap Token." >&2
+            exit 1
+          fi
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "release Environment secret NPM_BOOTSTRAP_TOKEN is required." >&2
+            exit 1
+          fi
+          tarball=$(find artifacts/npm -maxdepth 1 -name '*.tgz' -type f -print -quit)
+          test -n "$tarball"
+          npm publish "$tarball" --access public --tag "$NPM_DIST_TAG"
+
+      - name: Verify bootstrap package integrity in npm registry
+        env:
+          PACKAGE_NAME: ${{ needs.inspect.outputs.packageName }}
+          RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
+        run: |
+          tarball=$(find artifacts/npm -maxdepth 1 -name '*.tgz' -type f -print -quit)
+          test -n "$tarball"
+          local_integrity=$(TARBALL="$tarball" node --input-type=module -e '
+            const { createHash } = await import("node:crypto");
+            const { readFileSync } = await import("node:fs");
+            process.stdout.write(`sha512-${createHash("sha512").update(readFileSync(process.env.TARBALL)).digest("base64")}`);
+          ')
+          remote_integrity=""
+          for attempt in 1 2 3 4 5 6; do
+            if remote_integrity=$(npm view "$PACKAGE_NAME@$RELEASE_VERSION" dist.integrity --json --registry=https://registry.npmjs.org/ 2>/dev/null | node -e 'let data="";process.stdin.on("data",chunk=>data+=chunk).on("end",()=>process.stdout.write(JSON.parse(data)))'); then
+              if [ "$local_integrity" = "$remote_integrity" ]; then
+                break
+              fi
+            fi
+            remote_integrity=""
+            sleep "$((attempt * 2))"
+          done
+          test -n "$remote_integrity"
+          test "$local_integrity" = "$remote_integrity"
+
   tag:
     name: Create immutable Git tag
-    needs: [inspect, verify]
-    if: needs.inspect.outputs.shouldRelease == 'true'
+    needs: [inspect, verify, bootstrap-npm]
+    if: >-
+      always() &&
+      needs.inspect.outputs.shouldRelease == 'true' &&
+      needs.inspect.outputs.bootstrapRequired != 'true' &&
+      needs.verify.result == 'success' &&
+      (needs.bootstrap-npm.result == 'success' || needs.bootstrap-npm.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -234,6 +386,11 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.sourceSha }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -252,8 +409,37 @@ jobs:
         working-directory: artifacts/npm
         run: sha256sum --check SHA256SUMS
 
-      - name: Verify already-published package integrity
-        if: needs.inspect.outputs.npmPublished == 'true'
+      - name: Publish with npm Trusted Publishing
+        if: needs.inspect.outputs.npmPublished != 'true' && needs.inspect.outputs.bootstrapMode != 'true'
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+          NPM_CONFIG_USERCONFIG: /dev/null
+          NPM_DIST_TAG: ${{ needs.inspect.outputs.publishDistTag }}
+          PACKAGE_NAME: ${{ needs.inspect.outputs.packageName }}
+          RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
+        run: |
+          tarball=$(find artifacts/npm -maxdepth 1 -name '*.tgz' -type f -print -quit)
+          test -n "$tarball"
+          npm_versions=$(node scripts/release/npm-view.mjs "$PACKAGE_NAME" versions '[]')
+          registry_state=$(NPM_VERSIONS_JSON="$npm_versions" RELEASE_VERSION="$RELEASE_VERSION" \
+            node --input-type=module -e '
+              import { resolveNpmRegistryState } from "./scripts/release/release-mode.mjs";
+              process.stdout.write(resolveNpmRegistryState(
+                JSON.parse(process.env.NPM_VERSIONS_JSON),
+                process.env.RELEASE_VERSION,
+              ));
+            ')
+          if [ "$registry_state" = "version-exists" ]; then
+            echo "$PACKAGE_NAME@$RELEASE_VERSION already exists; skipping duplicate publish and verifying its tarball next."
+            exit 0
+          fi
+          if [ "$registry_state" = "package-missing" ]; then
+            echo "$PACKAGE_NAME disappeared after release inspection; refusing to recreate it in the normal publish path." >&2
+            exit 1
+          fi
+          npm publish "$tarball" --access public --tag "$NPM_DIST_TAG"
+
+      - name: Verify npm package integrity
         env:
           PACKAGE_NAME: ${{ needs.inspect.outputs.packageName }}
           RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
@@ -265,19 +451,18 @@ jobs:
             const { readFileSync } = await import("node:fs");
             process.stdout.write(`sha512-${createHash("sha512").update(readFileSync(process.env.TARBALL)).digest("base64")}`);
           ')
-          remote_integrity=$(npm view "$PACKAGE_NAME@$RELEASE_VERSION" dist.integrity --json --registry=https://registry.npmjs.org/ | node -e 'let data="";process.stdin.on("data",chunk=>data+=chunk).on("end",()=>process.stdout.write(JSON.parse(data)))')
+          remote_integrity=""
+          for attempt in 1 2 3 4 5 6; do
+            if remote_integrity=$(npm view "$PACKAGE_NAME@$RELEASE_VERSION" dist.integrity --json --registry=https://registry.npmjs.org/ 2>/dev/null | node -e 'let data="";process.stdin.on("data",chunk=>data+=chunk).on("end",()=>process.stdout.write(JSON.parse(data)))'); then
+              if [ "$local_integrity" = "$remote_integrity" ]; then
+                break
+              fi
+            fi
+            remote_integrity=""
+            sleep "$((attempt * 2))"
+          done
+          test -n "$remote_integrity"
           test "$local_integrity" = "$remote_integrity"
-
-      - name: Publish with npm Trusted Publishing
-        if: needs.inspect.outputs.npmPublished != 'true'
-        env:
-          NPM_CONFIG_PROVENANCE: 'true'
-          NPM_CONFIG_USERCONFIG: /dev/null
-          NPM_DIST_TAG: ${{ needs.inspect.outputs.publishDistTag }}
-        run: |
-          tarball=$(find artifacts/npm -maxdepth 1 -name '*.tgz' -type f -print -quit)
-          test -n "$tarball"
-          npm publish "$tarball" --access public --tag "$NPM_DIST_TAG"
 
   docker:
     name: Publish Docker images

@@ -3,7 +3,7 @@ import type {
   AuditLogRepository,
   UserMutationAuditContext,
 } from "../types/audit.js";
-import type { ListOptions, UserInfo, UserRepository } from "../types/auth.js";
+import type { ListOptions, UserInfo, UserListCountOptions, UserRepository } from "../types/auth.js";
 import { Logger } from "../utils/Logger.js";
 import { sanitizeForLog } from "../utils/logSanitizer.js";
 
@@ -119,6 +119,10 @@ export class AuditedUserRepository implements UserRepository {
 
   list(options?: ListOptions): Promise<UserInfo[]> {
     return this.delegate.list(options);
+  }
+
+  count(options?: UserListCountOptions): Promise<number> {
+    return this.delegate.count(options);
   }
 
   async clear(): Promise<void> {

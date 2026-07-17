@@ -11,8 +11,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchAdminApplications,
   fetchAdminApplicationTemplates,
+  fetchAdminUsers,
   fetchAuditLogs,
   rotateAdminApplicationSecret,
+  updateAdminUserStatus,
 } from "../adminApi";
 
 const application: ApplicationDetailsV1["application"] = {
@@ -195,5 +197,45 @@ describe("admin audit API", () => {
       offset: "20",
       limit: "20",
     });
+  });
+});
+
+describe("admin user API", () => {
+  it("serializes server-side search, status, sort and pagination", async () => {
+    const page = { items: [], total: 12, allTotal: 243 };
+    const fetchMock = mockJsonResponse(page);
+
+    await expect(
+      fetchAdminUsers({
+        search: "alice",
+        status: "disabled",
+        sortBy: "lastLoginAt",
+        sortOrder: "desc",
+        offset: 40,
+        limit: 20,
+      }),
+    ).resolves.toEqual(page);
+
+    const [requestUrl] = fetchMock.mock.calls[0];
+    const url = new URL(requestUrl, "http://admin.local");
+    expect(url.pathname).toBe("/admin/api/users");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      search: "alice",
+      status: "disabled",
+      sortBy: "lastLoginAt",
+      sortOrder: "desc",
+      offset: "40",
+      limit: "20",
+    });
+  });
+
+  it("uses the shared X OIDC action header for mutations", async () => {
+    const fetchMock = mockJsonResponse({ sub: "user-1", status: "disabled" });
+
+    await updateAdminUserStatus("user-1", "disabled");
+
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(request.headers).toMatchObject({ "x-oidc-admin-action": "1" });
+    expect(request.headers).not.toHaveProperty("X-Gitea-OIDC-Admin-Action");
   });
 });

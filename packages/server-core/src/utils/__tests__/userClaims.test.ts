@@ -53,13 +53,38 @@ describe("user groups", () => {
       "示例组织/研发中心/前端组",
       "tenant-1/engineering/frontend",
     ]);
-    expect(userHasAnyGroup(groups, ["后端组"])).toBe(true);
+    expect(userHasAnyGroup(groups, ["后端组"])).toBe(false);
+    expect(userHasAnyGroup(groups, ["示例组织/研发中心/后端组"])).toBe(true);
     expect(userHasAnyGroup(groups, ["tenant-1/engineering/backend"])).toBe(true);
+  });
+
+  it("转义节点内的路径分隔符且不与原始百分号值碰撞", () => {
+    const groups = [
+      {
+        id: "tenant/1",
+        name: "示例/组织",
+        children: [
+          { id: "team%2Fone", name: "研发%2F平台" },
+          { id: "team/one", name: "研发/平台" },
+        ],
+      },
+    ];
+
+    expect(flattenUserGroups(groups)).toEqual([
+      "示例%2F组织",
+      "tenant%2F1",
+      "示例%2F组织/研发%252F平台",
+      "tenant%2F1/team%252Fone",
+      "示例%2F组织/研发%2F平台",
+      "tenant%2F1/team%2Fone",
+    ]);
+    expect(userHasAnyGroup(groups, ["team/one", "研发/平台"])).toBe(false);
+    expect(userHasAnyGroup(groups, ["tenant%2F1/team%2Fone"])).toBe(true);
   });
 });
 
 describe("userToClaims", () => {
-  it("保留 Gitea 字符串 groups 并输出 groups_tree", () => {
+  it("输出完整路径 groups 并保留 groups_tree", () => {
     const user: UserInfo = {
       id: "internal-user-1",
       sub: "user-1",

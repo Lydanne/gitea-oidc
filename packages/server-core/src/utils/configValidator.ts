@@ -270,6 +270,17 @@ function checkProductionErrors(config: ResolvedXOidcConfig): ConfigValidationErr
     });
   }
 
+  if (
+    config.auth.userRepository.type === "sqlite" &&
+    isEphemeralSqlitePath(config.auth.userRepository.sqlite?.dbPath)
+  ) {
+    errors.push({
+      path: "auth.userRepository.sqlite.dbPath",
+      message: "生产环境用户仓储不能使用 SQLite 内存数据库",
+      code: "production_storage_required",
+    });
+  }
+
   if (config.adapter?.type === "memory") {
     errors.push({
       path: "adapter.type",

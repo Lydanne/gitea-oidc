@@ -31,6 +31,16 @@ jobs:
       - name: Check release metadata and sensitive files
         run: pnpm release:version-check && pnpm release:secrets && pnpm test:release
 
+      - name: Validate release branch planning base
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/v')
+        env:
+          RELEASE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          RELEASE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node scripts/release/assert-release-branch.mjs \
+            --base "$RELEASE_BASE_SHA" \
+            --branch "$RELEASE_HEAD_SHA"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

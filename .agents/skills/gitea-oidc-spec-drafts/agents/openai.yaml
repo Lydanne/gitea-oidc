@@ -1,4 +1,0 @@
-interface:
-  display_name: "Gitea OIDC Spec Drafts"
-  short_description: "Manage AI proposals and TODO drafts"
-  default_prompt: "Use $gitea-oidc-spec-drafts to create or review a temporary AI proposal under docs/spec."

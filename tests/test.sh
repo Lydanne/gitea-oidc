@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Docker 集成测试脚本
-# 用于完整测试 gitea-oidc 的 Docker 镜像
+# 用于完整测试 x-oidc 的 Docker 镜像
 # 可以从任何位置运行
 
 set -e
@@ -40,10 +40,10 @@ fi
 echo -e "${BLUE}📍 找到项目根目录: ${PROJECT_ROOT}${NC}"
 
 # 配置
-IMAGE_NAME="gitea-oidc"
+IMAGE_NAME="x-oidc"
 TAG="latest"
 FULL_IMAGE_NAME="${IMAGE_NAME}:${TAG}"
-CONTAINER_NAME="gitea-oidc-test"
+CONTAINER_NAME="x-oidc-test"
 HOST_PORT=3000
 CONTAINER_PORT=3000
 TEST_TIMEOUT=60
@@ -103,7 +103,7 @@ fi
 
 # 检查 HTTP 响应
 echo -e "${YELLOW}测试 HTTP 响应...${NC}"
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${HOST_PORT}/" || echo "000")
+HTTP_STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" "http://localhost:${HOST_PORT}/" || echo "000")
 
 if [ "${HTTP_STATUS}" != "200" ]; then
     echo -e "${RED}❌ HTTP 响应码: ${HTTP_STATUS} (期望: 200)${NC}"

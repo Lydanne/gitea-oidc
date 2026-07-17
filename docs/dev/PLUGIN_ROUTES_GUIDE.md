@@ -87,7 +87,26 @@ class FeishuAuthProvider implements AuthProvider {
 实际路径: GET /auth/feishu/users
 ```
 
-### 1.3 路由认证
+### 1.3 路径安全约束
+
+插件 `name` 必须是小写 URL 安全标识，只能使用 `a-z`、`0-9`、`_` 和 `-`，并且必须以字母或
+数字开头。
+
+`registerRoutes()`、`registerStaticAssets()` 和 `registerWebhooks()` 返回的 `path` 必须满足：
+
+- 以 `/` 开头，并且只能表示插件自身的子路径。
+- 只能包含字母、数字、`_`、`-`、`.`、`~`、`:` 和 `/`。
+- 不允许 `..`、`.` 路径段、双斜杠、查询串、片段、百分号编码或反斜杠。
+
+服务端会在注册阶段拒绝不符合规则的路径，避免插件把路由注册到 `/auth/{provider}` 之外，
+或通过路径规范化造成路由混淆。
+
+`PluginRoute.options` 只能用于补充 Fastify 路由配置，例如 `schema`、`bodyLimit` 或路由级钩子。
+服务端会忽略其中的 `url`、`method`、`path` 和 `handler`，这些字段始终由
+`PluginRoute.path`、`PluginRoute.method` 和 `PluginRoute.handler` 生成，不能通过
+`options` 覆盖 `/auth/{provider}` 命名空间边界。
+
+### 1.4 路由认证
 
 设置 `requireAuth: true` 可以要求请求必须携带有效的认证令牌：
 
@@ -106,7 +125,7 @@ class FeishuAuthProvider implements AuthProvider {
 }
 ```
 
-### 1.4 请求验证 Schema
+### 1.5 请求验证 Schema
 
 使用 Fastify 的 schema 验证请求和响应：
 
@@ -324,19 +343,28 @@ https://your-domain.com/auth/feishu/webhook
 
 插件可以注册 Fastify 中间件，在请求处理前后执行逻辑。
 
+服务端会把通过 `PluginMiddlewareContext.addHook()` 注册的钩子限制在插件自身
+`/auth/{provider}` 路径段内。插件文档或自定义中间件示例不要直接使用
+`request.url.startsWith('/auth/name')`，否则 `/auth/name2` 这类同前缀路径也会命中。
+
 ```typescript
+const isFeishuPluginPath = (requestUrl: string) => {
+  const pathname = new URL(requestUrl, 'http://plugin.local').pathname;
+  return pathname === '/auth/feishu' || pathname.startsWith('/auth/feishu/');
+};
+
 class FeishuAuthProvider implements AuthProvider {
   async registerMiddleware(app: FastifyInstance): Promise<void> {
     // 添加请求日志
     app.addHook('preHandler', async (request, reply) => {
-      if (request.url.startsWith('/auth/feishu')) {
+      if (isFeishuPluginPath(request.url)) {
         console.log(`[Feishu] ${request.method} ${request.url}`);
       }
     });
     
     // 添加响应头
     app.addHook('onSend', async (request, reply, payload) => {
-      if (request.url.startsWith('/auth/feishu')) {
+      if (isFeishuPluginPath(request.url)) {
         reply.header('X-Auth-Provider', 'feishu');
       }
       return payload;
@@ -344,7 +372,7 @@ class FeishuAuthProvider implements AuthProvider {
     
     // 错误处理
     app.setErrorHandler(async (error, request, reply) => {
-      if (request.url.startsWith('/auth/feishu')) {
+      if (isFeishuPluginPath(request.url)) {
         console.error(`[Feishu Error]`, error);
         reply.status(500).send({
           error: 'Internal Server Error',
@@ -368,7 +396,7 @@ class FeishuAuthProvider implements AuthProvider {
       timeWindow: '1 minute',
       allowList: (request) => {
         // 白名单
-        return request.url.startsWith('/auth/feishu/webhook');
+        return new URL(request.url, 'http://plugin.local').pathname === '/auth/feishu/webhook';
       }
     });
   }
@@ -381,7 +409,7 @@ class FeishuAuthProvider implements AuthProvider {
 class FeishuAuthProvider implements AuthProvider {
   async registerMiddleware(app: FastifyInstance): Promise<void> {
     app.addHook('onRequest', async (request, reply) => {
-      if (request.url.startsWith('/auth/feishu')) {
+      if (isFeishuPluginPath(request.url)) {
         reply.header('Access-Control-Allow-Origin', 'https://feishu.cn');
         reply.header('Access-Control-Allow-Methods', 'GET, POST');
       }
@@ -582,7 +610,8 @@ export class FeishuAuthProvider implements AuthProvider {
   // 中间件
   async registerMiddleware(app: FastifyInstance): Promise<void> {
     app.addHook('preHandler', async (request, reply) => {
-      if (request.url.startsWith('/auth/feishu')) {
+      const pathname = new URL(request.url, 'http://plugin.local').pathname;
+      if (pathname === '/auth/feishu' || pathname.startsWith('/auth/feishu/')) {
         console.log(`[Feishu] ${request.method} ${request.url}`);
       }
     });

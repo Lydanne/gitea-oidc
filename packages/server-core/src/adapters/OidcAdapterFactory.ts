@@ -1,0 +1,332 @@
+/**
+ * OIDC 适配器工厂
+ *
+ * 根据配置创建不同类型的 OIDC 持久化适配器
+ */
+
+import type { Adapter } from "oidc-provider";
+import {
+  acquireOidcAccountBlock,
+  acquireOidcClientBlock,
+  allowOidcAccount,
+  allowOidcClient,
+  blockOidcClient,
+  clearOidcClientRevocationBarriers,
+  type OidcAccountBlockLease,
+  type OidcClientBlockLease,
+} from "./oidcClientRevocationBarrier.js";
+import { RedisOidcAdapter, type RedisOidcAdapterOptions } from "./RedisOidcAdapter.js";
+import { SqliteOidcAdapter } from "./SqliteOidcAdapter.js";
+
+/**
+ * 适配器类型
+ */
+export type AdapterType = "sqlite" | "redis" | "memory";
+
+/**
+ * 适配器配置接口
+ */
+export interface OidcAdapterConfig {
+  /**
+   * 适配器类型
+   * - sqlite: SQLite 文件数据库 (适合单实例)
+   * - redis: Redis 内存数据库 (适合分布式)
+   * - memory: 内存存储 (仅开发环境)
+   */
+  type: AdapterType;
+
+  /**
+   * SQLite 配置
+   */
+  sqlite?: {
+    /**
+     * 数据库文件路径
+     * @default './oidc.db'
+     */
+    dbPath?: string;
+  };
+
+  /**
+   * Redis 配置
+   */
+  redis?: RedisOidcAdapterOptions;
+}
+
+/**
+ * OIDC 适配器工厂类
+ */
+export class OidcAdapterFactory {
+  private static config: OidcAdapterConfig;
+  private static overrides = new Map<string, () => Adapter>();
+
+  /**
+   * 配置适配器工厂
+   *
+   * @param config 适配器配置
+   */
+  static configure(config: OidcAdapterConfig, overrides: Record<string, () => Adapter> = {}): void {
+    OidcAdapterFactory.config = config;
+    OidcAdapterFactory.overrides = new Map(Object.entries(overrides));
+    clearOidcClientRevocationBarriers();
+    console.log(`[OidcAdapterFactory] 配置适配器类型: ${config.type}`);
+  }
+
+  /**
+   * 创建适配器实例
+   *
+   * @param name OIDC 模型名称 (如 Session, AccessToken 等)
+   * @returns 适配器实例
+   */
+  static create(name: string): Adapter | undefined {
+    if (!OidcAdapterFactory.config) {
+      throw new Error("OidcAdapterFactory not configured. Call configure() first.");
+    }
+
+    const override = OidcAdapterFactory.overrides.get(name);
+    if (override) {
+      return override();
+    }
+
+    switch (OidcAdapterFactory.config.type) {
+      case "sqlite":
+        return new SqliteOidcAdapter(name, OidcAdapterFactory.config.sqlite?.dbPath);
+
+      case "redis":
+        if (!OidcAdapterFactory.config.redis) {
+          throw new Error('Redis configuration is required when type is "redis"');
+        }
+        return new RedisOidcAdapter(name, OidcAdapterFactory.config.redis);
+
+      case "memory":
+        console.warn("[OidcAdapterFactory] Using memory adapter - data will be lost on restart!");
+        // 返回 undefined 让 oidc-provider 使用默认的内存适配器
+        return undefined;
+
+      default:
+        throw new Error(`Unknown adapter type: ${(OidcAdapterFactory.config as any).type}`);
+    }
+  }
+
+  /**
+   * 获取适配器工厂函数
+   *
+   * 用于 OIDC Provider 配置
+   *
+   * @returns 适配器工厂函数
+   */
+  static getAdapterFactory(): ((name: string) => Adapter) | undefined {
+    if (OidcAdapterFactory.config?.type === "memory") {
+      if (OidcAdapterFactory.overrides.size > 0) {
+        throw new Error("Memory OIDC adapter 无法与模型级 Adapter override 组合使用");
+      }
+      // 不向 oidc-provider 注入一个返回 undefined 的工厂；省略 adapter 字段才能启用内建内存适配器。
+      return undefined;
+    }
+    return (name: string) => {
+      const adapter = OidcAdapterFactory.create(name);
+      if (!adapter) {
+        throw new Error("Memory adapter must be omitted from oidc-provider configuration");
+      }
+      return adapter;
+    };
+  }
+
+  /**
+   * 清理资源
+   *
+   * 关闭数据库连接等
+   */
+  static async cleanup(): Promise<void> {
+    if (!OidcAdapterFactory.config) {
+      return;
+    }
+
+    console.log("[OidcAdapterFactory] 清理适配器资源...");
+
+    switch (OidcAdapterFactory.config.type) {
+      case "redis":
+        await RedisOidcAdapter.disconnect();
+        break;
+
+      case "sqlite":
+        await SqliteOidcAdapter.closeAll();
+        break;
+
+      case "memory":
+        // 内存适配器无需清理
+        break;
+    }
+
+    OidcAdapterFactory.overrides.clear();
+    clearOidcClientRevocationBarriers();
+    console.log("[OidcAdapterFactory] 资源清理完成");
+  }
+
+  /**
+   * 获取当前配置
+   */
+  static getConfig(): OidcAdapterConfig | undefined {
+    return OidcAdapterFactory.config;
+  }
+
+  /**
+   * 撤销某个账户的全部 OIDC 记录。
+   * 用户删除或更换外部身份后调用，避免旧 refresh token 在同一 sub 再次出现时复活。
+   * 调用方必须先持有 acquireAccountIdBlock() 返回的租约。
+   */
+  static async revokeByAccountId(accountId: string): Promise<void> {
+    if (!OidcAdapterFactory.config) {
+      return;
+    }
+
+    switch (OidcAdapterFactory.config.type) {
+      case "sqlite":
+        await SqliteOidcAdapter.revokeByAccountId(
+          OidcAdapterFactory.config.sqlite?.dbPath ?? "./oidc.db",
+          accountId,
+        );
+        break;
+      case "redis":
+        await RedisOidcAdapter.revokeByAccountId(accountId, OidcAdapterFactory.config.redis);
+        break;
+      case "memory":
+        // oidc-provider 的内存适配器会随当前进程结束，且不允许生产环境使用。
+        break;
+    }
+  }
+
+  /** 在用户状态提交前取得账户级栅栏，Redis 模式下同时创建跨实例租约。 */
+  static async acquireAccountIdBlock(accountId: string): Promise<OidcAccountBlockLease> {
+    const localLease = acquireOidcAccountBlock(accountId);
+    if (OidcAdapterFactory.config?.type !== "redis") {
+      return localLease;
+    }
+
+    let redisLease: OidcAccountBlockLease;
+    try {
+      redisLease = await RedisOidcAdapter.acquireAccountBlock(
+        accountId,
+        OidcAdapterFactory.config.redis,
+      );
+    } catch (error) {
+      await localLease.release();
+      throw error;
+    }
+
+    let settled = false;
+    return Object.freeze({
+      accountId,
+      async commit(): Promise<void> {
+        if (settled) return;
+        try {
+          await redisLease.commit();
+        } catch (error) {
+          // Redis 结果不确定时将本实例提升为持久封锁，避免状态已经提交后本地失守。
+          await localLease.commit();
+          throw error;
+        }
+        await localLease.commit();
+        settled = true;
+      },
+      async release(): Promise<void> {
+        if (settled) return;
+        try {
+          await redisLease.release();
+        } catch (error) {
+          // 远端临时租约有 TTL；本地租约仍应释放，避免一次清理故障永久锁死当前实例。
+          await localLease.release();
+          throw error;
+        }
+        await localLease.release();
+        settled = true;
+      },
+    });
+  }
+
+  /** 用户创建或重新启用后移除持久账户栅栏，不越过仍在执行的停用租约。 */
+  static async allowAccountId(accountId: string): Promise<void> {
+    if (OidcAdapterFactory.config?.type === "redis") {
+      await RedisOidcAdapter.allowAccountId(accountId, OidcAdapterFactory.config.redis);
+    }
+    allowOidcAccount(accountId);
+  }
+
+  /** 停用应用时撤销该 Client 的全部 OIDC Artifact。 */
+  static async revokeByClientId(clientId: string): Promise<void> {
+    blockOidcClient(clientId);
+    if (!OidcAdapterFactory.config) {
+      return;
+    }
+
+    switch (OidcAdapterFactory.config.type) {
+      case "sqlite":
+        await SqliteOidcAdapter.revokeByClientId(
+          OidcAdapterFactory.config.sqlite?.dbPath ?? "./oidc.db",
+          clientId,
+        );
+        break;
+      case "redis":
+        await RedisOidcAdapter.revokeByClientId(clientId, OidcAdapterFactory.config.redis);
+        break;
+      case "memory":
+        break;
+    }
+  }
+
+  /** 应用完成启用后，允许该 Client 再次写入新的 OIDC Artifact。 */
+  static allowClientId(clientId: string): void {
+    allowOidcClient(clientId);
+  }
+
+  /** 在应用状态提交前取得独立栅栏租约，避免并发请求互相解除封锁。 */
+  static acquireClientIdBlock(clientId: string): OidcClientBlockLease {
+    return acquireOidcClientBlock(clientId);
+  }
+
+  /**
+   * 验证配置
+   *
+   * @param config 配置对象
+   * @returns 验证结果
+   */
+  static validateConfig(config: OidcAdapterConfig): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!config.type) {
+      errors.push("适配器类型 (type) 是必需的");
+    }
+
+    if (!["sqlite", "redis", "memory"].includes(config.type)) {
+      errors.push(`无效的适配器类型: ${config.type}`);
+    }
+
+    if (config.type === "redis") {
+      if (!config.redis) {
+        errors.push("Redis 配置 (redis) 是必需的");
+      } else {
+        if (!config.redis.url && !config.redis.host) {
+          errors.push("Redis URL 或 host 是必需的");
+        }
+      }
+    }
+
+    if (config.type === "memory") {
+      errors.push("⚠️  警告: memory 适配器仅适用于开发环境,生产环境请使用 sqlite 或 redis");
+    }
+
+    return {
+      valid: errors.filter((e) => !e.startsWith("⚠️")).length === 0,
+      errors,
+    };
+  }
+}
+
+/**
+ * 默认配置
+ */
+export const defaultAdapterConfig: OidcAdapterConfig = {
+  type: "sqlite",
+  sqlite: {
+    dbPath: "./oidc.db",
+  },
+};

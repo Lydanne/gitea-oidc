@@ -1,24 +1,25 @@
-# Gitea OIDC Agent 指南
+# X OIDC Agent 指南
 
 ## 交流与范围
 
 - 与用户沟通默认使用中文。
-- 本仓库是单 package TypeScript 项目，最近的 `package.json` 位于仓库根目录。
-  提交信息 scope 使用 `gitea-oidc`；如果未来出现嵌套 package，
-  则以当前修改文件向上查找最近 `package.json` 的目录名作为 scope。
+- 本仓库是 pnpm monorepo，根 `package.json` 仅用于私有 workspace 编排。
+- 提交信息 scope 以修改文件向上查找最近 `package.json` 的目录名为准，例如
+  `server-core`、`admin-web`、`idp-server`；根级编排文件使用 `x-oidc`。
 - 变更前先用 `rg` / `rg --files` 熟悉现有实现，优先沿用仓库已有模式。
 - 不要回退用户已有改动；遇到无关脏文件时忽略，遇到相关改动时在其基础上继续。
 
 ## 项目概览
 
 - 运行时：Node.js `>=22`，包管理器：`pnpm@10`。
-- 入口：`src/server.ts`，负责 Fastify、`oidc-provider`、认证协调器、适配器和 JWKS 初始化。
-- 配置：`src/config.ts` 加载并合并配置，`src/schemas/configSchema.ts` 用 Zod 校验。
-- 认证核心：`src/core/`，尤其是 `AuthCoordinator` 和 `PermissionChecker`。
-- 认证提供者：`src/providers/`，目前有本地密码和飞书 OAuth。
-- 用户仓储：`src/repositories/`，支持 memory、SQLite、PostgreSQL。
-- OIDC 持久化：`src/adapters/`，支持 SQLite、Redis、memory。
-- State 存储：`src/stores/MemoryStateStore.ts`。
+- 部署入口：`apps/idp-server/src/main.ts`，只负责服务进程生命周期。
+- 管理台：`apps/admin-web/`，构建后装配到 `packages/server-core/public/admin/`。
+- 公开服务包：`packages/server-core/`，npm 包名为 `@x-oidc/server-core`。
+- 服务组装：`packages/server-core/src/identityServer.ts`；兼容进程入口：
+  `packages/server-core/src/server.ts`。
+- 配置：`packages/server-core/src/config.ts` 加载并合并配置，
+  `packages/server-core/src/schemas/configSchema.ts` 用 Zod 校验。
+- 认证、Provider、仓储和适配器源码均位于 `packages/server-core/src/`。
 - 文档：`docs/` 和根目录 `README*.md`。
 
 ## 常用命令
@@ -37,20 +38,21 @@
 
 ## 本地 Skills
 
-- 默认开发入口：`$gitea-oidc-engineering-quality`，用于新增功能、修 bug、重构维护、
+- 默认开发入口：`$x-oidc-engineering-quality`，用于新增功能、修 bug、重构维护、
   补测试和质量审查。
-- 认证专项：`$gitea-oidc-auth-provider`，用于认证插件、OAuth 回调、权限和用户映射。
-- 存储专项：`$gitea-oidc-oidc-storage`，用于 OIDC SQLite/Redis 适配器和 TTL 语义。
-- 配置专项：`$gitea-oidc-config-safety`，用于配置加载、Zod schema、JWKS、代理和生产安全。
-- 文档专项：`$gitea-oidc-docs-quality`，用于文档编写、整理、去重、链接维护和格式校验。
-- 草案专项：`$gitea-oidc-spec-drafts`，用于 `docs/spec/` 下的 AI 临时方案、TODO 草案和评审记录。
-- 发布专项：`$gitea-oidc-release-quality`，用于构建、Docker、CI 和发布前验证。
+- 认证专项：`$x-oidc-auth-provider`，用于认证插件、OAuth 回调、权限和用户映射。
+- 存储专项：`$x-oidc-oidc-storage`，用于 OIDC SQLite/Redis 适配器和 TTL 语义。
+- 配置专项：`$x-oidc-config-safety`，用于配置加载、Zod schema、JWKS、代理和生产安全。
+- 文档专项：`$x-oidc-docs-quality`，用于文档编写、整理、去重、链接维护和格式校验。
+- 草案专项：`$x-oidc-spec-drafts`，用于 `docs/spec/` 下的 AI 临时方案、TODO 草案和评审记录。
+- 发布专项：`$x-oidc-release-quality`，用于构建、Docker、CI 和发布前验证。
 
 ## 代码风格
 
 - TypeScript 使用 ESM、双引号、分号、2 空格缩进，遵循 `biome.json`。
 - 保持现有中文注释风格；只在复杂流程前添加有帮助的短注释。
-- 类型定义优先放在 `src/types/` 或靠近具体模块；公共配置变更要同步接口、Zod schema、示例配置和文档。
+- 类型定义优先放在 `packages/server-core/src/types/` 或靠近具体模块；公共配置变更要同步接口、
+  Zod schema、示例配置和文档。
 - 不引入新的运行时依赖，除非能明显降低复杂度并符合项目方向。
 - 安全相关逻辑不要吞错；日志中避免输出密码、token、client secret、cookie key、私钥等敏感值。
 
@@ -92,7 +94,7 @@
 
 ## 配置与生产安全
 
-- 配置文件支持 `gitea-oidc.config.js` 和 `gitea-oidc.config.json`，其中 JS 优先。
+- 配置文件使用 `x-oidc.config.js` 和 `x-oidc.config.json`，其中 JS 优先。
 - 生产配置必须使用强 `cookieKeys`、持久化 JWKS、非 memory 的用户仓储和 OIDC 适配器。
 - 反向代理后部署时要同步 `server.url`、`oidc.issuer`、客户端回调 URL，并按需开启 `trustProxy`。
 - 不要把真实密钥、密码文件、JWKS 私钥、数据库连接串提交到仓库。
@@ -101,5 +103,23 @@
 
 - 使用 Conventional Commits：`type(scope): 中文主题描述`。
 - 允许的 type：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`chore`、`build`、`ci`、`revert`。
-- 主题用中文祈使语气，50 字以内，不加句号。
-- 本仓库根级文件的 scope 使用 `gitea-oidc`，例如：`docs(gitea-oidc): 新增项目代理指南`。
+- scope 必须填写；单包变更使用最近 `package.json` 所在目录名，根级或不可拆分的跨包变更使用
+  `x-oidc`。
+- 主题用中文祈使语气，完整标题不超过 50 字，结尾不加标点。
+- 本仓库根级文件的 scope 使用 `x-oidc`，例如：`docs(x-oidc): 新增项目代理指南`。
+
+## 自动提交与交付
+
+- 对任何经用户授权且实际修改仓库文件的任务，实现完成并通过适当验证后，必须自动暂存本任务变更并
+  创建提交，不再等待用户再次要求“提交”。
+- 仅当用户明确要求不暂存或不提交、任务仍未完成、验证发现已知错误，或当前请求只是审查、诊断、
+  解释和方案时跳过提交；不得创建空提交或把未完成代码包装成已完成提交。
+- 暂存前必须检查 `git status --short`、`git diff` 和 `git diff --cached`。只能用显式路径或明确的 hunk
+  暂存本任务变更，禁止使用 `git add .`、`git add -A`，不得带入无关的 staged、unstaged 或 untracked 文件。
+- 同一文件混有无关改动时必须拆分暂存；无法安全拆分，或索引中已有无法隔离的无关变更时，停止提交并
+  向用户说明阻塞原因。
+- 提交前必须检查完整 staged diff、运行 `git diff --cached --check`，并确认没有敏感信息。禁止使用
+  `--no-verify` 绕过 Husky、lint-staged 或 commitlint。
+- 可独立审查和回滚的多包变更应按 package scope 拆分提交；无法拆分的原子跨包变更使用 `x-oidc` scope。
+- 提交后必须核对 `git status --short`，在最终回复中报告 commit hash 和剩余未提交变更。
+- 自动提交不包含自动 push、创建 tag、发布或创建 PR；这些外部操作仍需用户明确授权。

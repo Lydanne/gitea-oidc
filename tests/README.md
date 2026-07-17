@@ -1,6 +1,6 @@
 # Docker 测试脚本
 
-这个目录包含用于测试 gitea-oidc Docker 镜像的 shell 脚本。
+这个目录包含用于测试 X OIDC Docker 镜像的 shell 脚本。
 
 ## 🎯 统一入口脚本
 

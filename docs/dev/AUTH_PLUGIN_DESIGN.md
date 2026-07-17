@@ -1,4 +1,4 @@
-# Gitea OIDC 认证插件系统设计文档
+# X OIDC 认证插件系统设计文档
 
 ## 1. 概述
 
@@ -561,4 +561,4 @@ authCoordinator.registerProvider(new CustomAuthProvider());
 
 ## 附录 A: TypeScript 接口定义
 
-详见 `src/types/auth.ts`
+详见 `packages/server-core/src/types/auth.ts`

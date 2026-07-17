@@ -1,12 +1,12 @@
-# Gitea OIDC Identity Provider
+# X OIDC Identity Provider
 
 [中文文档](./README.md) · [English README](./README.en.md)
 
 [![CI-CHECK](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/ci-check.yml)
 [![Release](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml)
-[![npm version](https://img.shields.io/npm/v/gitea-oidc)](https://www.npmjs.com/package/gitea-oidc)
-[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/gitea-oidc)](https://hub.docker.com/r/lydamirror/gitea-oidc)
-![Node version](https://img.shields.io/badge/node-%3E%3D22.0.0-43853d?logo=node.js)
+[![npm version](https://img.shields.io/npm/v/%40x-oidc%2Fserver-core)](https://www.npmjs.com/package/@x-oidc/server-core)
+[![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/x-oidc)](https://hub.docker.com/r/lydamirror/x-oidc)
+![Node version](https://img.shields.io/badge/node-22.13.x-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
 [![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
@@ -23,7 +23,7 @@ user repositories, and pluggable OIDC persistence adapters.
 
 ## Table of Contents
 
-- [Gitea OIDC Identity Provider](#gitea-oidc-identity-provider)
+- [X OIDC Identity Provider](#x-oidc-identity-provider)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Architecture Overview](#architecture-overview)
@@ -51,10 +51,17 @@ user repositories, and pluggable OIDC persistence adapters.
   - Local password authentication (htpasswd format, bcrypt/MD5/SHA)
   - Feishu (Lark) OAuth 2.0 login
 - **Unified login page** combining multiple providers
+- **Optional application control plane** with custom applications, a versioned Gitea template,
+  one-time credentials, and Client Secret rotation
+- **Built-in user portal** with an authenticated application directory, admin shortcut, and
+  independent BFF session
+- **Private preview integration packages** for native Node.js, SQLite session storage, Express 4/5,
+  Fastify 5, NestJS 10/11, and a local setup CLI (not published to npm yet)
 - **Flexible user repositories**:
   - In-memory
   - SQLite
   - PostgreSQL
+- **Structured identity auditing** for user/admin login, logout, and user profile changes
 - **OIDC persistence adapters** via `OidcAdapterFactory`:
   - SQLite
   - Redis
@@ -69,22 +76,37 @@ user repositories, and pluggable OIDC persistence adapters.
 
 At a high level:
 
-- `src/server.ts`
+- `packages/server-core/src/identityServer.ts`
   - Bootstraps Fastify 5
-  - Loads merged configuration from `gitea-oidc.config.js/json` via `src/config.ts`
+  - Loads merged configuration from `x-oidc.config.js/json` via
+    `packages/server-core/src/config.ts`
   - Configures `oidc-provider` and mounts it at `/oidc`
   - Integrates the authentication system (unified login, OAuth state, callbacks)
-- `src/core/AuthCoordinator.ts`
+- `packages/contracts/`
+  - Owns versioned connection, credential, template, rotation, and management response contracts
+- `packages/application-templates/`
+  - Owns versioned built-in templates and immutable creation snapshots
+- `packages/applications/`
+  - Owns applications, OIDC Clients, encrypted/rotatable secrets, auditing, and SQLite persistence
+- `packages/oidc-client/` and `packages/oidc-client-sqlite/`
+  - Provide the framework-neutral OIDC relying-party core and encrypted production SQLite stores
+- `packages/express/`, `packages/fastify/`, and `packages/nestjs/`
+  - Adapt the shared OIDC and HTTP connector cores to supported frameworks
+- `packages/cli/`
+  - Validates exported connection files, diagnoses discovery, and safely initializes local projects
+- `apps/idp-server/src/main.ts`
+  - Owns the production process lifecycle and graceful shutdown
+- `packages/server-core/src/core/AuthCoordinator.ts`
   - Manages authentication providers and their routes/webhooks/static assets
   - Renders a unified login page combining providers according to priority
-- `src/providers/`
+- `packages/server-core/src/providers/`
   - `LocalAuthProvider`: htpasswd-based local password login
   - `FeishuAuthProvider`: Feishu OAuth 2.0 login using official Lark Node SDK
-- `src/repositories/`
+- `packages/server-core/src/repositories/`
   - `MemoryUserRepository`, `SqliteUserRepository`, `PgsqlUserRepository`
-- `src/adapters/`
+- `packages/server-core/src/adapters/`
   - `OidcAdapterFactory` + `SqliteOidcAdapter` + `RedisOidcAdapter`
-- `src/stores/`
+- `packages/server-core/src/stores/`
   - `MemoryStateStore` for OAuth state & temporary auth results
 
 For a more detailed design, see (Chinese):
@@ -99,8 +121,8 @@ For a more detailed design, see (Chinese):
 
 ### Prerequisites
 
-- Node.js **>= 22.0.0**
-- `pnpm` (recommended; `npm`/`yarn` also work with minor changes)
+- Node.js **22.13.x** for workspace development and builds
+- pnpm **10+**
 
 ### 1. Install dependencies
 
@@ -113,7 +135,7 @@ pnpm install
 Copy the example config and adjust it to your environment:
 
 ```bash
-cp example.gitea-oidc.config.json gitea-oidc.config.json
+cp example.x-oidc.config.json x-oidc.config.json
 ```
 
 Important fields (development example):
@@ -154,7 +176,11 @@ Important fields (development example):
 ### 3. Create `.htpasswd` (local auth)
 
 ```bash
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync('admin123', 10));" > .htpasswd
+read -r -s ADMIN_PASSWORD
+export ADMIN_PASSWORD
+node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
+unset ADMIN_PASSWORD
+chmod 0600 .htpasswd
 ```
 
 ### 4. Run the server
@@ -163,11 +189,14 @@ node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSyn
 # Development (with watch)
 pnpm dev
 
-# Production build
-pnpm build && pnpm start
+# Validate the production build
+pnpm build:prod
 ```
 
 The default dev URL is: `http://localhost:3000`.
+
+`pnpm start` runs in production mode and rejects the local HTTP/memory example. Follow
+`docs/PRODUCTION_SETUP.md` before starting a production deployment.
 
 You can verify the OIDC discovery document at:
 
@@ -179,13 +208,20 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 
 ## Configuration Overview
 
-The full configuration is validated by Zod (`src/schemas/configSchema.ts`).
-Key sections in `gitea-oidc.config.*`:
+The full configuration is validated by Zod
+(`packages/server-core/src/schemas/configSchema.ts`).
+Key sections in `x-oidc.config.*`:
 
 - `server`: host/port/public URL, reverse proxy trust
 - `logging`: enable/disable and log level
+- `audit`: structured identity audit switch and retention period; uses the user repository backend
 - `oidc`: issuer, cookie keys, TTLs, claims & features
 - `clients`: OIDC clients (e.g. Gitea)
+- `applications`: optional application control plane and its single Client source
+  - compatibility mode: `enabled: false`, `clientSource: "config"`
+  - database mode: `enabled: true`, `clientSource: "database"`
+  - database mode currently requires a 32-byte Base64/Base64URL master key and single-instance
+    SQLite storage
 - `auth.userRepository`:
   - `type`: `memory` | `sqlite` | `pgsql`
   - `memory`: in-memory store (dev only)
@@ -201,7 +237,7 @@ Key sections in `gitea-oidc.config.*`:
 For concrete JSON examples, refer to:
 
 - `README.md` (Chinese, detailed examples)
-- `example.gitea-oidc.config.json`
+- `example.x-oidc.config.json`
 
 ---
 
@@ -223,30 +259,30 @@ For more detailed, step-by-step instructions (Chinese), see `docs/QUICK_START.md
 
 ## Docker & Deployment
 
-A simple way to run the IdP in production is via Docker:
+The image starts with `NODE_ENV=production` and refuses to run without a valid production config.
+Pin an explicit release version instead of `latest`:
+
+The container runs as UID/GID `10001:10001`. Before bind-mounting files, grant that identity access
+to the read-only config and secrets and ownership of the writable data directory. See the production
+guide for commands that preserve restrictive secret permissions.
 
 ```bash
-# Pull latest image
-docker pull lydamirror/gitea-oidc:latest
-
-# Run with default ports
-docker run -d -p 3000:3000 lydamirror/gitea-oidc
-```
-
-With a custom JSON config:
-
-```bash
-docker run -p 3000:3000 \
+docker run -d --name x-oidc \
+  -p 127.0.0.1:3000:3000 \
   -e NODE_ENV=production \
-  -v ./gitea-oidc.config.json:/app/gitea-oidc.config.json \
-  lydamirror/gitea-oidc
+  --env-file /srv/x-oidc/.env.production \
+  -v /srv/x-oidc/x-oidc.config.js:/app/x-oidc.config.js:ro \
+  -v /srv/x-oidc/data:/app/data \
+  -v /srv/x-oidc/secrets:/app/secrets:ro \
+  lydamirror/x-oidc:<version>
 ```
 
-See `README.md` (Chinese) for more detailed production recommendations:
+See the Chinese deployment documentation for the complete, validated workflow:
 
-- HTTPS & reverse proxy
-- SQLite / Redis adapters for persistence
-- PostgreSQL/SQLite user repositories
+- `docs/PRODUCTION_SETUP.md` – topology, configuration, Compose, HTTPS, and go-live checks
+- `docs/GITEA_INTEGRATION.md` – Gitea login, logout, and claims integration
+- `docs/USER_PORTAL.md` – portal Client, application directory, logout boundaries, and operations
+- `docs/OPERATIONS.md` – health checks, backup, restore, upgrade, and rollback
 
 ---
 
@@ -275,6 +311,9 @@ Main documentation lives under `docs/` and is currently in Chinese:
 - `docs/README.md` – documentation index
 - `docs/QUICK_START.md` – quick start guide
 - `docs/PRODUCTION_SETUP.md` – production setup
+- `docs/GITEA_INTEGRATION.md` – Gitea login, logout, and claims integration
+- `docs/OPERATIONS.md` – health checks, backup, restore, upgrade, and rollback
+- `docs/APPLICATION_MANAGEMENT.md` – application management, key handling, and SQLite operations
 - `docs/ADAPTER_CONFIGURATION.md`, `docs/REDIS_ADAPTER_GUIDE.md` – adapter details
 - `docs/REVERSE_PROXY_HTTPS.md` – reverse proxy & HTTPS
 - `docs/dev/README.md` – developer documentation index
@@ -287,7 +326,7 @@ If you can read Chinese, please start from `docs/QUICK_START.md`.
 
 ## License
 
-This project is licensed under the **ISC License**.
+This project is licensed under the **MIT License**.
 
 ## Team
 

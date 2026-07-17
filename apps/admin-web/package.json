@@ -1,0 +1,28 @@
+{
+  "name": "@x-oidc/admin-web",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@x-oidc/contracts": "workspace:*",
+    "@primeuix/themes": "^2.0.3",
+    "primeicons": "^7.0.0",
+    "primevue": "^4.5.5",
+    "vue": "^3.5.0",
+    "vue-router": "^5.0.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "typescript": "^5.0.0",
+    "vite": "^8.1.4",
+    "vitest": "^4.1.10",
+    "vue-tsc": "^3.1.8"
+  }
+}

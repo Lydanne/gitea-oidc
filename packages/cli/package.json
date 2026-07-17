@@ -1,0 +1,49 @@
+{
+  "name": "@x-oidc/cli",
+  "version": "2.0.0",
+  "description": "Local integration CLI for X OIDC applications",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "x-oidc": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "prebuild": "pnpm --filter @x-oidc/contracts build",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "postbuild": "node ./scripts/finalize-build.mjs",
+    "pretypecheck": "pnpm --filter @x-oidc/contracts build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "pnpm --filter @x-oidc/contracts build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@x-oidc/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

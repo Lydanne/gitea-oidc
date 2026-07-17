@@ -167,12 +167,30 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+x-oidc.config.*
+# 旧名称不再加载，但仍忽略本地遗留文件，避免其中的密钥被误提交。
 gitea-oidc.config.*
 .pnpm-store
 tests/data
+.htpasswd
+*.htpasswd
+artifacts/
+gitea-server/data/
+gitea-server/config/*
+!gitea-server/config/.gitkeep
 
-# OIDC 持久化文件 (包含敏感数据)
+# SQLite / OIDC 持久化文件（包含敏感数据或加密会话索引）
 jwks.json
-oidc.db
-oidc.db-shm
-oidc.db-wal
+**/*jwks*.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.db
+*.db-shm
+*.db-wal
+
+# Workspace build outputs
+apps/admin-web/dist/
+apps/idp-server/dist/
+packages/server-core/dist/

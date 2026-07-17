@@ -7,7 +7,12 @@
     "defaultBranch": "main"
   },
   "files": {
-    "ignoreUnknown": false
+    "ignoreUnknown": false,
+    "includes": [
+      "**",
+      "!packages/server-core/public/admin/assets",
+      "!packages/server-core/public/portal/assets"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -121,5 +126,17 @@
       "allowComments": true,
       "allowTrailingCommas": false
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["apps/admin-web/**/*.vue"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedImports": "off"
+          }
+        }
+      }
+    }
+  ]
 }

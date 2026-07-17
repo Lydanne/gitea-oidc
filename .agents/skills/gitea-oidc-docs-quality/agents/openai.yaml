@@ -1,4 +1,0 @@
-interface:
-  display_name: "Gitea OIDC Docs Quality"
-  short_description: "Write and maintain clear project docs"
-  default_prompt: "Use $gitea-oidc-docs-quality to write, organize, or clean documentation in this repository."

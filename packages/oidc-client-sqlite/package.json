@@ -1,0 +1,48 @@
+{
+  "name": "@x-oidc/node-sqlite",
+  "version": "2.0.0",
+  "description": "Encrypted SQLite stores and refresh lock for @x-oidc/node",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "prebuild": "pnpm --filter @x-oidc/node build",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "pretypecheck": "pnpm --filter @x-oidc/node build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "pnpm --filter @x-oidc/node build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@x-oidc/node": "workspace:*",
+    "better-sqlite3": "^12.4.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

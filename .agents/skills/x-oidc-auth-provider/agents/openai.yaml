@@ -1,0 +1,4 @@
+interface:
+  display_name: "X OIDC Auth Provider"
+  short_description: "Build and review auth providers for this repo"
+  default_prompt: "Use $x-oidc-auth-provider to add or review an authentication provider."

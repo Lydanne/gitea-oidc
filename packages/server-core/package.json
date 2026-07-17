@@ -1,0 +1,122 @@
+{
+  "name": "@x-oidc/server-core",
+  "version": "2.0.0",
+  "type": "module",
+  "description": "X OIDC identity provider and service core",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "files": [
+    "dist",
+    "public",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./client": {
+      "types": "./dist/sdk/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./express": {
+      "types": "./dist/sdk/express.d.ts",
+      "import": "./dist/express.js"
+    },
+    "./nest": {
+      "types": "./dist/sdk/nest.d.ts",
+      "import": "./dist/nest.js"
+    },
+    "./vue": {
+      "types": "./dist/sdk/vue.d.ts",
+      "import": "./dist/vue.js"
+    }
+  },
+  "scripts": {
+    "clean": "node scripts/clean-build.mjs",
+    "dev": "NODE_ENV=development tsx watch src/server.ts",
+    "prebuild": "pnpm --filter @x-oidc/applications build",
+    "build": "pnpm clean && node scripts/stage-admin-assets.mjs && node scripts/stage-portal-assets.mjs && rolldown -c rolldown.config.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "prebuild:prod": "pnpm --filter @x-oidc/applications build",
+    "build:prod": "pnpm clean && node scripts/stage-admin-assets.mjs && node scripts/stage-portal-assets.mjs && rolldown -c rolldown.config.prod.ts && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "prebuild:types": "pnpm --filter @x-oidc/applications build",
+    "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist",
+    "start": "NODE_ENV=production node dist/server.js",
+    "pretypecheck": "pnpm --filter @x-oidc/applications build",
+    "typecheck": "tsc --noEmit",
+    "pretest": "pnpm --filter @x-oidc/applications build",
+    "test": "vitest run",
+    "pretest:pack": "pnpm --filter @x-oidc/admin-web build && pnpm --filter @x-oidc/portal-web build && pnpm build:prod",
+    "test:pack": "node scripts/check-pack.mjs",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage",
+    "release": "release-it",
+    "generate-jwks": "tsx scripts/generate-jwks.ts"
+  },
+  "keywords": [
+    "oidc",
+    "idp",
+    "fastify",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lydanne/gitea-oidc.git",
+    "directory": "packages/server-core"
+  },
+  "homepage": "https://github.com/Lydanne/gitea-oidc#readme",
+  "bugs": {
+    "url": "https://github.com/Lydanne/gitea-oidc/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/formbody": "^8.0.2",
+    "@fastify/middie": "^9.3.3",
+    "@fastify/static": "^9.3.0",
+    "@larksuiteoapi/node-sdk": "^1.70.0",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.4.1",
+    "fastify": "^5.10.0",
+    "jose": "^6.2.3",
+    "oidc-provider": "^9.9.1",
+    "pg": "^8.22.0",
+    "redis": "^5.9.0",
+    "vue": "^3.5.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@release-it/conventional-changelog": "^11.0.1",
+    "@types/bcrypt": "^6.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/koa": "^3.0.1",
+    "@types/node": "^22.0.0",
+    "@types/oidc-provider": "^9.5.0",
+    "@types/pg": "^8.15.6",
+    "@vitest/coverage-v8": "4.1.10",
+    "release-it": "^20.2.1",
+    "rolldown": "1.0.0-beta.47",
+    "tsx": "^4.20.6",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.10"
+  }
+}

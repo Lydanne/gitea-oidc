@@ -1,3 +1,65 @@
-.htpasswd
+# Version control and editor state
+.git
+.github
+.vscode
+.idea
+.DS_Store
+Dockerfile
+.dockerignore
+
+# Package managers and generated output
+**/node_modules
+**/dist
+**/coverage
+.pnpm-store
+.npm
+.yarn
+.cache
+*.tgz
+
+# Local configuration and credentials
+**/.env
+**/.env.*
+**/.npmrc
+**/.htpasswd
+**/*.htpasswd
+**/.pgpass
+**/.my.cnf
+x-oidc.config.js
+x-oidc.config.json
+# 旧名称不再加载，但不允许遗留配置进入 Docker build context。
 gitea-oidc.config.js
 gitea-oidc.config.json
+
+# OIDC signing material and private keys
+**/*jwks*.json
+**/*.pem
+**/*.key
+**/*.rsa
+**/*.p12
+**/*.pfx
+**/id_rsa
+**/id_rsa.*
+**/id_ed25519
+**/id_ed25519.*
+
+# Databases, journals, queues, and local runtime data
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*
+**/*-journal
+**/*.bolt
+**/*.ldb
+gitea-server/data
+gitea-server/config
+tests/data
+
+# Logs and transient runtime files
+**/*.log
+**/*.pid
+**/*.seed
+**/*.lock
+report.*.json

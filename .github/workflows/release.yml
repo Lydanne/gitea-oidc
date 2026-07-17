@@ -2,104 +2,172 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main]
+    paths:
+      - CHANGELOG.md
+      - apps/idp-server/package.json
+      - packages/server-core/package.json
   workflow_dispatch:
     inputs:
-      release_type:
-        description: 'Release type'
+      resume_tag:
+        description: Existing release tag to reconcile, for example v2.0.0
         required: true
-        default: 'patch'
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-          - prerelease
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-x-oidc
+  cancel-in-progress: false
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [22]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
-
-      # - name: Run linting
-      #   run: npx markdownlint README.md
-
-      - name: Run tests
-        run: pnpm test
-
-      # - name: Run test coverage
-      #   run: pnpm test:coverage
-
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
-
-      - name: Build application
-        run: pnpm run build:prod
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          retention-days: 1
-
-  release:
-    environment: release
-    needs: build
+  inspect:
+    name: Inspect release state
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-    permissions:
-      contents: write
-      packages: write
-    if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit && !contains(github.event.head_commit.message, 'chore: ')) }}"
+      packageName: ${{ steps.state.outputs.packageName }}
+      version: ${{ steps.state.outputs.version }}
+      tag: ${{ steps.state.outputs.tag }}
+      prerelease: ${{ steps.state.outputs.prerelease }}
+      currentChannelVersion: ${{ steps.state.outputs.currentChannelVersion }}
+      advanceChannel: ${{ steps.state.outputs.advanceChannel }}
+      publishDistTag: ${{ steps.state.outputs.publishDistTag }}
+      dockerChannel: ${{ steps.state.outputs.dockerChannel }}
+      sourceSha: ${{ steps.state.outputs.sourceSha }}
+      tagExists: ${{ steps.state.outputs.tagExists }}
+      npmPublished: ${{ steps.state.outputs.npmPublished }}
+      shouldRelease: ${{ steps.state.outputs.shouldRelease }}
     steps:
-      - name: Checkout code
+      - name: Checkout pushed commit
+        if: github.event_name == 'push'
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout recovery tag
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.resume_tag }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+
+      - name: Inspect package, tag, and npm registry
+        id: state
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RESUME_TAG: ${{ inputs.resume_tag }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          WORKFLOW_REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          package_name=$(node -p "JSON.parse(require('fs').readFileSync('packages/server-core/package.json')).name")
+          version=$(node -p "JSON.parse(require('fs').readFileSync('packages/server-core/package.json')).version")
+          tag="v$version"
+          source_sha=$(git rev-parse HEAD)
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            git fetch origin main --tags
+            git merge-base --is-ancestor "$source_sha" origin/main
+          fi
+
+          if [ -n "$RESUME_TAG" ] && [ "$RESUME_TAG" != "$tag" ]; then
+            echo "Recovery tag $RESUME_TAG does not match package version $tag" >&2
+            exit 1
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -z "$RESUME_TAG" ]; then
+              echo "Manual releases require an existing resume_tag." >&2
+              exit 1
+            fi
+            if [ "$WORKFLOW_REF_TYPE" != "tag" ] || [ "$WORKFLOW_REF_NAME" != "$RESUME_TAG" ]; then
+              echo "Recovery must be dispatched from tag ref $RESUME_TAG, not $WORKFLOW_REF_TYPE $WORKFLOW_REF_NAME." >&2
+              exit 1
+            fi
+            if [ "$WORKFLOW_SHA" != "$source_sha" ]; then
+              echo "Recovery event SHA $WORKFLOW_SHA does not match tag source $source_sha." >&2
+              exit 1
+            fi
+          fi
+
+          npm_versions=$(node scripts/release/npm-view.mjs "$package_name" versions '[]')
+          npm_dist_tags=$(node scripts/release/npm-view.mjs "$package_name" dist-tags '{}')
+          publish_metadata=$(NPM_DIST_TAGS_JSON="$npm_dist_tags" \
+            node scripts/release/publish-metadata.mjs --format=github)
+          printf '%s\n' "$publish_metadata" >> "$GITHUB_OUTPUT"
+          current_channel_version=$(printf '%s\n' "$publish_metadata" | sed -n 's/^currentChannelVersion=//p')
+          advance_channel=$(printf '%s\n' "$publish_metadata" | sed -n 's/^advanceChannel=//p')
+          npm_published=$(VERSIONS_JSON="$npm_versions" VERSION="$version" node --input-type=module -e '
+            const parsed = JSON.parse(process.env.VERSIONS_JSON);
+            const versions = Array.isArray(parsed) ? parsed : [parsed];
+            process.stdout.write(String(versions.includes(process.env.VERSION)));
+          ')
+
+          tag_exists=false
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            tag_exists=true
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$tag_exists" != "true" ]; then
+            echo "Recovery tag $tag does not exist; only the original push run may create it." >&2
+            exit 1
+          fi
+          if [ "$npm_published" = "true" ] && [ "$tag_exists" != "true" ]; then
+            echo "Published npm version $version has no immutable source tag $tag" >&2
+            exit 1
+          fi
+
+          should_release=false
+          if [ "$npm_published" != "true" ] || [ -n "$RESUME_TAG" ]; then
+            should_release=true
+          fi
+
+          if [ "$should_release" = "true" ] && [ "$tag_exists" = "true" ]; then
+            tag_sha=$(git rev-parse "$tag^{commit}")
+            if [ "$tag_sha" != "$source_sha" ]; then
+              echo "Immutable tag $tag points to $tag_sha instead of $source_sha" >&2
+              exit 1
+            fi
+          fi
+
+          {
+            echo "packageName=$package_name"
+            echo "sourceSha=$source_sha"
+            echo "tagExists=$tag_exists"
+            echo "npmPublished=$npm_published"
+            echo "shouldRelease=$should_release"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Publish state"
+            echo ""
+            echo "- npm package: $package_name"
+            echo "- Version: $version"
+            echo "- Tag: $tag"
+            echo "- Source: $source_sha"
+            echo "- Tag exists: $tag_exists"
+            echo "- npm published: $npm_published"
+            echo "- Current channel version: ${current_channel_version:-none}"
+            echo "- Advance floating channel: $advance_channel"
+            echo "- Reconciliation required: $should_release"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    name: Verify and pack release
+    needs: inspect
+    if: needs.inspect.outputs.shouldRelease == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.sourceSha }}
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -107,79 +175,303 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: 'pnpm'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: 22.22.0
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
+      - name: Run release verification
+        run: pnpm release:verify
 
-      - name: Setup Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Create exact npm tarball
+        run: pnpm release:pack
 
-      - name: Determine release type
-        id: release_type
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "type=${{ github.event.inputs.release_type }}" >> $GITHUB_OUTPUT
-          else
-            echo "type=patch" >> $GITHUB_OUTPUT
-          fi
+      - name: Upload npm tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ needs.inspect.outputs.tag }}
+          path: artifacts/npm/
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Authenticate with npm
-        run: npm config set //registry.npmjs.org/:_authToken ${NPM_TOKEN}
+  tag:
+    name: Create immutable Git tag
+    needs: [inspect, verify]
+    if: needs.inspect.outputs.shouldRelease == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.sourceSha }}
+          fetch-depth: 0
+
+      - name: Create and push tag
+        if: needs.inspect.outputs.tagExists != 'true'
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Release
-        id: release_step
-        run: npm run release -- ${{ steps.release_type.outputs.type }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Get version
-        id: version
+          RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
+          SOURCE_SHA: ${{ needs.inspect.outputs.sourceSha }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$RELEASE_TAG" "$SOURCE_SHA" --message "Release $RELEASE_TAG"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Confirm existing tag
+        if: needs.inspect.outputs.tagExists == 'true'
+        run: echo "Tag ${{ needs.inspect.outputs.tag }} already points to the verified source commit."
+
+  npm:
+    name: Publish npm package
+    needs: [inspect, verify, tag]
+    if: needs.inspect.outputs.shouldRelease == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+
+      - name: Install trusted-publishing npm client
+        run: npm install --global npm@11.5.1
+
+      - name: Download exact npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-${{ needs.inspect.outputs.tag }}
+          path: artifacts/npm
+
+      - name: Verify tarball checksum
+        working-directory: artifacts/npm
+        run: sha256sum --check SHA256SUMS
+
+      - name: Verify already-published package integrity
+        if: needs.inspect.outputs.npmPublished == 'true'
+        env:
+          PACKAGE_NAME: ${{ needs.inspect.outputs.packageName }}
+          RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
+        run: |
+          tarball=$(find artifacts/npm -maxdepth 1 -name '*.tgz' -type f -print -quit)
+          test -n "$tarball"
+          local_integrity=$(TARBALL="$tarball" node --input-type=module -e '
+            const { createHash } = await import("node:crypto");
+            const { readFileSync } = await import("node:fs");
+            process.stdout.write(`sha512-${createHash("sha512").update(readFileSync(process.env.TARBALL)).digest("base64")}`);
+          ')
+          remote_integrity=$(npm view "$PACKAGE_NAME@$RELEASE_VERSION" dist.integrity --json --registry=https://registry.npmjs.org/ | node -e 'let data="";process.stdin.on("data",chunk=>data+=chunk).on("end",()=>process.stdout.write(JSON.parse(data)))')
+          test "$local_integrity" = "$remote_integrity"
+
+      - name: Publish with npm Trusted Publishing
+        if: needs.inspect.outputs.npmPublished != 'true'
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+          NPM_CONFIG_USERCONFIG: /dev/null
+          NPM_DIST_TAG: ${{ needs.inspect.outputs.publishDistTag }}
+        run: |
+          tarball=$(find artifacts/npm -maxdepth 1 -name '*.tgz' -type f -print -quit)
+          test -n "$tarball"
+          npm publish "$tarball" --access public --tag "$NPM_DIST_TAG"
 
   docker:
-    environment: release
-    needs: release
+    name: Publish Docker images
+    needs: [inspect, npm]
+    if: needs.inspect.outputs.shouldRelease == 'true'
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
       packages: write
-    if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit && !contains(github.event.head_commit.message, 'chore: ')) }}"
+    env:
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+      RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
+      SOURCE_SHA: ${{ needs.inspect.outputs.sourceSha }}
     steps:
-      - name: Checkout code
+      - name: Checkout release tag
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ needs.inspect.outputs.tag }}
 
-      - name: Set up Docker Buildx
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      - name: Login to Docker Hub
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Detect immutable image targets
+        id: targets
+        run: |
+          tags=()
+          registries=("ghcr.io/lydanne/x-oidc")
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            registries+=("${DOCKERHUB_USERNAME,,}/x-oidc")
+          fi
+
+          for image in "${registries[@]}"; do
+            ref="$image:$RELEASE_VERSION"
+            manifest_file=$(mktemp)
+            error_file=$(mktemp)
+            inspect_ok=false
+            for attempt in 1 2 3; do
+              if docker buildx imagetools inspect --raw "$ref" >"$manifest_file" 2>"$error_file"; then
+                inspect_ok=true
+                break
+              fi
+              sleep "$((attempt * 2))"
+            done
+
+            if [ "$inspect_ok" = "true" ]; then
+              MANIFEST_FILE="$manifest_file" node --input-type=module -e '
+                const { readFileSync } = await import("node:fs");
+                const manifest = JSON.parse(readFileSync(process.env.MANIFEST_FILE, "utf8"));
+                const platforms = new Set(
+                  (manifest.manifests ?? []).map(({ platform }) => `${platform?.os}/${platform?.architecture}`),
+                );
+                for (const required of ["linux/amd64", "linux/arm64"]) {
+                  if (!platforms.has(required)) throw new Error(`Immutable image is missing ${required}`);
+                }
+              '
+
+              for platform in linux/amd64 linux/arm64; do
+                docker pull --quiet --platform "$platform" "$ref" >/dev/null
+                revision=$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+                if [ "$revision" != "$SOURCE_SHA" ]; then
+                  echo "Immutable image $ref ($platform) belongs to revision $revision" >&2
+                  exit 1
+                fi
+              done
+            elif grep -Eiq 'manifest unknown|name unknown|not found|(^|[^0-9])404([^0-9]|$)' "$error_file"; then
+              tags+=("$ref")
+            else
+              echo "Unable to verify immutable image $ref; refusing to treat it as missing." >&2
+              sed -n '1,20p' "$error_file" >&2
+              exit 1
+            fi
+            rm -f "$manifest_file" "$error_file"
+          done
+
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${tags[@]}"
+            echo "EOF"
+            echo "registries<<EOF"
+            printf '%s\n' "${registries[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "${#tags[@]}" -gt 0 ]; then
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate OCI metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/lydanne/x-oidc
+          flavor: latest=false
+          tags: type=raw,value=${{ needs.inspect.outputs.version }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.inspect.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.inspect.outputs.sourceSha }}
+            org.opencontainers.image.source=https://github.com/Lydanne/gitea-oidc
+
+      - name: Build and push missing exact tags
+        if: steps.targets.outputs.missing == 'true'
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/gitea-oidc:${{ needs.release.outputs.version }},${{ secrets.DOCKER_USERNAME }}/gitea-oidc:latest
-          labels: org.opencontainers.image.version=${{ needs.release.outputs.version }}
+          tags: ${{ steps.targets.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          build-args: |
+            VERSION=${{ needs.inspect.outputs.version }}
+            REVISION=${{ needs.inspect.outputs.sourceSha }}
+            SOURCE=https://github.com/Lydanne/gitea-oidc
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Update channel aliases from immutable tags
+        if: needs.inspect.outputs.advanceChannel == 'true'
+        env:
+          IMAGE_REGISTRIES: ${{ steps.targets.outputs.registries }}
+          PRERELEASE: ${{ needs.inspect.outputs.prerelease }}
+          DOCKER_CHANNEL: ${{ needs.inspect.outputs.dockerChannel }}
+        run: |
+          core_version=${RELEASE_VERSION%%-*}
+          IFS=. read -r major minor _patch <<< "$core_version"
+
+          if [ "$PRERELEASE" = "true" ]; then
+            aliases=("$DOCKER_CHANNEL")
+          else
+            aliases=("$major.$minor" latest)
+            if [ "$major" != "0" ]; then
+              aliases+=("$major")
+            fi
+          fi
+
+          while IFS= read -r image; do
+            [ -n "$image" ] || continue
+            for alias in "${aliases[@]}"; do
+              docker buildx imagetools create \
+                --tag "$image:$alias" \
+                "$image:$RELEASE_VERSION"
+            done
+          done <<< "$IMAGE_REGISTRIES"
+
+  github-release:
+    name: Create GitHub release
+    needs: [inspect, docker]
+    if: needs.inspect.outputs.shouldRelease == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Create or verify GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
+          PRERELEASE: ${{ needs.inspect.outputs.prerelease }}
+          ADVANCE_CHANNEL: ${{ needs.inspect.outputs.advanceChannel }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            actual=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq '.isPrerelease')
+            test "$actual" = "$PRERELEASE"
+            exit 0
+          fi
+
+          args=(--repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$RELEASE_TAG")
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease --latest=false)
+          elif [ "$ADVANCE_CHANNEL" = "true" ]; then
+            args+=(--latest)
+          else
+            args+=(--latest=false)
+          fi
+          gh release create "$RELEASE_TAG" "${args[@]}"

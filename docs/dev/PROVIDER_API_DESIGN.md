@@ -1,0 +1,137 @@
+# Provider API 设计
+
+本文面向维护者，说明统一 Provider API、token 仓储和 SDK 子路径的实现边界。
+
+## 核心模块
+
+- `packages/server-core/src/types/providerApi.ts` 定义 `ProviderApiClient`、
+  `ProviderTokenRecord` 和代理请求类型。
+- `packages/server-core/src/repositories/*ProviderTokenRepository.ts` 提供 memory、SQLite、
+  PostgreSQL token 仓储。
+- `packages/server-core/src/provider-api/*` 实现 Provider client、权限服务和后台探活调度器。
+- `packages/server-core/src/routes/providerApiRoutes.ts` 暴露 SDK 代理，
+  `packages/server-core/src/routes/adminRoutes.ts` 暴露后台 API。
+- SDK 代理会校验 bearer token 的 OIDC `client_id`；生产环境必须通过
+  `providerApi.allowedClientIds` 明确允许哪些客户端可调用代理。
+- `apps/admin-web/` 是内置 Vue 管理台源码，Vite 构建产物先输出到包内 `dist/`，再由装配脚本
+  复制到 `packages/server-core/public/admin/`。
+
+## 管理台构建
+
+管理台是独立的 Vite + Vue Router + PrimeVue 工程：
+
+- 源码入口：`apps/admin-web/src/main.ts`
+- 路由配置：`apps/admin-web/src/router.ts`
+- 页面入口：`apps/admin-web/src/App.vue`
+- 组件目录：`apps/admin-web/src/components/`
+- 视图目录：`apps/admin-web/src/views/`
+- API 封装：`apps/admin-web/src/api/adminApi.ts`
+- 状态组合函数：`apps/admin-web/src/composables/useAdminDashboard.ts`
+- 构建配置：`apps/admin-web/vite.config.ts`
+- 静态产物：`packages/server-core/public/admin/`
+
+管理台使用 history 路由，当前页面为：
+
+- `/admin/login`
+- `/admin/users`
+- `/admin/providers`
+- `/admin/tokens`
+
+服务端在 `packages/server-core/src/routes/adminRoutes.ts` 为这些页面返回
+`packages/server-core/public/admin/index.html`，避免刷新或直接打开深链时落到静态文件 404。
+`/admin/login/start` 是后端 OIDC 登录启动端点，不由前端路由接管。
+
+根项目脚本 `pnpm build` 和 `pnpm build:prod` 会先运行管理台 Vite 构建，
+再构建服务端和 SDK 多入口。单独调试管理台可运行：
+
+```bash
+pnpm dev:admin
+```
+
+开发服务器默认把 `/admin/api`、`/admin/login/start`、`/admin/logout` 和
+`/admin/callback` 代理到 `http://localhost:3000`，因此本地调试时需要同时启动服务端。
+
+## 权限模型
+
+`ProviderApiService` 负责跨 Provider 的通用权限判断：
+
+- Provider API 路由先校验 OIDC bearer token，要求 token 关联的 client 仍存在，授权 grant 仍
+  存在且未过期，并且 grant 的 `clientId`/`accountId` 与 token 一致。
+- `tokenKind: "user"` 默认使用当前 OIDC 用户的 token。
+- 指定其他用户的 `ownerId` 需要管理员权限。
+- `tokenKind: "app"` 只能由管理员调用。
+- 管理员由 `admin.allowedGroups` 判断，默认 `x-oidc-admins`。
+
+Provider client 负责更靠近平台的限制：
+
+- SDK 请求必须提交命中的 `operation`。
+- 实际 `method`、`path` 和路径模板由 Provider client 的服务端操作定义生成。
+- 路径模板参数只允许安全单路径段，拒绝 `/`、`\`、`%`、`?`、`#`、`.` 和 `..` 等
+  可能被下游代理或 Provider 二次解码成路径穿越或路由混淆的值。
+- operation 可声明 `allowedTokenKinds`。未声明时默认只允许 `user` token；需要租户级或应用级
+  权限的 operation 必须显式声明为 `app`，再由 `ProviderApiService` 限制为管理员调用。
+- `allowedOperations` 只选择哪些服务端操作可以开放，不能由调用方声明任意路径含义。
+- `Authorization` 头由服务端覆盖，调用方不能注入第三方 token。
+- 即使 operation 显式允许附加 header，调用方也不能提交 `Authorization`、`Cookie`、
+  `Host`、`X-Forwarded-*`、`X-Real-IP`、方法覆盖或反向代理重写类 header；header 名和值还必须满足 HTTP
+  header 基本格式，避免把业务 header 白名单扩大成凭证注入面。
+- Provider 响应头不会原样返回给 SDK 调用方，只保留 `content-type`、`content-language`
+  等安全 allowlist 字段，避免把第三方 `set-cookie`、跳转地址、内部追踪头或租户级限流信息
+  当作 JSON 数据暴露给业务客户端。
+
+## Token 生命周期
+
+Provider token 以明文进入仓储接口，持久化实现必须在写入前加密。当前加密工具为
+`TokenEncryptor`，使用 AES-256-GCM 和 `providerApi.tokenEncryptionKey` 派生密钥。
+`lastError` 虽不是 token 字段，但会通过后台 Token 页面展示；内置 memory、SQLite 和
+PostgreSQL 仓储会在写入和读取 `lastError` 时再次脱敏 token-like 文本，避免未来调用方漏掉
+错误摘要函数后把第三方凭证片段持久化。
+
+刷新策略分为两层：
+
+- 懒刷新：`getUserToken()` 发现 token 即将过期时调用 `refreshUserToken()`。
+- 巡检：`ProviderTokenProbeScheduler` 定期探测即将过期或异常 token。内置仓储提供
+  `listProbeCandidates()` 候选查询，调度器每轮只处理有上限的一批候选；自定义仓储未实现时，
+  调度器会退回到带 `limit` 的 `list()`。
+
+Provider API 请求真正发往第三方前，只会使用 `status: "valid"` 的 token。被标记为
+`revoked`、`refresh_failed`、`unknown` 或无法刷新到 `valid` 的 token 不会继续代理调用；
+`refresh_failed`、`unknown` 或即将过期的 token 可通过刷新或探活恢复为 `valid`，但
+`revoked` 是本地撤销终态，自动巡检和后台手动探活都不会把它恢复为 `valid`。
+
+Provider API 代理、Feishu 用户 token 刷新和 app token 获取都会使用
+`providerApi.requestTimeoutMs` 作为第三方出站请求超时。默认值为 `10000` 毫秒，配置 schema
+限制为 `1000` 到 `60000` 毫秒，避免调用方通过慢连接或无响应 Provider 长时间占用服务端资源。
+同一批出站响应还会使用 `providerApi.responseBodyLimitBytes` 限制可读取的最大响应体字节数，
+默认值为 `1048576` 字节，配置 schema 限制为 `1024` 到 `10485760` 字节，避免异常大响应造成
+内存放大。
+
+## Feishu 实现
+
+`FeishuAuthProvider` 在 OAuth 回调成功后保存用户 token。`FeishuProviderApiClient` 负责：
+
+- 获取并缓存应用 token。
+- 使用 refresh token 刷新用户 token。
+- 通过 `/authen/v1/user_info` 探测用户 token。
+- 通过统一 `request()` 调用飞书 OpenAPI。
+
+## DingTalk 骨架
+
+`DingTalkProviderApiClient` 当前只保留统一接口骨架。后续实现时应复用同样的仓储、
+权限和探活流程，并补齐：
+
+- 钉钉 OAuth 登录 Provider。
+- 用户 token 交换与刷新。
+- 应用 token 获取。
+- 钉钉 user/app token 的探活端点。
+
+## SDK 子路径
+
+`package.json` 暴露以下 ESM 子路径：
+
+- `@x-oidc/server-core/client`
+- `@x-oidc/server-core/express`
+- `@x-oidc/server-core/nest`
+- `@x-oidc/server-core/vue`
+
+构建由 `rolldown` 多入口输出 JS，`tsc --emitDeclarationOnly` 输出声明文件。

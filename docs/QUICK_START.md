@@ -5,7 +5,7 @@
 
 ## 前置条件
 
-- Node.js `22.13+`
+- Node.js `24.22.1`
 - pnpm `10+`
 - 可选：运行在 `http://localhost:3001` 的本地 Gitea
 

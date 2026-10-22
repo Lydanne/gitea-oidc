@@ -623,7 +623,7 @@ POST   /api/integrations/setup/acknowledge
 `packages/server-core/package.json` 是发布版本事实源。版本同步脚本会更新全部 private/public
 workspace manifest；`@x-oidc/server-core`、运行入口和 Docker image 共用 `vX.Y.Z` tag。
 
-Node SDK 最低版本已确定为 Node `>=20.19.0`，服务端保持 Node `>=22.0.0`。
+Node SDK 最低版本仍为 Node `>=20.19.0`，服务端升级为 Node `^24.22.1`。
 SDK 以 ESM 为主，并在支持 `require(esm)` 的目标 Node 版本中做真实 CommonJS 消费测试；
 是否额外生成 CJS 构建由消费测试结果决定，不预先维护两套未经验证的输出。
 
@@ -761,7 +761,7 @@ public Client，不能上线 confidential Client 管理。`private_key_jwt` 作�
 - [x] 长期产品品牌使用 X OIDC，npm scope 使用 `@x-oidc/*`。
 - [x] 框架无关包定名为 `@x-oidc/node`。
 - [x] `@x-oidc/server-core` 作为唯一服务端公开包。
-- [x] SDK 最低 Node 版本采用 `>=20.19`，服务端继续采用 `>=22`。
+- [x] SDK 最低 Node 版本采用 `>=20.19`，服务端采用 `^24.22.1`。
 - [ ] 生产 ApplicationRepository 是否首发 SQLite 和 PostgreSQL，Redis 仅作缓存。
 - [ ] confidential Client 的加密主密钥来源采用环境密钥环还是外部 KMS。
 - [x] V1 采用单 active Secret 和事务内立即轮换。

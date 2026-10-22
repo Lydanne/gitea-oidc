@@ -11,7 +11,7 @@
 
 ## 项目概览
 
-- 运行时：Node.js `>=22`，包管理器：`pnpm@10`。
+- 服务端与 workspace 运行时：Node.js `24.22.1`，包管理器：`pnpm@10`。
 - 部署入口：`apps/idp-server/src/main.ts`，只负责服务进程生命周期。
 - 管理台：`apps/admin-web/`，构建后装配到 `packages/server-core/public/admin/`。
 - 公开服务包：`packages/server-core/`，npm 包名为 `@x-oidc/server-core`。

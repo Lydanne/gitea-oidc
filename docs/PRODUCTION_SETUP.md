@@ -27,7 +27,7 @@ SQLite 部署，再根据容量和可用性要求评估多实例 Redis 方案。
 
 - 一个只用于身份服务的 HTTPS 域名，例如 `https://id.example.com`。
 - 一个反向代理，由它终止 TLS，并把流量转发到服务的 `3000` 端口。
-- Docker 及 Docker Compose，或者 Node.js `22.13+` 与 pnpm `10+`。
+- Docker 及 Docker Compose，或者 Node.js `24.22.1` 与 pnpm `10+`。
 - 单实例部署所需的持久化数据目录和备份目录。
 - 可安全保存环境变量和密钥的 Secret Manager；没有时使用权限为 `0600` 的独立文件。
 - 稳定的时间同步。OIDC 授权码和令牌依赖各节点时钟基本一致。
@@ -392,7 +392,7 @@ ReadWritePaths=/srv/x-oidc/data
 WantedBy=multi-user.target
 ```
 
-确认 `/usr/bin/node` 是 Node.js 22，并让 `x-oidc` 用户拥有数据和配置：
+确认 `/usr/bin/node` 是 Node.js 24.22.1，并让 `x-oidc` 用户拥有数据和配置：
 
 ```bash
 sudo chown -R x-oidc:x-oidc /srv/x-oidc/data

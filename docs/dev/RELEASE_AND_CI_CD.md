@@ -282,7 +282,7 @@ pnpm release:version-check
 
 ## 本地验证
 
-本地使用 Node.js 22 和 pnpm 10。只读规划和完整发布校验命令如下：
+本地使用 Node.js 24.22.1 和 pnpm 10。只读规划和完整发布校验命令如下：
 
 ```bash
 pnpm install --frozen-lockfile

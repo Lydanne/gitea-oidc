@@ -29,5 +29,6 @@
 
 ## Environment Note
 
-The repo requires Node.js `>=22` and pnpm `>=10`. If the shell defaults are older, use an
-available Node 22 installation and Corepack-provided pnpm before reporting validation failure.
+The workspace and server require Node.js `24.22.1` and pnpm `>=10`. If the shell defaults are
+older, use a Node 24.22.1 installation and Corepack-provided pnpm before reporting validation
+failure. SDK compatibility checks intentionally switch to the package minimum Node version.

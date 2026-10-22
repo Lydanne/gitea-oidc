@@ -81,7 +81,7 @@ contracts --> admin-web --构建产物--> server-core
 - `node` 依赖公开 contract 和标准 OIDC client，不依赖服务端、数据库或 Web 框架。
 - `node-sqlite` 只依赖 `node` 和 SQLite，提供加密持久化与同机跨进程 refresh lock。
 - `node`、`node-sqlite`、连接器和 CLI 的最低 Node.js 版本已确定为 `>=20.19.0`；服务端继续要求
-  Node.js `>=22.0.0`。
+  Node.js `^24.22.1`。
 - `connector-core` 依赖 `node`，只描述 HTTP、Cookie 和认证投影；框架包只做边界适配。
 - `cli` 只依赖公开 contract，不拥有管理 API 权限，也不直接修改认证服务配置或数据库。
 - `admin-web` 只导入 `contracts`，不导入服务端源码；运行时只通过 HTTP API 通信。
@@ -137,7 +137,7 @@ pnpm test:pack
 得包含源码测试、数据库、Agent 文件或 workspace 配置。当前独立 SDK、连接器和 CLI 仍保持
 `private: true`，通过这些门禁后再进入统一版本与发布编排。
 
-根 workspace 的开发与发布工具固定使用 Node.js 22.13.x，因此 CI 先在 Node.js 22.13 下冻结安装并
+根 workspace 的开发与发布工具固定使用 Node.js 24.22.1，因此 CI 先在 Node.js 24.22.1 下冻结安装并
 构建包，再切换到
 Node.js 20.19 重建 `better-sqlite3`，直接运行 tarball 消费脚本。Node.js 20 阶段不能从根调用
 pnpm 脚本，否则 `engine-strict` 会在真正的最低版本消费测试前终止任务。

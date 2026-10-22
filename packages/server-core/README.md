@@ -66,7 +66,7 @@ npm pkg set type=module
 npm install @x-oidc/server-core bcrypt
 ```
 
-需要 Node.js 22 或更高版本。这里单独安装 `bcrypt`，只用于生成本地开发账号的密码哈希。
+需要 Node.js 24.22.1。这里单独安装 `bcrypt`，只用于生成本地开发账号的密码哈希。
 
 ### 2. 创建本地开发账号
 
@@ -125,7 +125,7 @@ curl http://localhost:3000/oidc/.well-known/openid-configuration
 
 ## 技术栈
 
-- **Node.js 22+** - JavaScript 运行时环境
+- **Node.js 24.22.1 LTS** - JavaScript 运行时环境
 - **Fastify 5.x** - 高性能 Node.js Web 框架
 - **oidc-provider 9.x** - OpenID Certified™ OIDC 服务器
 - **TypeScript 5.x** - 类型安全

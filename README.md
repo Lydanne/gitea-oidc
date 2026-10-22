@@ -6,7 +6,7 @@
 [![Release](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml)
 [![npm version](https://img.shields.io/npm/v/%40x-oidc%2Fserver-core)](https://www.npmjs.com/package/@x-oidc/server-core)
 [![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/x-oidc)](https://hub.docker.com/r/lydamirror/x-oidc)
-![Node version](https://img.shields.io/badge/node-22.13.x-43853d?logo=node.js)
+![Node version](https://img.shields.io/badge/node-24.22.1-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
 [![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
@@ -151,7 +151,7 @@ pnpm test:coverage
 
 ## 技术栈
 
-- **Node.js 22.13.x** - 仓库开发与构建运行时
+- **Node.js 24.22.1 LTS** - 仓库开发、构建与服务端运行时
 - **Fastify 5.x** - 高性能 Node.js Web 框架
 - **oidc-provider 9.x** - OpenID Certified™ OIDC 服务器
 - **TypeScript 5.x** - 类型安全

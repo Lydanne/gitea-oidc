@@ -70,7 +70,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.22.0
+          node-version: 24.22.1
 
       - name: Inspect package, tag, and npm registry
         id: state
@@ -223,7 +223,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.22.0
+          node-version: 24.22.1
           cache: pnpm
 
       - name: Install dependencies
@@ -261,7 +261,7 @@ jobs:
       - name: Setup Node.js and npm registry
         uses: actions/setup-node@v4
         with:
-          node-version: 22.22.0
+          node-version: 24.22.1
           registry-url: https://registry.npmjs.org/
 
       - name: Install provenance-capable npm client
@@ -394,7 +394,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.22.0
+          node-version: 24.22.1
 
       - name: Install trusted-publishing npm client
         run: npm install --global npm@11.5.1

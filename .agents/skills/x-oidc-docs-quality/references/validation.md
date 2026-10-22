@@ -43,5 +43,5 @@ PY
 
 ## Runtime Note
 
-This repository requires Node.js `>=22` and pnpm `>=10`. If the shell defaults are older, use an
-available Node 22 installation and Corepack pnpm before treating validation as blocked.
+This repository requires Node.js `24.22.1` and pnpm `>=10`. If the shell defaults are older, use a
+Node 24.22.1 installation and Corepack pnpm before treating validation as blocked.

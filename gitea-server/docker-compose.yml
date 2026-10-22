@@ -13,7 +13,7 @@ services:
       - "2222:2222"
 
   # x_oidc_server:
-  #   image: node:22-alpine
+  #   image: node:24.22.1-alpine
   #   restart: always
   #   volumes:
   #     - ../:/app

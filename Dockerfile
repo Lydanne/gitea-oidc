@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:22.22.0-bookworm AS pnpm-base
+FROM node:24.22.1-bookworm AS pnpm-base
 
 ENV CI=true \
     PNPM_HOME=/pnpm \
@@ -40,7 +40,7 @@ RUN pnpm --dir /runtime --filter @x-oidc/idp-server... install \
       -name 'husky@*' -o -name 'release-it@*' -o -name '@biomejs+biome@*' \
     \) -print -quit | grep -q .
 
-FROM node:22.22.0-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim AS runtime
 
 ARG VERSION=dev
 ARG REVISION=unknown

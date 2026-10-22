@@ -6,7 +6,7 @@
 [![Release](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml/badge.svg)](https://github.com/Lydanne/gitea-oidc/actions/workflows/release.yml)
 [![npm version](https://img.shields.io/npm/v/%40x-oidc%2Fserver-core)](https://www.npmjs.com/package/@x-oidc/server-core)
 [![Docker pulls](https://img.shields.io/docker/pulls/lydamirror/x-oidc)](https://hub.docker.com/r/lydamirror/x-oidc)
-![Node version](https://img.shields.io/badge/node-22.13.x-43853d?logo=node.js)
+![Node version](https://img.shields.io/badge/node-24.22.1-43853d?logo=node.js)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![codecov](https://codecov.io/gh/Lydanne/gitea-oidc/branch/main/graph/badge.svg)](https://codecov.io/gh/Lydanne/gitea-oidc)
 [![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
@@ -121,7 +121,7 @@ For a more detailed design, see (Chinese):
 
 ### Prerequisites
 
-- Node.js **22.13.x** for workspace development and builds
+- Node.js **24.22.1 LTS** for workspace development, builds, and server runtime
 - pnpm **10+**
 
 ### 1. Install dependencies

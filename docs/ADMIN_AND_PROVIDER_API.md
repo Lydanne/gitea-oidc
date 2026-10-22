@@ -21,7 +21,7 @@
 
 ## 前置条件
 
-- 服务端使用 Node.js `>=22` 和 `pnpm@10`。
+- 服务端使用 Node.js `24.22.1` 和 `pnpm@10`。
 - `server.url` 是服务对外根地址，例如 `https://id.example.com`，不能包含 query 或 fragment。
 - `oidc.issuer` 是 OIDC 挂载地址，必须等于 `${server.url}/oidc`，不能包含 query 或 fragment。
 - `server.corsOrigins` 默认是空数组，不会对任意浏览器来源开放 CORS；跨域浏览器 SDK

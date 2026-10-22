@@ -137,6 +137,7 @@ pnpm test:coverage
 
 - **[文档目录](./docs/README.md)** - 使用者与开发者文档入口
 - **[快速开始](./docs/QUICK_START.md)** - 本地启动和 X OIDC 配置
+- **[v1 到 v2 迁移](./docs/V1_TO_V2_MIGRATION.md)** - 迁移步骤、兼容边界、接口与模型差异
 - **[Gitea 接入](./docs/GITEA_INTEGRATION.md)** - Client、登录退出和用户组映射
 - **[生产部署](./docs/PRODUCTION_SETUP.md)** - 拓扑、密钥、Docker Compose 和上线验收
 - **[生产运维](./docs/OPERATIONS.md)** - 健康检查、备份恢复、升级回滚和监控

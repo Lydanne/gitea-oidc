@@ -12,6 +12,7 @@
 
 ## 生产上线
 
+- [v1 到 v2 迁移指南](./V1_TO_V2_MIGRATION.md)：迁移步骤、配置、接口、模型、算法差异和回滚。
 - [生产部署指南](./PRODUCTION_SETUP.md)：拓扑选择、密钥、配置、Docker Compose 和上线验收。
 - [反向代理 HTTPS 配置指南](./REVERSE_PROXY_HTTPS.md)：Nginx、Traefik、Caddy 和代理信任边界。
 - [生产运维手册](./OPERATIONS.md)：健康检查、备份恢复、升级回滚、监控和密钥轮换。

@@ -42,11 +42,11 @@
   "license": "MIT",
   "dependencies": {
     "@x-oidc/contracts": "workspace:*",
-    "openid-client": "^6.8.4"
+    "openid-client": "^6.8.8"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.20.5",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.12"
   }
 }

@@ -1,4 +1,4 @@
-import{X as e,on as t,ot as n,rt as r,z as i}from"./index-CNsTZD6-.js";import{s as a}from"./StatusTag-BxigG74T.js";var o=i.extend({name:`textarea`,style:`
+import{X as e,on as t,ot as n,rt as r,z as i}from"./index-DKD54ebl.js";import{s as a}from"./StatusTag-Dl2OQLb0.js";var o=i.extend({name:`textarea`,style:`
     .p-textarea {
         font-family: inherit;
         font-feature-settings: inherit;

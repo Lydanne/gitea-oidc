@@ -1,6 +1,8 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { text } from "node:stream/consumers";
 import { pathToFileURL } from "node:url";
 import {
   ApplicationSecretEncryptor,
@@ -372,6 +374,56 @@ describe("server CORS configuration", () => {
 });
 
 describe("server static security headers", () => {
+  it("rejects dot-segment aliases that bypass a guarded static route", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-static-guard-"));
+    const publicDir = join(tempDir, "public");
+    await mkdir(join(publicDir, "protected"), { recursive: true });
+    await writeFile(join(publicDir, "protected", "secret.txt"), "guarded-file-content");
+
+    const config = createValidRuntimeConfig();
+    config.logging.enabled = false;
+    config.admin.enabled = false;
+    config.auth.providers = {};
+    config.auth.userRepository = { type: "memory", memory: {} };
+    config.adapter = { type: "memory" };
+    config.jwks = { filePath: join(tempDir, "jwks.json"), keyId: "test-key" };
+
+    let app: FastifyInstance | undefined;
+    try {
+      app = await createIdentityServer(config, { publicDir });
+      app.get("/protected/*", (_request, reply) => reply.code(403).send("Forbidden"));
+
+      const direct = await app.inject({ url: "/protected/secret.txt" });
+      expect(direct.statusCode).toBe(403);
+
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      const address = app.server.address();
+      if (!address || typeof address === "string") throw new Error("测试服务器未监听 TCP 端口");
+
+      // inject 会规范化点段，使用真实 HTTP 请求保留攻击路径。
+      for (const url of [
+        "/unprotected/../protected/secret.txt",
+        "/unprotected/%2E%2E/protected/secret.txt",
+      ]) {
+        const response = await new Promise<{ statusCode: number | undefined; body: string }>(
+          (resolve, reject) => {
+            get({ hostname: "127.0.0.1", port: address.port, path: url }, (incoming) => {
+              void text(incoming).then(
+                (body) => resolve({ statusCode: incoming.statusCode, body }),
+                reject,
+              );
+            }).on("error", reject);
+          },
+        );
+        expect([400, 403, 404]).toContain(response.statusCode);
+        expect(response.body).not.toContain("guarded-file-content");
+      }
+    } finally {
+      await app?.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it("identifies only admin public files for admin security headers", () => {
     expect(isAdminPublicFilePath("/srv/app/public/admin/index.html")).toBe(true);
     expect(isAdminPublicFilePath("/srv/app/public/admin/assets/index.js")).toBe(true);

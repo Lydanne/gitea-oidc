@@ -18,7 +18,8 @@ Use this skill for work touching `packages/server-core/src/providers/`, `package
 2. Check whether the provider needs routes, static assets, webhooks, or middleware.
    Declare permissions with `PluginPermission`.
 3. Keep provider names stable and URL-safe. Routes are mounted under `/auth/{provider.name}`.
-4. For OAuth providers, generate state through the coordinator, validate it on callback,
+4. For OAuth providers, generate state through the coordinator, validate it and its initiating-browser
+   binding on callback before exchanging codes or writing users and tokens,
    complete the original OIDC interaction, and handle expired or invalid state as user-facing auth errors.
 5. Map external identities to a stable internal `sub` through `UserRepository.findOrCreate`.
    Do not derive `sub` from mutable display fields.

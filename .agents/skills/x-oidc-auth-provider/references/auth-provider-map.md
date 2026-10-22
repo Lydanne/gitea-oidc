@@ -27,8 +27,14 @@
 - Generate OAuth state with `coordinator.generateOAuthState(interactionUid, providerName, metadata)`.
 - Include useful metadata such as user agent and IP, but never include secrets.
 - Callback must verify state before exchanging code.
+- Bind OAuth state to the initiating browser with an HttpOnly cookie, and verify that binding before
+  exchanging the code or writing users, tokens, or authentication results. A valid state alone does
+  not prevent a forwarded authorization URL from attaching another browser's identity.
 - Handle provider token and userinfo failures separately to make errors actionable.
 - Complete the OIDC interaction only after a user has been found or created.
+- Forward the verified state's `authenticationGeneration` to `storeAuthResult` as its fourth argument;
+  direct interaction completion forwards `metadata.authenticationGeneration` as its fifth argument.
+  Never capture a new generation after an old credential check to make an invalidated login succeed.
 - Prefer `union_id` or provider-specific immutable IDs over email for account identity.
 
 ## Testing Ideas
@@ -37,5 +43,7 @@
 - `canHandle` recognizes the intended auth method only.
 - Local auth verifies bcrypt and rejects missing user/password.
 - OAuth callback rejects missing code/state and expired state.
+- A transferred authorization URL, missing/mismatched browser binding, legacy unbound state, and
+  callback replay cannot exchange tokens or complete another interaction.
 - Provider maps external profile fields to `UserInfo` consistently.
 - Permission metadata covers every route/static/webhook/middleware capability used.

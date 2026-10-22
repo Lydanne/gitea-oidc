@@ -516,7 +516,11 @@ authCoordinator.registerProvider(new CustomAuthProvider());
 
 ### 10.2 OAuth 安全
 
-- 使用 state 参数防止 CSRF
+- 使用随机、短期且只能消费一次的 `state`，同时绑定发起登录的浏览器。
+  仅验证 `state` 存在无法阻止授权链接被转发给另一浏览器。
+- 飞书登录使用 HttpOnly、SameSite=Lax 的浏览器绑定 Cookie，`state` 中只保存绑定值的哈希。
+  HTTPS 回调使用 `__Host-` Cookie；校验必须在交换 `code`、写入用户和 Provider token 之前完成。
+  缺少绑定、绑定不匹配或升级前没有绑定的旧 `state` 均拒绝登录，用户需要重新发起认证。
 - 验证 redirect URI
 - 安全存储 access token
 
@@ -527,6 +531,26 @@ authCoordinator.registerProvider(new CustomAuthProvider());
 - **速率限制**：防止 API 滥用
 - **Webhook 签名**：验证外部回调的真实性
 - **CORS 配置**：限制跨域访问
+
+### 10.4 BFF 会话撤销
+
+后台和门户会话绑定用户会话代际。停用、删除、恢复或重建账号时轮换代际；校验标记缺失、
+已阻止或不匹配时拒绝旧会话。回调在令牌交换前捕获登录流程代际，并在签发会话时复验，
+防止进行中的旧回调跨越撤销操作创建新会话。
+
+跨实例共享状态依赖 `StateStore.compareAndSet` 的原子比较写入，内置 Redis 实现使用 Lua。
+扩展共享 StateStore 并用于认证流程或内置 BFF 时必须实现此能力，
+不能用分离的 `get`、`set` 模拟原子操作。
+
+OAuth state 和待消费认证结果也绑定登录流程代际；认证结果同时记录用户内部 ID，避免同一 `sub`
+删除重建后复用旧认证。OAuth 插件调用 `storeAuthResult` 时必须将已验证的
+`stateData.authenticationGeneration` 作为第四个参数传入；直接完成交互时将认证结果中的
+`metadata.authenticationGeneration` 作为 `finishOidcInteraction` 的第五个参数传入。
+
+OIDC Interaction 的登录结果和同意结果保存内部认证证明，resume 在修改 Session 前复验。
+OIDC 请求还在进入和返回响应时检查代际；在途请求遇到账号管理操作时可能需要重新登录。
+SQLite 和 Redis 撤销涵盖 Interaction 的嵌套账号引用；令牌写入需原 Grant 仍存在且主体匹配。
+开发环境的 memory 适配器使用内存 SQLite，遵循同一套撤销规则且不会跨进程持久化。
 
 ---
 

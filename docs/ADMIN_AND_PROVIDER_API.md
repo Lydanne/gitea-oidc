@@ -109,6 +109,12 @@ http://localhost:3000/admin
 `/admin/api/*` 不接受 OIDC bearer token；业务系统持有的 OIDC access token 只能调用
 Provider API 代理。
 
+停用或删除账号会撤销该用户的 OIDC 凭据、Provider token，以及后台和门户的 BFF 会话。
+恢复账号或以相同外部身份重建账号后，需要重新登录，旧 Cookie 不会重新获得访问权限。
+进行中的 OAuth、登录交互和令牌签发也会校验撤销代际；账号管理操作可能使在途登录需要重试。
+升级前缺少浏览器绑定或认证代际的待完成登录需要重新发起。
+多实例部署必须共享 Redis stateStore，配置方式见[存储配置指南](./ADAPTER_CONFIGURATION.md)。
+
 启用内置后台时，必须至少有一个 `clients[]` 同时满足以下条件：
 
 - `redirect_uris` 包含 `${server.url}${admin.basePath}/callback`，例如

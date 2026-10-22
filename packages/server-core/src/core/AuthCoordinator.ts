@@ -305,7 +305,7 @@ export class AuthCoordinator implements IAuthCoordinator {
   }
 
   /**
-   * 渲染统一登录页面；保留现有协调器接口，不触发自动跳转。
+   * 渲染统一登录页面；只返回 HTML，不发送服务端重定向。
    */
   async renderUnifiedLoginPage(context: AuthContext): Promise<string> {
     const loginOptions = await this.collectLoginOptions(context);

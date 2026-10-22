@@ -872,7 +872,7 @@ describe("AuthCoordinator", () => {
       });
     });
 
-    it("配置关闭时仍渲染唯一的跳转型登录方式", async () => {
+    it("配置关闭时渲染唯一跳转按钮及三秒倒计时", async () => {
       coordinator.registerProvider(
         createProvider({
           renderLoginUI: vi.fn().mockResolvedValue({
@@ -887,7 +887,11 @@ describe("AuthCoordinator", () => {
 
       expect(result.type).toBe("html");
       expect(result).toEqual(
-        expect.objectContaining({ html: expect.stringContaining("https://id.example.com/login") }),
+        expect.objectContaining({
+          html: expect.stringContaining(
+            'http-equiv="refresh" content="3;url=https://id.example.com/login"',
+          ),
+        }),
       );
     });
 

@@ -62,6 +62,11 @@ CLI 用法以 [shadcn-vue 文档](https://www.shadcn-vue.com/docs/cli) 为准。
 shadcn 交互组件，也不能用内联事件实现密码切换、图标加载失败处理等功能。
 不要为了引入 UI 组件而放宽 CSP；若确实需要交互，应先设计符合认证安全边界的方案。
 
+单一可见跳转按钮的自动登录使用原生 `meta refresh` 等待 3 秒，并以 CSS 分步动画显示数字，
+不加载脚本。倒计时目标与按钮共用经过校验和转义的 URL；表单、多入口、错误返回和
+`autoLogin=0` 不触发。取消链接回到当前交互并设置 `autoLogin=0`，登录目标和 OAuth state 仍由 Provider 生成。
+显式配置 `auth.autoRedirectSingleProvider=true` 时，服务端仍优先直接返回 `302`。
+
 认证表单的 action、一次性 interaction 标识、OAuth state、隐藏字段以及 URL / HTML 转义
 属于认证行为，视觉调整时保持这些契约。修改此类行为时同时使用认证专项技能和对应测试。
 

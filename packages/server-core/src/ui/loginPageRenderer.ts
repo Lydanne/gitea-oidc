@@ -16,6 +16,7 @@ export function renderLoginPageHTML(
 ): string {
   const forms: string[] = [];
   const buttons: string[] = [];
+  const redirectUrls: string[] = [];
 
   for (const { provider, ui } of loginOptions) {
     if (ui.showInUnifiedPage === false) {
@@ -32,6 +33,7 @@ export function renderLoginPageHTML(
       if (!redirectUrl) {
         continue;
       }
+      redirectUrls.push(redirectUrl);
       const iconUrl = ui.button.icon ? sanitizeLoginUrl(ui.button.icon) : "";
       buttons.push(`
         <a href="${escapeHtml(redirectUrl)}" class="oauth-button" data-slot="button" data-variant="outline">
@@ -45,6 +47,15 @@ export function renderLoginPageHTML(
   }
 
   const hasLoginOptions = forms.length > 0 || buttons.length > 0;
+  // 错误返回与用户主动取消后保持手动登录，避免自动重试形成跳转循环。
+  const autoLoginUrl =
+    forms.length === 0 &&
+    buttons.length === 1 &&
+    !context.query?.error &&
+    context.query?.autoLogin !== "0"
+      ? redirectUrls[0]
+      : undefined;
+  const cancelAutoLoginUrl = `/interaction/${encodeURIComponent(context.interactionUid)}?autoLogin=0`;
 
   return `
 <!DOCTYPE html>
@@ -56,6 +67,7 @@ export function renderLoginPageHTML(
   <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
   <title>登录 - X OIDC</title>
+  ${autoLoginUrl ? `<meta http-equiv="refresh" content="3;url=${escapeHtml(autoLoginUrl)}">` : ""}
   <style>
     /* 与 shadcn-vue neutral 主题保持一致，认证页无需客户端脚本。 */
     :root {
@@ -260,6 +272,47 @@ export function renderLoginPageHTML(
     .oauth-label {
       overflow-wrap: anywhere;
     }
+    .auto-login {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      text-align: center;
+    }
+    .auto-login p {
+      margin: 0;
+    }
+    .auto-login a {
+      color: var(--foreground);
+      text-underline-offset: 4px;
+    }
+    .auto-login a:focus-visible {
+      outline: 2px solid var(--ring);
+      outline-offset: 4px;
+    }
+    .countdown-window {
+      display: inline-block;
+      height: 1.5em;
+      overflow: hidden;
+      vertical-align: bottom;
+      font-variant-numeric: tabular-nums;
+    }
+    .countdown-track {
+      display: block;
+      animation: login-countdown 3s steps(3, end) forwards;
+    }
+    .countdown-track span {
+      display: block;
+      height: 1.5em;
+    }
+    @keyframes login-countdown {
+      to {
+        transform: translateY(-4.5em);
+      }
+    }
     .error {
       padding: 12px;
       border: 1px solid var(--error-border);
@@ -357,6 +410,19 @@ export function renderLoginPageHTML(
         ${forms.join("\n")}
         ${forms.length > 0 && buttons.length > 0 ? '<div class="divider" role="separator" aria-label="其他登录方式"><span>或使用其他方式</span></div>' : ""}
         ${buttons.length > 0 ? `<div class="oauth-buttons">${buttons.join("\n")}</div>` : ""}
+        ${
+          autoLoginUrl
+            ? `
+          <div class="auto-login">
+            <p role="status" aria-label="将在 3 秒后自动继续登录，也可立即点击登录按钮">
+              <span class="countdown-window" aria-hidden="true"><span class="countdown-track"><span>3</span><span>2</span><span>1</span><span>0</span></span></span>
+              秒后自动继续登录
+            </p>
+            <a href="${escapeHtml(cancelAutoLoginUrl)}">取消自动登录</a>
+          </div>
+        `
+            : ""
+        }
         ${hasLoginOptions ? "" : '<p class="empty-state" role="status">当前没有可用的登录方式，请联系系统管理员。</p>'}
       </div>
     </main>

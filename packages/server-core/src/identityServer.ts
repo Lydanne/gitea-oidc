@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
 import formBody from "@fastify/formbody";
@@ -29,6 +30,7 @@ import { ProviderApiService } from "./provider-api/ProviderApiService.js";
 import { ProviderTokenProbeScheduler } from "./provider-api/ProviderTokenProbeScheduler.js";
 import { FeishuAuthProvider } from "./providers/FeishuAuthProvider.js";
 import { LocalAuthProvider } from "./providers/LocalAuthProvider.js";
+import { PasskeyAuthProvider, setSecurityPageHeaders } from "./providers/PasskeyAuthProvider.js";
 import { AuditedUserRepository } from "./repositories/AuditedUserRepository.js";
 import { AuditLogRepositoryFactory } from "./repositories/AuditLogRepositoryFactory.js";
 import { ProviderTokenRepositoryFactory } from "./repositories/ProviderTokenRepositoryFactory.js";
@@ -36,6 +38,12 @@ import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory.js";
 import { registerAdminRoutes, setAdminSecurityHeaders } from "./routes/adminRoutes.js";
 import { registerPortalRoutes, setPortalSecurityHeaders } from "./routes/portalRoutes.js";
 import { registerProviderApiRoutes } from "./routes/providerApiRoutes.js";
+import { AccountSecurity } from "./security/AccountSecurity.js";
+import {
+  createSecurityRepository,
+  type SecurityRepository,
+} from "./security/SecurityRepository.js";
+import { passwordChangePage } from "./security/securityPages.js";
 import {
   DistributedBffSessionRevocations,
   getMemoryBffSessionRevocations,
@@ -65,6 +73,7 @@ import { userToClaims } from "./utils/userClaims.js";
 interface ServerRuntimeResources {
   app?: Pick<FastifyInstance, "close">;
   authCoordinator?: Pick<AuthCoordinator, "destroy">;
+  securityRepository?: SecurityRepository;
   userRepository?: { close?: () => Promise<void> | void };
   auditLogRepository?: Pick<AuditLogRepository, "close">;
   providerTokenProbeScheduler?: Pick<ProviderTokenProbeScheduler, "stop">;
@@ -240,12 +249,26 @@ async function createIdentityServerFromConfig(
       config.auth.stateStore?.type === "redis"
         ? new DistributedBffSessionRevocations(stateStore, authenticationTtl)
         : getMemoryBffSessionRevocations(app, authenticationTtl);
+    const securityRepository = createSecurityRepository(
+      config.auth.userRepository,
+      config.oidc.cookieKeys.map((key) =>
+        createHash("sha256").update(`x-oidc:account-security:${key}`).digest("hex"),
+      ),
+    );
+    runtimeResources.securityRepository = securityRepository;
+    const accountSecurity = new AccountSecurity(
+      securityRepository,
+      stateStore,
+      userRepository,
+      config.server.url,
+    );
     // 创建认证协调器
     const authCoordinator = new AuthCoordinator({
       app,
       stateStore,
       userRepository,
       authenticationRevocations,
+      accountSecurity,
       auditLogRepository,
       providersConfig: config.auth.providers,
       autoRedirectSingleProvider: config.auth.autoRedirectSingleProvider,
@@ -254,9 +277,24 @@ async function createIdentityServerFromConfig(
 
     // 注册认证插件
     if (config.auth.providers.local?.enabled) {
-      const localProvider = new LocalAuthProvider(userRepository, stateStore);
+      const localProvider = new LocalAuthProvider(
+        userRepository,
+        stateStore,
+        accountSecurity,
+        config.admin.enabled,
+        config.admin.allowedGroups,
+      );
       authCoordinator.registerProvider(localProvider);
       Logger.info("[认证系统] 已注册 LocalAuthProvider");
+      config.auth.providers.passkey = {
+        enabled: true,
+        displayName: "Passkey",
+        priority: 3,
+        config: {},
+      };
+      authCoordinator.registerProvider(
+        new PasskeyAuthProvider(accountSecurity, authCoordinator, userRepository),
+      );
     }
 
     if (config.auth.providers.feishu?.enabled) {
@@ -453,6 +491,8 @@ async function createIdentityServerFromConfig(
     }
 
     registerAdminRoutes({
+      accountSecurity,
+      localProvider: authCoordinator.getProvider("local") as LocalAuthProvider | undefined,
       app,
       config,
       oidcProvider: oidc,
@@ -479,6 +519,8 @@ async function createIdentityServerFromConfig(
     });
 
     const portalSessionStore = registerPortalRoutes({
+      accountSecurity,
+      localProvider: authCoordinator.getProvider("local") as LocalAuthProvider | undefined,
       app,
       config,
       oidcProvider: oidc,
@@ -724,6 +766,9 @@ async function createIdentityServerFromConfig(
           return reply.code(400).send("Invalid or expired interaction");
         }
 
+        if (body.newPassword !== undefined && !isTrustedInteractionPost(request, config, uid)) {
+          return reply.code(403).send("CSRF protection failed");
+        }
         // 创建认证上下文
         const context: AuthContext = {
           interactionUid: uid,
@@ -739,6 +784,18 @@ async function createIdentityServerFromConfig(
         // 执行认证
         const result = await authCoordinator.handleAuthentication(context);
 
+        if (result.metadata?.passwordChangeRequired === true) {
+          setSecurityPageHeaders(reply, false);
+          return reply
+            .type("text/html")
+            .send(
+              passwordChangePage(
+                uid,
+                String(result.metadata.username),
+                result.metadata.passwordError as string | undefined,
+              ),
+            );
+        }
         if (result.success && result.userId) {
           Logger.info(`[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`);
 
@@ -1029,6 +1086,7 @@ export async function cleanupServerResources(
   await runCleanupStep("用户门户会话", () => resources.portalSessionStore?.clear());
   await runCleanupStep("应用仓储", () => resources.applicationRuntime?.close());
   await runCleanupStep("审计日志仓储", () => resources.auditLogRepository?.close?.());
+  await runCleanupStep("账号安全仓储", () => resources.securityRepository?.close());
   await runCleanupStep("用户仓储", () => resources.userRepository?.close?.());
   await runCleanupStep("State store", () => resources.stateStore?.destroy?.());
   await runCleanupStep("OIDC 适配器", cleanupAdapters);

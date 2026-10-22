@@ -228,7 +228,20 @@ export const UserRepositoryConfigSchema = z
 export const AuthConfigSchema = z.object({
   autoRedirectSingleProvider: z.boolean().default(false),
   userRepository: UserRepositoryConfigSchema,
-  providers: z.record(z.string(), AuthProviderConfigSchema),
+  providers: z.record(z.string(), AuthProviderConfigSchema).superRefine((providers, ctx) => {
+    const bootstrap = providers.local?.config.bootstrapAdmin;
+    if (bootstrap === undefined) return;
+    const result = z
+      .object({ enabled: z.boolean().optional(), credentialsFile: z.string().min(1).optional() })
+      .strict()
+      .safeParse(bootstrap);
+    if (!result.success)
+      ctx.addIssue({
+        code: "custom",
+        path: ["local", "config", "bootstrapAdmin"],
+        message: "bootstrapAdmin 必须包含有效的 enabled 或 credentialsFile",
+      });
+  }),
   stateStore: z
     .object({
       type: z.enum(["memory", "redis"]),

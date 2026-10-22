@@ -21,6 +21,7 @@
 
 ## 功能配置
 
+- [管理员初始化、OTP 与 Passkey](./ACCOUNT_SECURITY.md)：首次改密、认证器绑定、恢复码和安全密钥。
 - [用户门户部署与使用指南](./USER_PORTAL.md)：Portal Client、应用目录、管理员入口、退出边界与排障。
 - [管理后台与 Provider API 接入指南](./ADMIN_AND_PROVIDER_API.md)
 - [应用管理接入指南](./APPLICATION_MANAGEMENT.md)

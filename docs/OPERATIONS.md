@@ -234,9 +234,13 @@ docker compose --env-file .env.production logs --tail=200 idp
 
 ### Cookie Keys
 
-生成新值并放在 `oidc.cookieKeys` 数组首位，保留上一把 Key 作为后续项。等待旧 Cookie 的最长
-有效期过去并确认没有回滚需求后，再删除最旧 Key。每次只变更一个环节，并完成后台与 Gitea 登录
-验证。
+在维护窗口停止所有实例，将新值放在 `oidc.cookieKeys` 数组首位并保留上一把 Key，再重启所有
+实例。账号安全表也由 Cookie Keys 派生的密钥加密，启动时会将旧密文迁移到新 Key。确认所有
+实例启动及数据库迁移完成，等待旧 Cookie 的最长有效期过去，并确认没有回滚需求后，再删除
+最旧 Key。
+
+备份恢复时保留备份对应的 Key，不能只恢复数据库。每次只变更一个环节，并完成后台与 Gitea
+登录验证。
 
 ### Client Secret
 

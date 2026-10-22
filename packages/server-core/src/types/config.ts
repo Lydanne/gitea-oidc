@@ -166,6 +166,7 @@ export const exampleConfig: ExtendedXOidcConfig = {
         config: {
           passwordFile: ".htpasswd",
           passwordFormat: "bcrypt",
+          bootstrapAdmin: { enabled: true },
           adminUsers: ["admin"],
         },
       },

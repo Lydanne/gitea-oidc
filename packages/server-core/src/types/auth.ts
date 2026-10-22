@@ -914,6 +914,9 @@ export interface LocalAuthConfig {
   /** htpasswd 文件路径 */
   passwordFile: string;
 
+  /** 空白部署自动初始化管理员；临时凭据文件默认位于 passwordFile + .bootstrap.json。 */
+  bootstrapAdmin?: { enabled?: boolean; credentialsFile?: string };
+
   /** 密码格式 */
   passwordFormat: "bcrypt" | "md5" | "sha" | "auto";
 

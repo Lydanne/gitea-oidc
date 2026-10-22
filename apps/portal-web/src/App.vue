@@ -85,6 +85,7 @@ onMounted(() => {
         </a>
 
         <div v-if="session && !signedOut" class="account-actions">
+          <a class="secondary-button" :href="toPortalPath('/security')">账号安全</a>
           <a
             v-if="session.admin"
             class="secondary-button admin-link"

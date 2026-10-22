@@ -7,6 +7,7 @@ import { createHash, randomBytes } from "crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Provider } from "oidc-provider";
 import { NoopAuditLogRepository } from "../repositories/NoopAuditLogRepository.js";
+import type { AccountSecurity } from "../security/AccountSecurity.js";
 import type {
   AuditLogInput,
   AuditLogRepository,
@@ -45,6 +46,7 @@ export interface PendingAuthentication {
 }
 
 export interface AuthCoordinatorConfig {
+  accountSecurity?: AccountSecurity;
   authenticationRevocations?: AuthenticationRevocations;
   /** Fastify 实例 */
   app: FastifyInstance;
@@ -75,6 +77,7 @@ export type UnifiedLoginResult =
   | { type: "redirect"; redirectUrl: string };
 
 export class AuthCoordinator implements IAuthCoordinator {
+  private readonly accountSecurity?: AccountSecurity;
   private app: FastifyInstance;
   private stateStore: StateStore;
   private userRepository: UserRepository;
@@ -88,6 +91,7 @@ export class AuthCoordinator implements IAuthCoordinator {
   private readonly authenticationRevocations?: AuthenticationRevocations;
 
   constructor(config: AuthCoordinatorConfig) {
+    this.accountSecurity = config.accountSecurity;
     this.authenticationRevocations = config.authenticationRevocations;
     this.app = config.app;
     this.stateStore = config.stateStore;
@@ -427,7 +431,7 @@ export class AuthCoordinator implements IAuthCoordinator {
       // Provider 这里只确认凭据；OIDC 登录成功由 authorization.success 统一记录。
       if (result.success && result.userId) {
         this.app.log.info(`User ${result.userId} authenticated successfully via ${authMethod}`);
-      } else {
+      } else if (result.metadata?.passwordChangeRequired !== true) {
         const attemptedUsername = readAttemptedUsername(context);
         const subject = await this.resolveFailedAuthenticationSubject(
           authMethod,
@@ -480,6 +484,7 @@ export class AuthCoordinator implements IAuthCoordinator {
         this.app.log.warn(`User ${userId} is not active: ${user.status}`);
         return null;
       }
+      if (user && (await this.accountSecurity?.requiresPasswordChange(user))) return null;
       return user;
     } catch (err) {
       this.app.log.error({ err: sanitizeForLog(err), userId }, "Failed to find account");

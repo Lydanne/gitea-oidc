@@ -2,6 +2,7 @@
 import Button from "primevue/button";
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
+import { toAdminPath } from "../runtimeConfig";
 
 /** 主框架属性。 */
 const props = defineProps<{
@@ -60,6 +61,7 @@ const navItems = computed(() => [
         </div>
 
         <div class="topbar-actions">
+          <a :href="toAdminPath('/security')" class="session-user">账号安全</a>
           <span class="session-user">{{ meName }}</span>
           <Button
             icon="pi pi-refresh"

@@ -31,7 +31,7 @@ user repositories, and pluggable OIDC persistence adapters.
     - [Prerequisites](#prerequisites)
     - [1. Install dependencies](#1-install-dependencies)
     - [2. Create configuration](#2-create-configuration)
-    - [3. Create `.htpasswd` (local auth)](#3-create-htpasswd-local-auth)
+    - [3. Initialize the local administrator](#3-initialize-the-local-administrator)
     - [4. Run the server](#4-run-the-server)
   - [Configuration Overview](#configuration-overview)
   - [Gitea Integration](#gitea-integration)
@@ -173,15 +173,15 @@ Important fields (development example):
 > Note: Because the OIDC provider is mounted under `/oidc`,
 > `oidc.issuer` must include `/oidc`, e.g. `https://auth.example.com/oidc`.
 
-### 3. Create `.htpasswd` (local auth)
+### 3. Initialize the local administrator
 
-```bash
-read -r -s ADMIN_PASSWORD
-export ADMIN_PASSWORD
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
-unset ADMIN_PASSWORD
-chmod 0600 .htpasswd
-```
+With local authentication and the admin console enabled, a fresh deployment generates a complex
+one-time administrator password in `.htpasswd.bootstrap.json` with mode `0600`. Read it as the
+service account. The administrator must replace the password before continuing; the temporary
+password then expires and the file is removed. Existing htpasswd administrators are preserved.
+
+Use **Account security** in the console or portal to bind TOTP and Passkeys. Use a persistent user
+repository to retain credentials across restarts. See the [account security guide](docs/ACCOUNT_SECURITY.md).
 
 ### 4. Run the server
 

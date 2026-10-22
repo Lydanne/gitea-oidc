@@ -6,6 +6,7 @@
 import { compare } from "bcrypt";
 import { createHash } from "crypto";
 import { readFile } from "fs/promises";
+import { type AccountSecurity, SecurityInputError } from "../security/AccountSecurity.js";
 import type {
   AuthContext,
   AuthProvider,
@@ -35,11 +36,15 @@ export class LocalAuthProvider implements AuthProvider {
   private config!: LocalAuthConfig;
   private userRepository!: UserRepository;
   private passwordMap = new Map<string, string>(); // username -> hashedPassword
+  private passwordFileMissing = false;
   private loginFailures = new Map<string, { attempts: number; expiresAt: number }>();
 
   constructor(
     userRepository: UserRepository,
     private readonly stateStore?: StateStore,
+    readonly security?: AccountSecurity,
+    private readonly bootstrapEnabled = false,
+    private readonly bootstrapAdminGroups = ["x-oidc-admins"],
   ) {
     this.userRepository = userRepository;
   }
@@ -49,6 +54,16 @@ export class LocalAuthProvider implements AuthProvider {
 
     // 加载密码文件
     await this.loadPasswordFile();
+    if (this.bootstrapEnabled && this.security) {
+      await this.security.bootstrap(
+        this.config,
+        new Set(this.passwordMap.keys()),
+        this.bootstrapAdminGroups,
+      );
+      if (this.passwordFileMissing && !(await this.security.repository.get("bootstrap"))) {
+        throw new Error(`Failed to load password file: ${this.config.passwordFile}`);
+      }
+    }
   }
 
   /**
@@ -74,6 +89,14 @@ export class LocalAuthProvider implements AuthProvider {
         `[LocalAuth] Loaded ${this.passwordMap.size} users from ${this.config.passwordFile}`,
       );
     } catch (err) {
+      if (
+        this.bootstrapEnabled &&
+        this.config.bootstrapAdmin?.enabled !== false &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        this.passwordFileMissing = true;
+        return;
+      }
       Logger.error("[LocalAuth] Failed to load password file:", sanitizeForLog(err));
       throw new Error(`Failed to load password file: ${this.config.passwordFile}`);
     }
@@ -122,6 +145,10 @@ export class LocalAuthProvider implements AuthProvider {
             />
           </div>
           
+          <div class="form-group">
+            <label for="otp">动态码或恢复码（启用 OTP 后填写）</label>
+            <input type="text" data-slot="input" id="otp" name="otp" autocomplete="one-time-code" maxlength="32" />
+          </div>
           <button type="submit" class="submit-button" data-slot="button">登录</button>
         </form>
       `,
@@ -150,7 +177,10 @@ export class LocalAuthProvider implements AuthProvider {
     }
 
     // 不存在的用户名也执行一次 bcrypt，避免从响应时间推断账户是否存在。
-    const hashedPassword = this.passwordMap.get(username);
+    const storedUser = await this.userRepository.findByProviderAndExternalId?.(this.name, username);
+    const credentialBefore =
+      storedUser && this.security ? (await this.security.record(storedUser)).value : null;
+    const hashedPassword = credentialBefore?.passwordHash ?? this.passwordMap.get(username);
     if (!hashedPassword) {
       await this.verifyBcrypt(password, DUMMY_BCRYPT_HASH);
       return {
@@ -160,7 +190,9 @@ export class LocalAuthProvider implements AuthProvider {
     }
 
     // 验证密码
-    const isValid = await this.verifyPassword(password, hashedPassword);
+    const isValid = credentialBefore?.passwordHash
+      ? await compare(password, hashedPassword)
+      : await this.verifyPassword(password, hashedPassword);
     if (!isValid) {
       await this.recordFailedAttempt(username, lockoutPolicy);
       return {
@@ -168,8 +200,6 @@ export class LocalAuthProvider implements AuthProvider {
         error: AuthErrors.invalidCredentials(),
       };
     }
-
-    await this.clearFailedAttempts(username);
 
     // 查找或创建用户
     const existingUser = this.userRepository.findByProviderAndExternalId
@@ -179,7 +209,10 @@ export class LocalAuthProvider implements AuthProvider {
       ...withoutUserGroupValues(existingUser?.groups, [ADMIN_GROUP]),
       ...userGroupsFromValues(this.config.defaultGroups ?? []),
     ]);
-    if ((this.config.adminUsers ?? []).includes(username)) {
+    if (
+      (this.config.adminUsers ?? []).includes(username) ||
+      (storedUser && (await this.security?.isBootstrapUser(storedUser)))
+    ) {
       groups = mergeUserGroups([...groups, ...userGroupsFromValues([ADMIN_GROUP])]);
     }
 
@@ -199,11 +232,69 @@ export class LocalAuthProvider implements AuthProvider {
       return { success: false, error: AuthErrors.invalidCredentials() };
     }
 
+    if (this.security) {
+      const credentialAfter = await this.security.verifySecondFactor(
+        user,
+        context.body.otp,
+        credentialBefore?.revision ?? null,
+      );
+      if (credentialAfter === false) {
+        await this.recordFailedAttempt(username, lockoutPolicy);
+        return { success: false, error: AuthErrors.invalidCredentials() };
+      }
+      await this.security.assertCurrentRevision(user, credentialAfter?.revision ?? null);
+      const mustChange = credentialAfter?.mustChangePassword === true;
+      if (mustChange || context.body.newPassword !== undefined) {
+        if (typeof context.body.newPassword !== "string" || !context.body.newPassword) {
+          return { success: false, metadata: { passwordChangeRequired: true, username } };
+        }
+        if (
+          context.body.newPassword !== context.body.confirmPassword ||
+          context.body.newPassword === password
+        ) {
+          return {
+            success: false,
+            metadata: {
+              passwordChangeRequired: true,
+              username,
+              passwordError: "两次新密码必须一致，且不能与当前密码相同",
+            },
+          };
+        }
+        try {
+          await this.security.changePassword(
+            user,
+            context.body.newPassword,
+            this.config,
+            credentialAfter?.revision ?? null,
+          );
+        } catch (error) {
+          if (!(error instanceof SecurityInputError)) throw error;
+          return {
+            success: false,
+            metadata: { passwordChangeRequired: true, username, passwordError: error.message },
+          };
+        }
+      }
+    }
+    await this.clearFailedAttempts(username);
     return {
       success: true,
       userId: user.sub,
       userInfo: user,
     };
+  }
+
+  async verifyUserPassword(user: UserInfo, password: string): Promise<boolean> {
+    if (user.authProvider !== "local") return false;
+    const managedHash = await this.security?.passwordHash(user);
+    if (managedHash) return compare(password, managedHash);
+    const originalHash = this.passwordMap.get(user.externalId);
+    return originalHash ? this.verifyPassword(password, originalHash) : false;
+  }
+
+  getConfig(): LocalAuthConfig {
+    return this.config;
   }
 
   async getUserInfo(userId: string): Promise<UserInfo | null> {

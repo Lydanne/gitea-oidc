@@ -38,18 +38,16 @@ cp example.x-oidc.config.json x-oidc.config.json
 
 HTTP 和 memory 只适合本地开发，生产配置校验会拒绝它们。
 
-## 3. 创建本地管理员
+## 3. 准备初始管理员
 
-```bash
-read -r -s ADMIN_PASSWORD
-export ADMIN_PASSWORD
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
-unset ADMIN_PASSWORD
-chmod 0600 .htpasswd
-```
+示例已启用管理台与本地认证。空白部署无需提前创建 `.htpasswd`，首次启动会生成随机复杂
+临时密码，保存至权限为 `0600` 的 `.htpasswd.bootstrap.json`，日志仅提示文件位置。
 
-用户名为 `admin`，密码是刚才交互输入的值。示例配置中的 `local.config.adminUsers` 会让该用户获得
-`x-oidc-admins` 组，从而访问内置管理后台。
+启动后以服务账号读取该文件，使用其中的用户名和临时密码登录。首次登录必须重设密码才能
+继续操作；完成后临时密码失效，临时文件会删除。已有 htpasswd 管理员不会自动覆盖。
+
+示例使用 memory 用户仓储，仅适合本地开发；重启会丢失页面设置的密码、OTP 与 Passkey。
+需要跨重启保留时改用 SQLite 或 PostgreSQL，详见[账号安全指南](./ACCOUNT_SECURITY.md)。
 
 ## 4. 启动服务
 
@@ -152,7 +150,8 @@ pnpm build
 
 ### 本地密码认证失败
 
-确认 `.htpasswd` 存在、用户名一致、哈希完整，并且 `passwordFormat` 为 `bcrypt`。
+初始管理员请读取 `.htpasswd.bootstrap.json`，完成首次改密后使用新密码。手工维护的账号需确认
+`.htpasswd` 中用户名一致、哈希完整，并且 `passwordFormat` 为 `bcrypt`。
 
 ### 管理后台提示无权限
 

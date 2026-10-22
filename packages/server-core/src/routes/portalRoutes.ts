@@ -1,3 +1,6 @@
+import type { LocalAuthProvider } from "../providers/LocalAuthProvider.js";
+import type { AccountSecurity } from "../security/AccountSecurity.js";
+import { registerAccountSecurityRoutes } from "./accountSecurityRoutes.js";
 /**
  * 内置普通用户门户路由。
  *
@@ -67,6 +70,8 @@ interface PortalGrantLike {
 }
 
 export interface PortalRoutesOptions {
+  accountSecurity?: AccountSecurity;
+  localProvider?: LocalAuthProvider;
   app: FastifyInstance;
   config: ResolvedXOidcConfig;
   oidcProvider: Provider;
@@ -317,8 +322,22 @@ export function registerPortalRoutes(options: PortalRoutesOptions): PortalSessio
       reply.code(401).send({ error: "Unauthorized" });
       return null;
     }
+    if (await options.accountSecurity?.requiresPasswordChange(user)) {
+      reply.code(403).send({ error: "Password change required" });
+      return null;
+    }
     return user;
   };
+
+  if (options.accountSecurity && options.localProvider) {
+    registerAccountSecurityRoutes({
+      app,
+      basePath,
+      security: options.accountSecurity,
+      localProvider: options.localProvider,
+      requireUser: requirePortalUser,
+    });
+  }
 
   app.get(`${basePath}/api/me`, async (request, reply) => {
     const user = await requirePortalUser(request, reply);

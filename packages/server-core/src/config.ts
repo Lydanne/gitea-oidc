@@ -366,6 +366,7 @@ const defaultConfig: ResolvedXOidcConfig = {
         config: {
           passwordFile: ".htpasswd",
           passwordFormat: "bcrypt",
+          bootstrapAdmin: { enabled: true },
           adminUsers: ["admin"],
           lockoutPolicy: {
             enabled: true,

@@ -1,3 +1,6 @@
+import type { LocalAuthProvider } from "../providers/LocalAuthProvider.js";
+import type { AccountSecurity } from "../security/AccountSecurity.js";
+import { registerAccountSecurityRoutes } from "./accountSecurityRoutes.js";
 /**
  * 内置后台管理路由
  */
@@ -165,6 +168,8 @@ interface OidcAccountLifecycleCoordinator {
  * 后台管理路由配置
  */
 export interface AdminRoutesOptions {
+  accountSecurity?: AccountSecurity;
+  localProvider?: LocalAuthProvider;
   /** Fastify 实例 */
   app: FastifyInstance;
 
@@ -465,6 +470,10 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
       return null;
     }
 
+    if (await options.accountSecurity?.requiresPasswordChange(user)) {
+      reply.code(403).send({ error: "Password change required" });
+      return null;
+    }
     return user;
   };
 
@@ -479,6 +488,16 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
 
     return requireAdmin(request, reply);
   };
+
+  if (options.accountSecurity && options.localProvider) {
+    registerAccountSecurityRoutes({
+      app,
+      basePath,
+      security: options.accountSecurity,
+      localProvider: options.localProvider,
+      requireUser: requireAdmin,
+    });
+  }
 
   app.get(`${basePath}/api/me`, async (request, reply) => {
     const user = await requireAdmin(request, reply);

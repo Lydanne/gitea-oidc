@@ -959,6 +959,7 @@ describe("server resource cleanup", () => {
     config.auth.providers.local.config = {
       passwordFile: "/path/to/missing/htpasswd",
       passwordFormat: "bcrypt",
+      bootstrapAdmin: { enabled: false },
     };
     config.providerApi.enabled = false;
     config.adapter = { type: "sqlite", sqlite: { dbPath: "./oidc.db" } };

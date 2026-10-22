@@ -66,14 +66,11 @@ pnpm install
 ```bash
 # 复制本地开发示例配置
 cp example.x-oidc.config.json x-oidc.config.json
-
-# 交互输入本地管理员密码并创建 bcrypt 密码文件
-read -r -s ADMIN_PASSWORD
-export ADMIN_PASSWORD
-node -e "const bcrypt = require('bcrypt'); console.log('admin:' + bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10));" > .htpasswd
-unset ADMIN_PASSWORD
-chmod 0600 .htpasswd
 ```
+
+空白部署首次启动会将复杂临时密码写入权限为 `0600` 的 `.htpasswd.bootstrap.json`。
+管理员首次登录必须重设密码；完成后可在“账号安全”绑定 OTP 和 Passkey。
+已有 htpasswd 管理员保持原凭据，详见[账号安全指南](docs/ACCOUNT_SECURITY.md)。
 
 ### 3. 启动服务器
 

@@ -99,8 +99,8 @@ export class OidcAdapterFactory {
 
       case "memory":
         console.warn("[OidcAdapterFactory] Using memory adapter - data will be lost on restart!");
-        // 返回 undefined 让 oidc-provider 使用默认的内存适配器
-        return undefined;
+        // 复用可撤销的进程内 SQLite 存储，避免内建 memory adapter 无法枚举旧授权记录。
+        return new SqliteOidcAdapter(name, ":memory:");
 
       default:
         throw new Error(`Unknown adapter type: ${(OidcAdapterFactory.config as any).type}`);
@@ -119,8 +119,6 @@ export class OidcAdapterFactory {
       if (OidcAdapterFactory.overrides.size > 0) {
         throw new Error("Memory OIDC adapter 无法与模型级 Adapter override 组合使用");
       }
-      // 不向 oidc-provider 注入一个返回 undefined 的工厂；省略 adapter 字段才能启用内建内存适配器。
-      return undefined;
     }
     return (name: string) => {
       const adapter = OidcAdapterFactory.create(name);
@@ -153,7 +151,7 @@ export class OidcAdapterFactory {
         break;
 
       case "memory":
-        // 内存适配器无需清理
+        await SqliteOidcAdapter.closeAll();
         break;
     }
 
@@ -190,7 +188,7 @@ export class OidcAdapterFactory {
         await RedisOidcAdapter.revokeByAccountId(accountId, OidcAdapterFactory.config.redis);
         break;
       case "memory":
-        // oidc-provider 的内存适配器会随当前进程结束，且不允许生产环境使用。
+        await SqliteOidcAdapter.revokeByAccountId(":memory:", accountId);
         break;
     }
   }
@@ -269,6 +267,7 @@ export class OidcAdapterFactory {
         await RedisOidcAdapter.revokeByClientId(clientId, OidcAdapterFactory.config.redis);
         break;
       case "memory":
+        await SqliteOidcAdapter.revokeByClientId(":memory:", clientId);
         break;
     }
   }

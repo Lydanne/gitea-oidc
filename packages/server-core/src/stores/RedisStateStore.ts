@@ -36,6 +36,29 @@ export class RedisStateStore implements StateStore {
     return `${this.keyPrefix}${state}`;
   }
 
+  async compareAndSet(state: string, expected: any, data: any, ttl: number): Promise<boolean> {
+    const client = await this.clientPromise;
+    const result = await client.eval(
+      [
+        "local current = redis.call('GET', KEYS[1])",
+        "if (not current and ARGV[1] == 'null') or current == ARGV[1] then",
+        "  redis.call('SETEX', KEYS[1], ARGV[3], ARGV[2])",
+        "  return 1",
+        "end",
+        "return 0",
+      ].join("\n"),
+      {
+        keys: [this.key(state)],
+        arguments: [
+          JSON.stringify(expected),
+          JSON.stringify(data),
+          String(Math.max(1, Math.ceil(ttl))),
+        ],
+      },
+    );
+    return Number(result) === 1;
+  }
+
   async set(state: string, data: any, ttl: number): Promise<void> {
     const client = await this.clientPromise;
     await client.setEx(this.key(state), Math.max(1, Math.floor(ttl)), JSON.stringify(data));

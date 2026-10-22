@@ -22,6 +22,7 @@ import {
 } from "./config.js";
 // 认证系统导入
 import { AuthCoordinator } from "./core/AuthCoordinator.js";
+import { registerOidcAuthenticationGuard } from "./core/oidcAuthenticationGuard.js";
 import { DingTalkProviderApiClient } from "./provider-api/DingTalkProviderApiClient.js";
 import { FeishuProviderApiClient } from "./provider-api/FeishuProviderApiClient.js";
 import { ProviderApiService } from "./provider-api/ProviderApiService.js";
@@ -35,6 +36,10 @@ import { UserRepositoryFactory } from "./repositories/UserRepositoryFactory.js";
 import { registerAdminRoutes, setAdminSecurityHeaders } from "./routes/adminRoutes.js";
 import { registerPortalRoutes, setPortalSecurityHeaders } from "./routes/portalRoutes.js";
 import { registerProviderApiRoutes } from "./routes/providerApiRoutes.js";
+import {
+  DistributedBffSessionRevocations,
+  getMemoryBffSessionRevocations,
+} from "./sessions/BffSessionRevocations.js";
 import { MemoryStateStore } from "./stores/MemoryStateStore.js";
 import { RedisStateStore } from "./stores/RedisStateStore.js";
 import type { AuditLogRepository } from "./types/audit.js";
@@ -226,11 +231,21 @@ async function createIdentityServerFromConfig(
         : undefined;
     let providerTokenProbeScheduler: ProviderTokenProbeScheduler | undefined;
 
+    const authenticationTtl = Math.max(
+      600,
+      config.admin.sessionTtlSeconds,
+      config.portal.sessionTtlSeconds,
+    );
+    const authenticationRevocations =
+      config.auth.stateStore?.type === "redis"
+        ? new DistributedBffSessionRevocations(stateStore, authenticationTtl)
+        : getMemoryBffSessionRevocations(app, authenticationTtl);
     // 创建认证协调器
     const authCoordinator = new AuthCoordinator({
       app,
       stateStore,
       userRepository,
+      authenticationRevocations,
       auditLogRepository,
       providersConfig: config.auth.providers,
       autoRedirectSingleProvider: config.auth.autoRedirectSingleProvider,
@@ -424,6 +439,7 @@ async function createIdentityServerFromConfig(
 
     // 将 OIDC Provider 实例传递给 AuthCoordinator
     authCoordinator.setOidcProvider(oidc);
+    registerOidcAuthenticationGuard(oidc, authCoordinator);
 
     if (providerApiService) {
       registerProviderApiRoutes({
@@ -506,6 +522,7 @@ async function createIdentityServerFromConfig(
       Logger.info(`[交互页面] 用户访问交互页面, UID: ${uid}`);
 
       try {
+        const authenticationGeneration = await authCoordinator.captureAuthenticationGeneration();
         const details = await oidc.interactionDetails(request.raw, reply.raw);
         if (details.uid !== uid) {
           return reply.code(400).send("Invalid or expired interaction");
@@ -537,11 +554,16 @@ async function createIdentityServerFromConfig(
             isConfiguredClient ||
             (policy?.trustLevel === "first_party" && policy.consentPolicy === "skip_for_trusted")
           ) {
+            const proof = await authCoordinator.createInteractionAuthentication(
+              authenticationGeneration,
+              details.session?.accountId ?? "",
+            );
             const grantId = await approveConsent(oidc, details);
+            await authCoordinator.assertAuthenticationGeneration(authenticationGeneration);
             await oidc.interactionFinished(
               request.raw,
               reply.raw,
-              { consent: { grantId } },
+              { consent: { grantId }, x_oidc_authentication: proof },
               { mergeWithLastSubmission: true },
             );
             Logger.info(`[自动授予完成] clientId=${clientId}`);
@@ -613,6 +635,7 @@ async function createIdentityServerFromConfig(
       }
 
       try {
+        const authenticationGeneration = await authCoordinator.captureAuthenticationGeneration();
         const details = await oidc.interactionDetails(request.raw, reply.raw);
         if (details.uid !== uid || details.prompt.name !== "consent") {
           return reply.code(400).send("Invalid or expired interaction");
@@ -632,11 +655,16 @@ async function createIdentityServerFromConfig(
           return reply.code(400).send("Invalid consent decision");
         }
 
+        const proof = await authCoordinator.createInteractionAuthentication(
+          authenticationGeneration,
+          details.session?.accountId ?? "",
+        );
         const grantId = await approveConsent(oidc, details);
+        await authCoordinator.assertAuthenticationGeneration(authenticationGeneration);
         await oidc.interactionFinished(
           request.raw,
           reply.raw,
-          { consent: { grantId } },
+          { consent: { grantId }, x_oidc_authentication: proof },
           { mergeWithLastSubmission: true },
         );
       } catch (err) {
@@ -657,7 +685,8 @@ async function createIdentityServerFromConfig(
         }
 
         // 从临时存储中获取认证结果
-        const userId = await authCoordinator.getAuthResult(uid);
+        const authentication = await authCoordinator.consumeAuthResult(uid);
+        const userId = authentication?.userId;
 
         if (!userId) {
           Logger.warn(`[OAuth 完成] 未找到认证结果: ${uid}`);
@@ -667,13 +696,12 @@ async function createIdentityServerFromConfig(
         Logger.info(`[OAuth 完成] 用户 ${userId} 认证通过，完成 login 交互`);
 
         // 完成 OIDC 交互
-        await oidc.interactionFinished(
-          request.raw,
-          reply.raw,
-          {
-            login: { accountId: userId },
-          },
-          { mergeWithLastSubmission: false },
+        await authCoordinator.finishOidcInteraction(
+          request,
+          reply,
+          uid,
+          userId,
+          authentication?.authenticationGeneration,
         );
 
         Logger.info(`[OAuth Login 完成] 用户 ${userId}`);
@@ -715,13 +743,12 @@ async function createIdentityServerFromConfig(
           Logger.info(`[登录成功] 用户 ${result.userId} 认证通过，完成 login 交互`);
 
           // 只完成 login，consent 会在后续的 GET 请求中自动处理
-          await oidc.interactionFinished(
-            request.raw,
-            reply.raw,
-            {
-              login: { accountId: result.userId },
-            },
-            { mergeWithLastSubmission: false },
+          await authCoordinator.finishOidcInteraction(
+            request,
+            reply,
+            uid,
+            result.userId,
+            result.metadata?.authenticationGeneration,
           );
 
           Logger.info(`[Login 完成] 用户 ${result.userId}`);

@@ -4,11 +4,13 @@
  * 测试 SQLite OIDC 适配器的所有功能
  */
 
+import Database from "better-sqlite3";
 import { existsSync, unlinkSync } from "fs";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   acquireOidcAccountBlock,
+  allowOidcAccount,
   clearOidcClientRevocationBarriers,
 } from "../oidcClientRevocationBarrier.js";
 import { SqliteOidcAdapter } from "../SqliteOidcAdapter.js";
@@ -39,6 +41,60 @@ describe("SqliteOidcAdapter", () => {
         // 忽略清理错误
       }
     }
+  });
+
+  it("撤销覆盖升级前已存储的 Interaction 的所有嵌套账户路径", async () => {
+    const interaction = new SqliteOidcAdapter("Interaction", testDbPath);
+    const payloads = [
+      { result: { login: { accountId: "user-1" } } },
+      { lastSubmission: { login: { accountId: "user-1" } } },
+      { session: { accountId: "user-1" }, result: { login: { accountId: "user-2" } } },
+      { accountId: "user-2", result: { login: { accountId: "user-1" } } },
+    ];
+    // 模拟升级前记录，绕过本版本 upsert 与栅栏。
+    const db = new Database(testDbPath);
+    for (const [index, payload] of payloads.entries()) {
+      db.prepare("INSERT INTO oidc_store (name, key, value) VALUES ('Interaction', ?, ?)").run(
+        `legacy-${index}`,
+        JSON.stringify(payload),
+      );
+    }
+    db.close();
+    await interaction.upsert("other", { session: { accountId: "unrelated" } }, 60);
+    const lease = acquireOidcAccountBlock("user-1");
+    await SqliteOidcAdapter.revokeByAccountId(testDbPath, "user-1");
+    await lease.commit();
+    allowOidcAccount("user-1");
+    for (const index of payloads.keys())
+      expect(await interaction.find(`legacy-${index}`)).toBeUndefined();
+    expect(await interaction.find("other")).toBeDefined();
+  });
+
+  it("原 Grant 撤销后恢复账户也不能保存迟到令牌，且拒绝账户或Client错配", async () => {
+    const grants = new SqliteOidcAdapter("Grant", testDbPath);
+    const tokens = new SqliteOidcAdapter("AccessToken", testDbPath);
+    const payload = { accountId: "user-1", clientId: "client-1", grantId: "grant-1" };
+    await expect(tokens.upsert("missing-grant", payload, 60)).rejects.toMatchObject({
+      code: "OIDC_GRANT_REVOKED",
+    });
+    await grants.upsert("grant-1", { accountId: "other", clientId: "client-1" }, 60);
+    await expect(tokens.upsert("wrong-account", payload, 60)).rejects.toMatchObject({
+      code: "OIDC_GRANT_REVOKED",
+    });
+    await grants.upsert("grant-1", { accountId: "user-1", clientId: "other" }, 60);
+    await expect(tokens.upsert("wrong-client", payload, 60)).rejects.toMatchObject({
+      code: "OIDC_GRANT_REVOKED",
+    });
+    await grants.upsert("grant-1", { accountId: "user-1", clientId: "client-1" }, 60);
+    await tokens.upsert("allowed", payload, 60);
+    const lease = acquireOidcAccountBlock("user-1");
+    await SqliteOidcAdapter.revokeByAccountId(testDbPath, "user-1");
+    await lease.commit();
+    allowOidcAccount("user-1");
+    await expect(tokens.upsert("late", payload, 60)).rejects.toMatchObject({
+      code: "OIDC_GRANT_REVOKED",
+    });
+    expect(await tokens.find("allowed")).toBeUndefined();
   });
 
   describe("constructor", () => {

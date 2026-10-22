@@ -33,6 +33,11 @@ import {
   normalizeTokenListString,
 } from "../repositories/providerTokenListOptions.js";
 import { isUserListSortField, USER_LIST_FILTER_FIELDS } from "../repositories/userListOptions.js";
+import {
+  BffSessionRevokedError,
+  DistributedBffSessionRevocations,
+  getMemoryBffSessionRevocations,
+} from "../sessions/BffSessionRevocations.js";
 import type { AdminTokenSummary, AdminUser } from "../types/admin.js";
 import {
   AUDIT_EVENT_TYPES,
@@ -224,8 +229,38 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
   const applicationMutationTails = new Map<string, Promise<void>>();
   const sessionStore: AdminSessionStoreLike =
     config.auth?.stateStore?.type === "redis" && options.stateStore
-      ? new DistributedAdminSessionStore(options.stateStore, adminConfig.sessionTtlSeconds)
-      : new AdminSessionStore(adminConfig.sessionTtlSeconds);
+      ? new DistributedAdminSessionStore(
+          options.stateStore,
+          adminConfig.sessionTtlSeconds,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          new DistributedBffSessionRevocations(
+            options.stateStore,
+            Math.max(
+              config.admin?.sessionTtlSeconds ?? 0,
+              config.portal?.sessionTtlSeconds ?? 0,
+              adminConfig.sessionTtlSeconds,
+            ),
+          ),
+        )
+      : new AdminSessionStore(
+          adminConfig.sessionTtlSeconds,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          getMemoryBffSessionRevocations(
+            app,
+            Math.max(
+              config.admin?.sessionTtlSeconds ?? 0,
+              config.portal?.sessionTtlSeconds ?? 0,
+              adminConfig.sessionTtlSeconds,
+            ),
+          ),
+        );
   const oidcAccountLifecycle = resolveOidcAccountLifecycle(options);
   const adminClient = resolveAdminClient(config, basePath);
   const adminIndexHtml = injectAdminRuntimeConfig(
@@ -326,6 +361,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
       return reply.code(400).send("Invalid admin login state");
     }
 
+    const loginGeneration = await sessionStore.captureLoginGeneration();
     let userId: string | null;
     try {
       const tokenResponse = await exchangeAdminCode(config, basePath, adminClient, query.code);
@@ -363,7 +399,13 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
       return reply.code(403).send("Forbidden");
     }
 
-    const session = await sessionStore.createSession(user.sub);
+    let session: Awaited<ReturnType<AdminSessionStoreLike["createSession"]>>;
+    try {
+      session = await sessionStore.createSession(user.sub, loginGeneration);
+    } catch (error) {
+      if (error instanceof BffSessionRevokedError) return reply.code(403).send("Login was revoked");
+      throw error;
+    }
     await appendAuditSafely(auditLogRepository, {
       eventType: "admin.login",
       outcome: "success",
@@ -503,6 +545,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     });
     if (isActiveUser(user)) {
       await oidcAccountLifecycle.allow(user.sub);
+      await sessionStore.allowUserSessions(user.sub);
     }
     return reply.code(201).send(toAdminUser(user));
   });
@@ -522,17 +565,21 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     if (payload.value.status !== undefined && payload.value.status !== "active") {
       const lease = await oidcAccountLifecycle.acquireBlock(sub);
       let stateChanged = false;
+      let bffLease: import("../sessions/BffSessionRevocations.js").BffSessionBlockLease | undefined;
       try {
+        bffLease = await sessionStore.blockUserSessions(sub);
         await revokeUserCredentials(options, oidcAccountLifecycle, sub);
         const user = await userRepository.update(sub, payload.value, {
           source: "admin",
           actorUserId: actor.sub,
         });
         stateChanged = true;
+        await bffLease.commit();
         await lease.commit();
         return toAdminUser(user);
       } catch (error) {
         if (!stateChanged) {
+          await bffLease?.release();
           await releaseOidcLease(lease);
         }
         throw error;
@@ -544,6 +591,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     });
     if (payload.value.status === "active") {
       await oidcAccountLifecycle.allow(sub);
+      await sessionStore.allowUserSessions(sub);
     }
     return toAdminUser(user);
   });
@@ -558,14 +606,18 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     }
     const lease = await oidcAccountLifecycle.acquireBlock(user.sub);
     let stateChanged = false;
+    let bffLease: import("../sessions/BffSessionRevocations.js").BffSessionBlockLease | undefined;
     try {
+      bffLease = await sessionStore.blockUserSessions(user.sub);
       await revokeUserCredentials(options, oidcAccountLifecycle, user.sub);
       await userRepository.delete(sub, { source: "admin", actorUserId: actor.sub });
       stateChanged = true;
+      await bffLease.commit();
       await lease.commit();
       return reply.code(204).send();
     } catch (error) {
       if (!stateChanged) {
+        await bffLease?.release();
         await releaseOidcLease(lease);
       }
       throw error;
@@ -1791,9 +1843,9 @@ async function exchangeAdminCode(
   const response = await fetch(`${config.oidc.issuer}/token`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${client.client_id}:${client.client_secret}`).toString(
-        "base64",
-      )}`,
+      Authorization: `Basic ${Buffer.from(
+        `${encodeOAuthFormComponent(client.client_id)}:${encodeOAuthFormComponent(client.client_secret)}`,
+      ).toString("base64")}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body,
@@ -1878,4 +1930,8 @@ async function isAdminAccessTokenBoundToActiveGrant(
   }
 
   return grant.clientId === accessToken.clientId && grant.accountId === accessToken.accountId;
+}
+
+function encodeOAuthFormComponent(value: string): string {
+  return new URLSearchParams({ value }).toString().slice("value=".length);
 }

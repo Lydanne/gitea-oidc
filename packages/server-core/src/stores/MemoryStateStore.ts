@@ -42,6 +42,27 @@ export class MemoryStateStore implements StateStore {
     }, this.cleanupIntervalMs);
   }
 
+  async compareAndSet(state: string, expected: any, data: any, ttl: number): Promise<boolean> {
+    const entry = this.states.get(state);
+    const current = entry && Date.now() <= entry.expiresAt ? entry.data : null;
+    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    if (!this.states.has(state) && this.states.size >= this.maxSize) {
+      for (const [key, value] of this.states) {
+        if (value.expiresAt < Date.now()) this.states.delete(key);
+      }
+      if (this.states.size >= this.maxSize) {
+        const oldest = this.states.keys().next().value;
+        if (oldest) {
+          this.states.delete(oldest);
+          this.stats.evicted++;
+        }
+      }
+    }
+    // 比较与写入之间不能 await，避免并发初始化或续期覆盖撤销。
+    this.states.set(state, { data, expiresAt: Date.now() + Math.max(1, ttl) * 1000 });
+    return true;
+  }
+
   async set(state: string, data: any, ttl: number): Promise<void> {
     // 检查内存限制，必要时清理过期数据
     if (!this.states.has(state) && this.states.size >= this.maxSize) {

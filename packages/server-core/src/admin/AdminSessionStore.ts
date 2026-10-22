@@ -3,6 +3,11 @@
  */
 
 import { randomBytes } from "crypto";
+import {
+  BffSessionRevokedError,
+  DistributedBffSessionRevocations,
+  MemoryBffSessionRevocations,
+} from "../sessions/BffSessionRevocations.js";
 import type { AdminSession } from "../types/admin.js";
 import type { StateStore } from "../types/auth.js";
 
@@ -32,7 +37,14 @@ export class AdminLoginStateLimitError extends Error {
 }
 
 export interface AdminSessionStoreLike {
-  createSession(userId: string): AdminSession | Promise<AdminSession>;
+  captureLoginGeneration(): string | Promise<string>;
+  blockUserSessions(
+    userId: string,
+  ):
+    | import("../sessions/BffSessionRevocations.js").BffSessionBlockLease
+    | Promise<import("../sessions/BffSessionRevocations.js").BffSessionBlockLease>;
+  allowUserSessions(userId: string): void | Promise<void>;
+  createSession(userId: string, loginGeneration?: string): AdminSession | Promise<AdminSession>;
   getSession(id: string): AdminSession | null | Promise<AdminSession | null>;
   deleteSession(id: string): void | Promise<void>;
   checkLoginRateLimit(keys: string[]): void | Promise<void>;
@@ -61,6 +73,7 @@ export class AdminSessionStore {
     maxSessions: number = 1000,
     loginRateLimit: number = ADMIN_LOGIN_START_RATE_LIMIT,
     loginRateWindowSeconds: number = ADMIN_LOGIN_START_RATE_WINDOW_SECONDS,
+    private readonly revocations = new MemoryBffSessionRevocations(sessionTtlSeconds),
   ) {
     this.loginStateTtlMs = Math.max(1, loginStateTtlSeconds) * 1000;
     this.maxLoginStates = Math.max(1, maxLoginStates);
@@ -74,13 +87,26 @@ export class AdminSessionStore {
    * @param userId 用户 ID
    * @returns 会话记录
    */
-  createSession(userId: string): AdminSession {
+  captureLoginGeneration(): string {
+    return this.revocations.captureLoginGeneration();
+  }
+  blockUserSessions(userId: string) {
+    return this.revocations.blockUser(userId);
+  }
+  allowUserSessions(userId: string): void {
+    this.revocations.allowUser(userId);
+  }
+
+  createSession(userId: string, loginGeneration = this.captureLoginGeneration()): AdminSession {
+    this.revocations.assertLoginGeneration(loginGeneration);
+    const generation = this.revocations.getUserGeneration(userId);
     this.purgeExpiredSessions();
     this.enforceSessionLimit();
 
     const session: AdminSession = {
       id: randomBytes(32).toString("hex"),
       userId,
+      generation,
       expiresAt: Date.now() + this.sessionTtlSeconds * 1000,
     };
     this.sessions.set(session.id, session);
@@ -97,7 +123,10 @@ export class AdminSessionStore {
       return null;
     }
 
-    if (Date.now() > session.expiresAt) {
+    if (
+      Date.now() > session.expiresAt ||
+      !this.revocations.isCurrent(session.userId, session.generation)
+    ) {
       this.sessions.delete(id);
       return null;
     }
@@ -244,6 +273,10 @@ export class DistributedAdminSessionStore implements AdminSessionStoreLike {
     maxLoginStates = 1000,
     loginRateLimit = ADMIN_LOGIN_START_RATE_LIMIT,
     loginRateWindowSeconds = ADMIN_LOGIN_START_RATE_WINDOW_SECONDS,
+    private readonly revocations = new DistributedBffSessionRevocations(
+      stateStore,
+      sessionTtlSeconds,
+    ),
   ) {
     this.loginStateTtlSeconds = Math.max(1, loginStateTtlSeconds);
     this.maxLoginStates = Math.max(1, maxLoginStates);
@@ -251,19 +284,46 @@ export class DistributedAdminSessionStore implements AdminSessionStoreLike {
     this.loginRateWindowSeconds = Math.max(1, loginRateWindowSeconds);
   }
 
-  async createSession(userId: string): Promise<AdminSession> {
+  captureLoginGeneration(): Promise<string> {
+    return this.revocations.captureLoginGeneration();
+  }
+  blockUserSessions(userId: string) {
+    return this.revocations.blockUser(userId);
+  }
+  allowUserSessions(userId: string): Promise<void> {
+    return this.revocations.allowUser(userId);
+  }
+
+  async createSession(userId: string, loginGeneration?: string): Promise<AdminSession> {
+    loginGeneration ??= await this.captureLoginGeneration();
+    await this.revocations.assertLoginGeneration(loginGeneration);
+    const generation = await this.revocations.getUserGeneration(userId);
     const session: AdminSession = {
       id: randomBytes(32).toString("hex"),
       userId,
+      generation,
       expiresAt: Date.now() + this.sessionTtlSeconds * 1000,
     };
     await this.stateStore.set(this.sessionKey(session.id), session, this.sessionTtlSeconds);
+    try {
+      await this.revocations.assertLoginGeneration(loginGeneration);
+      if (!(await this.revocations.isCurrent(userId, generation))) {
+        throw new BffSessionRevokedError();
+      }
+    } catch (error) {
+      await this.deleteSession(session.id);
+      throw error;
+    }
     return session;
   }
 
   async getSession(id: string): Promise<AdminSession | null> {
     const session = (await this.stateStore.get(this.sessionKey(id))) as AdminSession | null;
-    if (!session || Date.now() > session.expiresAt) {
+    if (
+      !session ||
+      Date.now() > session.expiresAt ||
+      !(await this.revocations.isCurrent(session.userId, session.generation))
+    ) {
       if (session) await this.deleteSession(id);
       return null;
     }

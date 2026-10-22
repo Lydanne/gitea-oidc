@@ -1,6 +1,9 @@
 import { createCipheriv, createHash } from "crypto";
+import fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthCoordinator } from "../../core/AuthCoordinator.js";
 import { MemoryProviderTokenRepository } from "../../repositories/MemoryProviderTokenRepository.js";
+import { MemoryStateStore } from "../../stores/MemoryStateStore.js";
 import type {
   AuthContext,
   AuthProviderConfig,
@@ -11,6 +14,9 @@ import { PluginPermission } from "../../types/auth.js";
 import { AuthErrors } from "../../utils/authErrors.js";
 import { Logger } from "../../utils/Logger.js";
 import { FeishuAuthProvider } from "../FeishuAuthProvider.js";
+
+const browserBinding = "a".repeat(64);
+const browserBindingHash = createHash("sha256").update(browserBinding).digest("hex");
 
 const baseProviderConfig: AuthProviderConfig = {
   enabled: true,
@@ -46,8 +52,13 @@ describe("FeishuAuthProvider", () => {
   const createContext = (overrides: Partial<AuthContext> = {}): AuthContext => ({
     authMethod: overrides.authMethod ?? "feishu",
     interactionUid: overrides.interactionUid ?? "interaction-1",
-    request: overrides.request ?? ({ headers: { "user-agent": "vitest" }, ip: "127.0.0.1" } as any),
-    reply: overrides.reply ?? ({} as any),
+    request:
+      overrides.request ??
+      ({
+        headers: { "user-agent": "vitest", cookie: `__Host-x_oidc_feishu_login=${browserBinding}` },
+        ip: "127.0.0.1",
+      } as any),
+    reply: overrides.reply ?? ({ header: vi.fn(), getHeader: vi.fn() } as any),
     params: overrides.params ?? {},
     query: overrides.query ?? {},
     body: overrides.body ?? { authMethod: "feishu" },
@@ -148,6 +159,49 @@ describe("FeishuAuthProvider", () => {
   });
 
   describe("renderLoginUI", () => {
+    it("绑定新浏览器并保留已有 OIDC Cookie", async () => {
+      coordinator.generateOAuthState.mockResolvedValue("state-new");
+      const reply = {
+        getHeader: vi.fn().mockReturnValue(["_interaction=existing; HttpOnly"]),
+        header: vi.fn(),
+      };
+      await provider.renderLoginUI(
+        createContext({
+          request: { headers: {}, ip: "127.0.0.1" } as any,
+          reply: reply as any,
+        }),
+      );
+
+      const cookies = reply.header.mock.calls[0]![1] as string[];
+      expect(cookies[0]).toBe("_interaction=existing; HttpOnly");
+      expect(cookies[1]).toMatch(
+        /^__Host-x_oidc_feishu_login=[a-f0-9]{64}; Path=\/; HttpOnly; SameSite=Lax; Max-Age=600; Secure$/,
+      );
+      const binding = /^__Host-x_oidc_feishu_login=([^;]+)/u.exec(cookies[1]!)![1]!;
+      expect(coordinator.generateOAuthState.mock.calls[0]![2]).toMatchObject({
+        browserBindingHash: createHash("sha256").update(binding).digest("hex"),
+      });
+    });
+
+    it("同一浏览器的并行登录复用绑定且 HTTP 开发环境不设置 Secure", async () => {
+      const context = createContext();
+      await provider.renderLoginUI(context);
+      await provider.renderLoginUI(context);
+      expect(
+        coordinator.generateOAuthState.mock.calls.map((call) => call[2].browserBindingHash),
+      ).toEqual([browserBindingHash, browserBindingHash]);
+
+      (provider as any).config = {
+        ...baseProviderConfig.config,
+        redirectUri: "http://localhost/auth/feishu/callback",
+      };
+      const reply = { header: vi.fn(), getHeader: vi.fn() };
+      await provider.renderLoginUI(createContext({ reply: reply as any }));
+      const cookie = reply.header.mock.calls[0]![1][0] as string;
+      expect(cookie).toMatch(/^x_oidc_feishu_login=[a-f0-9]{64}; Path=\//);
+      expect(cookie).not.toContain("Secure");
+    });
+
     it("generates state and returns redirect url", async () => {
       coordinator.generateOAuthState.mockResolvedValue("state-123");
       const context = createContext({ interactionUid: "interaction-abc" });
@@ -157,6 +211,7 @@ describe("FeishuAuthProvider", () => {
       expect(coordinator.generateOAuthState).toHaveBeenCalledWith("interaction-abc", "feishu", {
         userAgent: "vitest",
         ip: "127.0.0.1",
+        browserBindingHash,
       });
       expect(result.type).toBe("redirect");
       expect(result.redirectUrl).toContain("https://open.feishu.cn/open-apis/authen/v1/authorize");
@@ -166,6 +221,114 @@ describe("FeishuAuthProvider", () => {
   });
 
   describe("handleCallback", () => {
+    it("真实路由拒绝转发给另一浏览器的授权 URL，正常回调仅能消费一次", async () => {
+      const app = fastify();
+      const stateStore = new MemoryStateStore();
+      const realCoordinator = new AuthCoordinator({
+        app,
+        stateStore,
+        userRepository: userRepository as any,
+        providersConfig: {},
+      });
+      const realProvider = new FeishuAuthProvider(userRepository as any, realCoordinator);
+      (realProvider as any).config = baseProviderConfig.config;
+      const exchange = vi.spyOn(realProvider as any, "exchangeCodeForToken").mockResolvedValue({
+        accessToken: "victim-provider-token",
+      });
+      vi.spyOn(realProvider as any, "getFeishuUserInfo").mockResolvedValue({
+        open_id: "victim-open-id",
+        name: "Victim",
+      });
+      userRepository.findOrCreate.mockResolvedValue({ sub: "victim", status: "active" });
+      for (const route of realProvider.registerRoutes()) {
+        app.route({
+          method: route.method,
+          url: `/auth/feishu${route.path}`,
+          handler: route.handler,
+        });
+      }
+      app.get<{ Params: { uid: string } }>("/start/:uid", async (request, reply) => {
+        reply.raw.setHeader("Set-Cookie", "_interaction=oidc-session; Path=/interaction; HttpOnly");
+        const ui = await realProvider.renderLoginUI(
+          createContext({
+            interactionUid: request.params.uid,
+            request,
+            reply,
+          }),
+        );
+        return reply.redirect(ui.redirectUrl!);
+      });
+      const start = async (uid: string) => {
+        const response = await app.inject({ url: `/start/${uid}` });
+        const cookies = response.headers["set-cookie"];
+        const values = Array.isArray(cookies) ? cookies : [cookies!];
+        expect(values).toContain("_interaction=oidc-session; Path=/interaction; HttpOnly");
+        const cookie = values
+          .find((value) => value.startsWith("__Host-x_oidc_feishu_login="))!
+          .split(";")[0]!;
+        const state = new URL(response.headers.location!).searchParams.get("state")!;
+        return { cookie, state };
+      };
+      try {
+        const attacker = await start("attacker-interaction");
+        const victim = await start("victim-interaction");
+        const transplanted = await app.inject({
+          url: `/auth/feishu/callback?code=victim-code&state=${attacker.state}`,
+          headers: { cookie: victim.cookie },
+        });
+        expect(transplanted.statusCode).toBe(400);
+        expect(exchange).not.toHaveBeenCalled();
+        expect(userRepository.findOrCreate).not.toHaveBeenCalled();
+        expect(await realCoordinator.getAuthResult("attacker-interaction")).toBeNull();
+
+        const callbackUrl = `/auth/feishu/callback?code=victim-code&state=${victim.state}`;
+        const callback = await app.inject({ url: callbackUrl, headers: { cookie: victim.cookie } });
+        expect(callback.statusCode).toBe(302);
+        expect(callback.headers.location).toBe("/interaction/victim-interaction/complete");
+        expect(await realCoordinator.getAuthResult("victim-interaction")).toBe("victim");
+        const replay = await app.inject({ url: callbackUrl, headers: { cookie: victim.cookie } });
+        expect(replay.statusCode).toBe(400);
+        expect(exchange).toHaveBeenCalledTimes(1);
+      } finally {
+        await app.close();
+        stateStore.destroy();
+      }
+    });
+
+    it.each([
+      undefined,
+      `__Host-x_oidc_feishu_login=${"b".repeat(64)}`,
+      `__Host-x_oidc_feishu_login=${browserBinding}; __Host-x_oidc_feishu_login=${browserBinding}`,
+    ])("回调缺少或不匹配浏览器绑定时拒绝交换令牌 %s", async (cookie) => {
+      coordinator.verifyOAuthState.mockResolvedValue({
+        provider: "feishu",
+        interactionUid: "attacker-interaction",
+        metadata: { browserBindingHash },
+      });
+      const exchange = vi.spyOn(provider as any, "exchangeCodeForToken");
+      const result = await provider.handleCallback(
+        createContext({
+          request: { headers: { cookie } } as any,
+          query: { code: "victim-code", state: "stolen-state" },
+        }),
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe(AuthErrors.invalidState("stolen-state").code);
+      expect(exchange).not.toHaveBeenCalled();
+      expect(userRepository.findOrCreate).not.toHaveBeenCalled();
+      expect(coordinator.storeAuthResult).not.toHaveBeenCalled();
+    });
+
+    it("拒绝升级前没有浏览器绑定的遗留 state", async () => {
+      coordinator.verifyOAuthState.mockResolvedValue({ provider: "feishu", interactionUid: "i-1" });
+      const exchange = vi.spyOn(provider as any, "exchangeCodeForToken");
+      const result = await provider.handleCallback(
+        createContext({ query: { code: "abc", state: "old-state" } }),
+      );
+      expect(result.success).toBe(false);
+      expect(exchange).not.toHaveBeenCalled();
+    });
+
     it("returns missingParameter when code or state absent", async () => {
       const result = await provider.handleCallback(createContext({ query: {} }));
 
@@ -207,7 +370,11 @@ describe("FeishuAuthProvider", () => {
     });
 
     it("returns oauthCallbackFailed when exchange code fails", async () => {
-      coordinator.verifyOAuthState.mockResolvedValue({ provider: "feishu", interactionUid: "i-1" });
+      coordinator.verifyOAuthState.mockResolvedValue({
+        provider: "feishu",
+        interactionUid: "i-1",
+        metadata: { browserBindingHash },
+      });
       vi.spyOn(provider as any, "exchangeCodeForToken").mockRejectedValue(
         new Error("failed to exchange"),
       );
@@ -241,6 +408,7 @@ describe("FeishuAuthProvider", () => {
       coordinator.verifyOAuthState.mockResolvedValue({
         provider: "feishu",
         interactionUid: "i-uid",
+        metadata: { browserBindingHash },
       });
       vi.spyOn(provider as any, "exchangeCodeForToken").mockResolvedValue({
         accessToken: "user-token",
@@ -279,6 +447,43 @@ describe("FeishuAuthProvider", () => {
       );
     });
 
+    it.each([
+      false,
+      true,
+    ])("撤销与 token 写入并发时只撤销旧版本（较新登录=%s）", async (newerLogin) => {
+      const repository = new MemoryProviderTokenRepository();
+      let invalidated = false;
+      const guardedCoordinator = {
+        ...coordinator,
+        assertAuthenticationGeneration: vi.fn(async () => {
+          if (invalidated) throw new Error("Authentication expired");
+        }),
+      };
+      provider = new FeishuAuthProvider(
+        userRepository as any,
+        guardedCoordinator as any,
+        repository,
+      );
+      const upsert = repository.upsert.bind(repository);
+      vi.spyOn(repository, "upsert").mockImplementationOnce(async (record) => {
+        const saved = await upsert(record);
+        invalidated = true;
+        if (newerLogin) await upsert({ ...record, accessToken: "newer-token" });
+        return saved;
+      });
+      await expect(
+        (provider as any).storeUserToken(
+          "user-1",
+          { accessToken: "old-token" },
+          { open_id: "open-1" },
+          "old-generation",
+        ),
+      ).rejects.toThrow("Authentication expired");
+      const saved = await repository.find("feishu", "user", "user-1");
+      expect(saved?.status).toBe(newerLogin ? "valid" : "revoked");
+      expect(saved?.accessToken).toBe(newerLogin ? "newer-token" : "old-token");
+    });
+
     it("stores Feishu user token after OAuth callback succeeds", async () => {
       const tokenRepository = new MemoryProviderTokenRepository();
       provider = new FeishuAuthProvider(userRepository as any, coordinator as any, tokenRepository);
@@ -287,6 +492,7 @@ describe("FeishuAuthProvider", () => {
       coordinator.verifyOAuthState.mockResolvedValue({
         provider: "feishu",
         interactionUid: "i-uid",
+        metadata: { browserBindingHash },
       });
       vi.spyOn(provider as any, "exchangeCodeForToken").mockResolvedValue({
         accessToken: "user-access-token",
@@ -649,7 +855,12 @@ describe("FeishuAuthProvider", () => {
       await callbackRoute?.handler(request, reply);
 
       expect(handleSpy).toHaveBeenCalled();
-      expect(coordinator.storeAuthResult).toHaveBeenCalledWith('i "123', "user-1", undefined);
+      expect(coordinator.storeAuthResult).toHaveBeenCalledWith(
+        'i "123',
+        "user-1",
+        undefined,
+        undefined,
+      );
       expect(reply.redirect).toHaveBeenCalledWith("/interaction/i%20%22123/complete");
     });
 

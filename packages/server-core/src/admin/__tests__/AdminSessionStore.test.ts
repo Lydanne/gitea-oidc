@@ -89,6 +89,11 @@ describe("DistributedAdminSessionStore", () => {
     const values = new Map<string, unknown>();
     const boundedCollections = new Map<string, string[]>();
     const stateStore = {
+      compareAndSet: async (key: string, expected: unknown, value: unknown) => {
+        if (JSON.stringify(values.get(key) ?? null) !== JSON.stringify(expected)) return false;
+        values.set(key, value);
+        return true;
+      },
       set: async (key: string, value: unknown) => {
         values.set(key, value);
       },
@@ -143,6 +148,7 @@ describe("DistributedAdminSessionStore", () => {
 
   it("rate limits custom state stores without bounded collection support", async () => {
     const stateStore = {
+      compareAndSet: vi.fn().mockResolvedValue(true),
       set: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(null),
       take: vi.fn().mockResolvedValue(null),
@@ -162,6 +168,7 @@ describe("DistributedAdminSessionStore", () => {
 
   it("rejects a full shared collection without evicting existing state", async () => {
     const stateStore = {
+      compareAndSet: vi.fn().mockResolvedValue(true),
       set: vi.fn().mockResolvedValue(undefined),
       setBounded: vi.fn().mockResolvedValue(false),
       get: vi.fn().mockResolvedValue(null),
@@ -179,6 +186,7 @@ describe("DistributedAdminSessionStore", () => {
 
   it("uses shared counters to rate limit source and browser", async () => {
     const stateStore = {
+      compareAndSet: vi.fn().mockResolvedValue(true),
       set: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(null),
       take: vi.fn().mockResolvedValue(null),

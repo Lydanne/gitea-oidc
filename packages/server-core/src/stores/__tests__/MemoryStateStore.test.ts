@@ -31,6 +31,21 @@ describe("MemoryStateStore", () => {
     process.env.NODE_ENV = originalEnv;
   });
 
+  it("CAS 只有一个并发初始化胜者，并保留容量与 TTL 约束", async () => {
+    const store = createStore({ maxSize: 1 });
+    const results = await Promise.all([
+      store.compareAndSet("generation", null, { id: "one" }, 2),
+      store.compareAndSet("generation", null, { id: "two" }, 2),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await store.compareAndSet("generation", { id: "stale" }, {}, 2)).toBe(false);
+    expect(await store.compareAndSet("other", null, "new", 1)).toBe(true);
+    expect(store.getStats().size).toBe(1);
+    vi.advanceTimersByTime(1001);
+    expect(await store.get("other")).toBeNull();
+    expect(await store.compareAndSet("other", null, "recreated", 1)).toBe(true);
+  });
+
   it("应该在 TTL 内返回数据并统计命中", async () => {
     const store = createStore();
 

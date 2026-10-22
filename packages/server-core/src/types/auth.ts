@@ -487,7 +487,7 @@ export interface AuthResult {
  * 字段命名遵循 OIDC 标准规范
  */
 export interface UserInfo {
-  /** 内部随机 ID，当前不参与认证、查询或 Claim 生成 */
+  /** 内部随机 ID，用于区分同一 sub 删除重建前后的认证结果 */
   id: string;
 
   /** 用户唯一标识符（OIDC sub claim） */
@@ -720,6 +720,8 @@ export type UserListCountOptions = Pick<ListOptions, "filter" | "search">;
  * OAuth State 数据
  */
 export interface OAuthStateData {
+  /** 发起认证时的账号生命周期代际。 */
+  authenticationGeneration?: string;
   /** OIDC 交互 UID */
   interactionUid: string;
 
@@ -738,6 +740,9 @@ export interface OAuthStateData {
  * 用于存储 OAuth state 和其他临时数据
  */
 export interface StateStore {
+  /** 原子比较旧值并写入新值；expected 为 null 表示 key 不存在。 */
+  compareAndSet?(state: string, expected: any, data: any, ttl: number): Promise<boolean>;
+
   /**
    * 存储 state
    * @param state state 字符串
@@ -849,6 +854,9 @@ export interface IAuthCoordinator {
    */
   verifyOAuthState(state: string): Promise<OAuthStateData | null>;
 
+  /** 校验发起认证时的代际，账号生命周期变化后拒绝旧回调副作用。 */
+  assertAuthenticationGeneration?(generation: unknown): Promise<void>;
+
   /**
    * 存储认证结果（用于 OAuth 回调后的重定向）
    * @param interactionUid OIDC 交互 UID
@@ -858,6 +866,7 @@ export interface IAuthCoordinator {
     interactionUid: string,
     userId: string,
     auditContext?: AuthenticationAuditContext,
+    authenticationGeneration?: string,
   ): Promise<void>;
 
   /** 记录有效登录流程中的 Provider 认证失败摘要，不保存请求正文或凭据。 */
@@ -884,6 +893,7 @@ export interface IAuthCoordinator {
     reply: FastifyReply,
     interactionUid: string,
     userId: string,
+    authenticationGeneration?: string,
   ): Promise<void>;
 
   /**

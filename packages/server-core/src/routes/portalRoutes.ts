@@ -24,6 +24,11 @@ import {
   type PortalSessionStoreLike,
 } from "../portal/PortalSessionStore.js";
 import { NoopAuditLogRepository } from "../repositories/NoopAuditLogRepository.js";
+import {
+  BffSessionRevokedError,
+  DistributedBffSessionRevocations,
+  getMemoryBffSessionRevocations,
+} from "../sessions/BffSessionRevocations.js";
 import type { AuditLogInput, AuditLogRepository } from "../types/audit.js";
 import type { StateStore, UserInfo, UserRepository } from "../types/auth.js";
 import type { PortalMeResponse, PortalUserSummary } from "../types/portal.js";
@@ -88,8 +93,38 @@ export function registerPortalRoutes(options: PortalRoutesOptions): PortalSessio
   const auditLogRepository = options.auditLogRepository ?? new NoopAuditLogRepository();
   const sessionStore: PortalSessionStoreLike =
     config.auth?.stateStore?.type === "redis" && options.stateStore
-      ? new DistributedPortalSessionStore(options.stateStore, portalConfig.sessionTtlSeconds)
-      : new PortalSessionStore(portalConfig.sessionTtlSeconds);
+      ? new DistributedPortalSessionStore(
+          options.stateStore,
+          portalConfig.sessionTtlSeconds,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          new DistributedBffSessionRevocations(
+            options.stateStore,
+            Math.max(
+              config.admin?.sessionTtlSeconds ?? 0,
+              config.portal?.sessionTtlSeconds ?? 0,
+              portalConfig.sessionTtlSeconds,
+            ),
+          ),
+        )
+      : new PortalSessionStore(
+          portalConfig.sessionTtlSeconds,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          getMemoryBffSessionRevocations(
+            app,
+            Math.max(
+              config.admin?.sessionTtlSeconds ?? 0,
+              config.portal?.sessionTtlSeconds ?? 0,
+              portalConfig.sessionTtlSeconds,
+            ),
+          ),
+        );
   const portalIndexHtml = injectPortalRuntimeConfig(
     readFileSync(join(options.publicDir, "portal", "index.html"), "utf8"),
     { basePath, adminBasePath },
@@ -193,6 +228,7 @@ export function registerPortalRoutes(options: PortalRoutesOptions): PortalSessio
       return reply.code(400).send("Portal login was not completed");
     }
 
+    const loginGeneration = await sessionStore.captureLoginGeneration();
     let user: UserInfo | null = null;
     let accessToken: PortalAccessTokenLike | null = null;
     try {
@@ -247,7 +283,13 @@ export function registerPortalRoutes(options: PortalRoutesOptions): PortalSessio
       return reply.code(403).send("Forbidden");
     }
 
-    const session = await sessionStore.createSession(user.sub);
+    let session: Awaited<ReturnType<PortalSessionStoreLike["createSession"]>>;
+    try {
+      session = await sessionStore.createSession(user.sub, loginGeneration);
+    } catch (error) {
+      if (error instanceof BffSessionRevokedError) return reply.code(403).send("Login was revoked");
+      throw error;
+    }
     await appendPortalAuditSafely(auditLogRepository, {
       eventType: "user.login",
       outcome: "success",

@@ -23,6 +23,7 @@ vi.mock("redis", () => {
     sAdd: vi.fn().mockResolvedValue(1),
     sRem: vi.fn().mockResolvedValue(1),
     sMembers: vi.fn().mockResolvedValue([]),
+    scanIterator: vi.fn(async function* () {}),
     eval: vi.fn().mockResolvedValue(1),
     multi: vi.fn().mockReturnValue({
       del: vi.fn().mockReturnThis(),
@@ -56,6 +57,7 @@ describe("RedisOidcAdapter", () => {
     mockClient.sRem.mockReset().mockResolvedValue(1);
     mockClient.sMembers.mockReset().mockResolvedValue([]);
     mockClient.eval.mockReset().mockResolvedValue(1);
+    mockClient.scanIterator.mockImplementation(async function* () {});
 
     // 创建适配器实例
     const options: RedisOidcAdapterOptions = {
@@ -485,7 +487,7 @@ describe("RedisOidcAdapter", () => {
             "test:accountBlock:user-1",
             "test:accountBlockLeases:user-1",
           ],
-          arguments: ["test:"],
+          arguments: ["test:", "user-1"],
         },
       );
 

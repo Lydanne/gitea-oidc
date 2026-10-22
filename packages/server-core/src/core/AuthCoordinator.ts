@@ -33,7 +33,19 @@ import { AuthErrors } from "../utils/authErrors.js";
 import { sanitizeForLog } from "../utils/logSanitizer.js";
 import { PermissionChecker } from "./PermissionChecker.js";
 
+export interface AuthenticationRevocations {
+  captureLoginGeneration(): string | Promise<string>;
+  assertLoginGeneration(generation: string): void | Promise<void>;
+}
+
+export interface PendingAuthentication {
+  userId: string;
+  authenticationGeneration?: string;
+  userRecordId?: string;
+}
+
 export interface AuthCoordinatorConfig {
+  authenticationRevocations?: AuthenticationRevocations;
   /** Fastify 实例 */
   app: FastifyInstance;
 
@@ -73,8 +85,10 @@ export class AuthCoordinator implements IAuthCoordinator {
   private permissionChecker = new PermissionChecker();
   private initialized = false;
   private oidcProvider?: Provider;
+  private readonly authenticationRevocations?: AuthenticationRevocations;
 
   constructor(config: AuthCoordinatorConfig) {
+    this.authenticationRevocations = config.authenticationRevocations;
     this.app = config.app;
     this.stateStore = config.stateStore;
     this.userRepository = config.userRepository;
@@ -402,8 +416,13 @@ export class AuthCoordinator implements IAuthCoordinator {
         };
       }
 
-      // 执行认证
+      // 凭据验证之前捕获代际，账号管理操作不能让在途认证重新生效。
+      const generation = await this.captureAuthenticationGeneration();
       const result = await provider.authenticate(context);
+      if (result.success) {
+        await this.assertAuthenticationGeneration(generation);
+        result.metadata = { ...result.metadata, authenticationGeneration: generation };
+      }
 
       // Provider 这里只确认凭据；OIDC 登录成功由 authorization.success 统一记录。
       if (result.success && result.userId) {
@@ -482,6 +501,7 @@ export class AuthCoordinator implements IAuthCoordinator {
     const data: OAuthStateData = {
       interactionUid,
       provider,
+      authenticationGeneration: await this.captureAuthenticationGeneration(),
       createdAt: Date.now(),
       metadata,
     };
@@ -523,6 +543,8 @@ export class AuthCoordinator implements IAuthCoordinator {
         return null;
       }
 
+      await this.assertAuthenticationGeneration(data.authenticationGeneration);
+
       this.app.log.info(`[OAuth State] Verified and consumed state for ${data.provider}`);
 
       return data;
@@ -539,14 +561,23 @@ export class AuthCoordinator implements IAuthCoordinator {
     interactionUid: string,
     userId: string,
     _auditContext?: AuthenticationAuditContext,
+    authenticationGeneration?: string,
   ): Promise<void> {
+    await this.assertAuthenticationGeneration(authenticationGeneration);
+    const user = this.authenticationRevocations ? await this.findAccount(userId) : undefined;
+    if (this.authenticationRevocations && !user) throw new Error("Authentication expired");
+    await this.assertAuthenticationGeneration(authenticationGeneration);
     const authResult = {
+      authenticationGeneration,
+      userRecordId: user?.id,
       userId,
       timestamp: Date.now(),
       type: "auth_result", // 标记为认证结果
     };
 
     await this.stateStore.set(`auth_result_${interactionUid}`, authResult, 300); // 5分钟过期
+
+    await this.assertAuthenticationGeneration(authenticationGeneration);
 
     this.app.log.info(`Stored auth result for interaction: ${interactionUid}, user: ${userId}`);
   }
@@ -559,31 +590,64 @@ export class AuthCoordinator implements IAuthCoordinator {
     });
   }
 
-  async getAuthResult(interactionUid: string): Promise<string | null> {
-    const key = `auth_result_${interactionUid}`;
-    const result = await this.stateStore.take(key);
+  async captureAuthenticationGeneration(): Promise<string | undefined> {
+    return this.authenticationRevocations?.captureLoginGeneration();
+  }
 
-    if (!result) {
-      return null;
+  async assertAuthenticationGeneration(generation: unknown): Promise<void> {
+    if (!this.authenticationRevocations) return;
+    if (typeof generation !== "string") throw new Error("Authentication expired");
+    await this.authenticationRevocations.assertLoginGeneration(generation);
+  }
+
+  async createInteractionAuthentication(generation: unknown, userId: string) {
+    await this.assertAuthenticationGeneration(generation);
+    const user = this.authenticationRevocations ? await this.findAccount(userId) : undefined;
+    if (this.authenticationRevocations && !user) throw new Error("Authentication expired");
+    await this.assertAuthenticationGeneration(generation);
+    return { generation, userId, recordId: user?.id };
+  }
+
+  async validateInteractionAuthentication(proof: unknown, accountId: string): Promise<void> {
+    if (!this.authenticationRevocations) return;
+    if (!proof || typeof proof !== "object") throw new Error("Authentication expired");
+    const value = proof as Record<string, unknown>;
+    await this.assertAuthenticationGeneration(value.generation);
+    const user = await this.findAccount(accountId);
+    if (!user || value.userId !== accountId || value.recordId !== user.id) {
+      throw new Error("Authentication expired");
     }
+    await this.assertAuthenticationGeneration(value.generation);
+  }
 
-    // 验证这是认证结果而不是普通的 OAuth state
+  async consumeAuthResult(interactionUid: string): Promise<PendingAuthentication | null> {
+    const result = await this.stateStore.take(`auth_result_${interactionUid}`);
     if (
-      (result as any).type !== "auth_result" ||
-      !("userId" in result) ||
-      !("timestamp" in result)
+      !result ||
+      result.type !== "auth_result" ||
+      typeof result.userId !== "string" ||
+      typeof result.timestamp !== "number" ||
+      Date.now() - result.timestamp > 300000
     ) {
       return null;
     }
-
-    const authResult = result as { userId: string; timestamp: number; type: string };
-
-    // 检查是否过期（5分钟）
-    if (Date.now() - authResult.timestamp > 300000) {
+    try {
+      await this.validateInteractionAuthentication(
+        {
+          generation: result.authenticationGeneration,
+          userId: result.userId,
+          recordId: result.userRecordId,
+        },
+        result.userId,
+      );
+      return result;
+    } catch {
       return null;
     }
+  }
 
-    return authResult.userId;
+  async getAuthResult(interactionUid: string): Promise<string | null> {
+    return (await this.consumeAuthResult(interactionUid))?.userId ?? null;
   }
 
   /**
@@ -595,12 +659,14 @@ export class AuthCoordinator implements IAuthCoordinator {
     reply: FastifyReply,
     interactionUid: string,
     userId: string,
+    authenticationGeneration?: string,
   ): Promise<void> {
     if (!this.oidcProvider) {
       throw new Error("OIDC Provider not initialized");
     }
 
     try {
+      const proof = await this.createInteractionAuthentication(authenticationGeneration, userId);
       await this.oidcProvider.interactionFinished(
         request.raw,
         reply.raw,
@@ -608,6 +674,7 @@ export class AuthCoordinator implements IAuthCoordinator {
           login: {
             accountId: userId,
           },
+          x_oidc_authentication: proof,
         },
         { mergeWithLastSubmission: false },
       );

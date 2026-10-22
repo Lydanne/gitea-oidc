@@ -44,6 +44,9 @@ export interface PortalClientConfig {
 export interface PortalSession {
   id: string;
   userId: string;
+
+  /** 签发时的用户会话代际。 */
+  generation: string;
   expiresAt: number;
 }
 

@@ -3,6 +3,11 @@
  */
 
 import { randomBytes } from "crypto";
+import {
+  BffSessionRevokedError,
+  DistributedBffSessionRevocations,
+  MemoryBffSessionRevocations,
+} from "../sessions/BffSessionRevocations.js";
 import type { StateStore } from "../types/auth.js";
 import type { PortalSession } from "../types/portal.js";
 
@@ -33,7 +38,14 @@ export class PortalLoginStateLimitError extends Error {
 }
 
 export interface PortalSessionStoreLike {
-  createSession(userId: string): PortalSession | Promise<PortalSession>;
+  captureLoginGeneration(): string | Promise<string>;
+  blockUserSessions(
+    userId: string,
+  ):
+    | import("../sessions/BffSessionRevocations.js").BffSessionBlockLease
+    | Promise<import("../sessions/BffSessionRevocations.js").BffSessionBlockLease>;
+  allowUserSessions(userId: string): void | Promise<void>;
+  createSession(userId: string, loginGeneration?: string): PortalSession | Promise<PortalSession>;
   getSession(id: string): PortalSession | null | Promise<PortalSession | null>;
   deleteSession(id: string): void | Promise<void>;
   checkLoginRateLimit(keys: string[]): void | Promise<void>;
@@ -64,6 +76,7 @@ export class PortalSessionStore implements PortalSessionStoreLike {
     maxSessions = 10_000,
     loginRateLimit = PORTAL_LOGIN_START_RATE_LIMIT,
     loginRateWindowSeconds = PORTAL_LOGIN_START_RATE_WINDOW_SECONDS,
+    private readonly revocations = new MemoryBffSessionRevocations(sessionTtlSeconds),
   ) {
     this.loginStateTtlMs = Math.max(1, loginStateTtlSeconds) * 1000;
     this.maxLoginStates = Math.max(1, maxLoginStates);
@@ -72,12 +85,25 @@ export class PortalSessionStore implements PortalSessionStoreLike {
     this.loginRateWindowMs = Math.max(1, loginRateWindowSeconds) * 1000;
   }
 
-  createSession(userId: string): PortalSession {
+  captureLoginGeneration(): string {
+    return this.revocations.captureLoginGeneration();
+  }
+  blockUserSessions(userId: string) {
+    return this.revocations.blockUser(userId);
+  }
+  allowUserSessions(userId: string): void {
+    this.revocations.allowUser(userId);
+  }
+
+  createSession(userId: string, loginGeneration = this.captureLoginGeneration()): PortalSession {
+    this.revocations.assertLoginGeneration(loginGeneration);
+    const generation = this.revocations.getUserGeneration(userId);
     this.purgeExpiredSessions();
     this.enforceSessionLimit();
     const session: PortalSession = {
       id: randomBytes(32).toString("hex"),
       userId,
+      generation,
       expiresAt: Date.now() + Math.max(1, this.sessionTtlSeconds) * 1000,
     };
     this.sessions.set(session.id, session);
@@ -87,7 +113,10 @@ export class PortalSessionStore implements PortalSessionStoreLike {
   getSession(id: string): PortalSession | null {
     const session = this.sessions.get(id);
     if (!session) return null;
-    if (Date.now() > session.expiresAt) {
+    if (
+      Date.now() > session.expiresAt ||
+      !this.revocations.isCurrent(session.userId, session.generation)
+    ) {
       this.sessions.delete(id);
       return null;
     }
@@ -199,6 +228,10 @@ export class DistributedPortalSessionStore implements PortalSessionStoreLike {
     maxLoginStates = 1000,
     loginRateLimit = PORTAL_LOGIN_START_RATE_LIMIT,
     loginRateWindowSeconds = PORTAL_LOGIN_START_RATE_WINDOW_SECONDS,
+    private readonly revocations = new DistributedBffSessionRevocations(
+      stateStore,
+      sessionTtlSeconds,
+    ),
   ) {
     this.loginStateTtlSeconds = Math.max(1, loginStateTtlSeconds);
     this.maxLoginStates = Math.max(1, maxLoginStates);
@@ -206,20 +239,47 @@ export class DistributedPortalSessionStore implements PortalSessionStoreLike {
     this.loginRateWindowSeconds = Math.max(1, loginRateWindowSeconds);
   }
 
-  async createSession(userId: string): Promise<PortalSession> {
+  captureLoginGeneration(): Promise<string> {
+    return this.revocations.captureLoginGeneration();
+  }
+  blockUserSessions(userId: string) {
+    return this.revocations.blockUser(userId);
+  }
+  allowUserSessions(userId: string): Promise<void> {
+    return this.revocations.allowUser(userId);
+  }
+
+  async createSession(userId: string, loginGeneration?: string): Promise<PortalSession> {
+    loginGeneration ??= await this.captureLoginGeneration();
+    await this.revocations.assertLoginGeneration(loginGeneration);
+    const generation = await this.revocations.getUserGeneration(userId);
     const ttl = Math.max(1, this.sessionTtlSeconds);
     const session: PortalSession = {
       id: randomBytes(32).toString("hex"),
       userId,
+      generation,
       expiresAt: Date.now() + ttl * 1000,
     };
     await this.stateStore.set(this.sessionKey(session.id), session, ttl);
+    try {
+      await this.revocations.assertLoginGeneration(loginGeneration);
+      if (!(await this.revocations.isCurrent(userId, generation))) {
+        throw new BffSessionRevokedError();
+      }
+    } catch (error) {
+      await this.deleteSession(session.id);
+      throw error;
+    }
     return session;
   }
 
   async getSession(id: string): Promise<PortalSession | null> {
     const session = (await this.stateStore.get(this.sessionKey(id))) as unknown;
-    if (!isPortalSession(session) || Date.now() > session.expiresAt) {
+    if (
+      !isPortalSession(session) ||
+      Date.now() > session.expiresAt ||
+      !(await this.revocations.isCurrent(session.userId, session.generation))
+    ) {
       if (session) await this.deleteSession(id);
       return null;
     }
@@ -310,6 +370,8 @@ function isPortalSession(value: unknown): value is PortalSession {
   return (
     typeof session.id === "string" &&
     /^[a-f0-9]{64}$/u.test(session.id) &&
+    typeof session.generation === "string" &&
+    /^[a-f0-9]{64}$/u.test(session.generation) &&
     typeof session.userId === "string" &&
     session.userId.length > 0 &&
     typeof session.expiresAt === "number" &&

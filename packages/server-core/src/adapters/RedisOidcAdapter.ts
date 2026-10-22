@@ -13,15 +13,34 @@ import {
   OidcAccountRevokedError,
   type OidcClientBlockLease,
   OidcClientRevokedError,
-  readOidcPayloadAccountId,
+  OidcGrantRevokedError,
+  readOidcPayloadAccountIds,
   readOidcPayloadClientId,
+  requiresOidcGrant,
 } from "./oidcClientRevocationBarrier.js";
 
 const BLOCK_LEASE_TTL_SECONDS = 900;
 
+const READ_ACCOUNT_IDS_LUA = [
+  "local function readAccountIds(payload)",
+  "  local accounts = {}",
+  "  local function add(value)",
+  "    if type(value) == 'string' and value ~= '' then accounts[value] = true end",
+  "  end",
+  "  if type(payload) ~= 'table' then return accounts end",
+  "  add(payload.accountId)",
+  "  if type(payload.result) == 'table' and type(payload.result.login) == 'table' then add(payload.result.login.accountId) end",
+  "  if type(payload.lastSubmission) == 'table' and type(payload.lastSubmission.login) == 'table' then add(payload.lastSubmission.login.accountId) end",
+  "  if type(payload.session) == 'table' then add(payload.session.accountId) end",
+  "  return accounts",
+  "end",
+];
+
 const UPSERT_BOUND_RECORD_SCRIPT = [
-  "if ARGV[6] == '1' and (redis.call('EXISTS', KEYS[2]) == 1 or redis.call('EXISTS', KEYS[3]) == 1) then",
-  "  return 0",
+  ...READ_ACCOUNT_IDS_LUA,
+  "for index = 1, tonumber(ARGV[6]) do",
+  "  local keyIndex = index == 1 and 2 or index * 2 + 2",
+  "  if redis.call('EXISTS', KEYS[keyIndex]) == 1 or redis.call('EXISTS', KEYS[keyIndex + 1]) == 1 then return 0 end",
   "end",
   "if ARGV[7] == '1' and (redis.call('EXISTS', KEYS[4]) == 1 or redis.call('EXISTS', KEYS[5]) == 1) then",
   "  return -1",
@@ -39,6 +58,13 @@ const UPSERT_BOUND_RECORD_SCRIPT = [
   "  if payload.client_id then return payload.client_id end",
   "  if type(payload.params) == 'table' then return payload.params.client_id end",
   "  return nil",
+  "end",
+  "if ARGV[8] == '1' then",
+  "  local grantKeyIndex = 6 + math.max(0, tonumber(ARGV[6]) - 1) * 2",
+  "  local grantValue = redis.call('GET', KEYS[grantKeyIndex])",
+  "  if not grantValue then return -2 end",
+  "  local decoded, grantPayload = pcall(cjson.decode, grantValue)",
+  "  if not decoded or type(grantPayload) ~= 'table' or not readClientId(nextPayload) or grantPayload.accountId ~= nextPayload.accountId or readClientId(grantPayload) ~= readClientId(nextPayload) then return -2 end",
   "end",
   "local function deleteStringIndexIfOwned(key)",
   "  if redis.call('GET', key) == id then redis.call('DEL', key) end",
@@ -67,8 +93,9 @@ const UPSERT_BOUND_RECORD_SCRIPT = [
   "    if previousPayload.grantId and previousPayload.grantId ~= nextPayload.grantId then",
   "      redis.call('SREM', keyPrefix .. name .. ':grantId:' .. previousPayload.grantId, id)",
   "    end",
-  "    if previousPayload.accountId and previousPayload.accountId ~= nextPayload.accountId then",
-  "      redis.call('SREM', keyPrefix .. 'accountId:' .. previousPayload.accountId, member)",
+  "    local nextAccounts = readAccountIds(nextPayload)",
+  "    for accountId in pairs(readAccountIds(previousPayload)) do",
+  "      if not nextAccounts[accountId] then redis.call('SREM', keyPrefix .. 'accountId:' .. accountId, member) end",
   "    end",
   "    local previousClientId = readClientId(previousPayload)",
   "    local nextClientId = readClientId(nextPayload)",
@@ -95,11 +122,36 @@ const UPSERT_BOUND_RECORD_SCRIPT = [
   "if nextPayload.grantId then",
   "  addSetIndex(keyPrefix .. name .. ':grantId:' .. nextPayload.grantId, id)",
   "end",
-  "if nextPayload.accountId then addSetIndex(keyPrefix .. 'accountId:' .. nextPayload.accountId, member) end",
+  "for accountId in pairs(readAccountIds(nextPayload)) do addSetIndex(keyPrefix .. 'accountId:' .. accountId, member) end",
   "local clientId = readClientId(nextPayload)",
   "if clientId then addSetIndex(keyPrefix .. 'clientId:' .. clientId, member) end",
   "return 1",
 ].join("\n");
+
+/** 每次只检查并清理一条记录，兼容旧版本未建立账户索引的 Interaction。 */
+const DELETE_ACCOUNT_RECORD_LUA = [
+  ...READ_ACCOUNT_IDS_LUA,
+  "local function deleteAccountRecord(keyPrefix, key, model, id, accountId)",
+  "  if redis.call('TYPE', key).ok ~= 'string' then return 0 end",
+  "  local value = redis.call('GET', key)",
+  "  if not value then return 0 end",
+  "  local decoded, payload = pcall(cjson.decode, value)",
+  "  if not decoded or not readAccountIds(payload)[accountId] then return 0 end",
+  "  local member = model .. ':' .. id",
+  "  for account in pairs(readAccountIds(payload)) do redis.call('SREM', keyPrefix .. 'accountId:' .. account, member) end",
+  "  local clientId = payload.clientId or payload.client_id",
+  "  if not clientId and type(payload.params) == 'table' then clientId = payload.params.client_id end",
+  "  if type(clientId) == 'string' then redis.call('SREM', keyPrefix .. 'clientId:' .. clientId, member) end",
+  "  if type(payload.grantId) == 'string' then redis.call('SREM', keyPrefix .. model .. ':grantId:' .. payload.grantId, id) end",
+  "  for _, field in ipairs({'uid', 'userCode'}) do",
+  "    if type(payload[field]) == 'string' then",
+  "      local indexKey = keyPrefix .. field .. ':' .. payload[field]",
+  "      if redis.call('GET', indexKey) == id then redis.call('DEL', indexKey) end",
+  "    end",
+  "  end",
+  "  return redis.call('DEL', key)",
+  "end",
+];
 
 export interface RedisOidcAdapterOptions {
   /**
@@ -239,9 +291,11 @@ export class RedisOidcAdapter implements Adapter {
     const client = await this.getClient();
     const key = this.key(id);
     const value = JSON.stringify(payload);
-    const accountId = readOidcPayloadAccountId(payload);
+    const accountIds = readOidcPayloadAccountIds(payload);
+    const accountId = accountIds[0];
     const clientId = readOidcPayloadClientId(payload);
-    if (accountId || clientId) {
+    const requiresGrant = requiresOidcGrant(this.name, payload);
+    if (accountIds.length > 0 || clientId) {
       const result = await client.eval(UPSERT_BOUND_RECORD_SCRIPT, {
         keys: [
           key,
@@ -249,6 +303,13 @@ export class RedisOidcAdapter implements Adapter {
           accountId ? RedisOidcAdapter.accountBlockLeasesKey(this.keyPrefix, accountId) : "",
           clientId ? `${this.keyPrefix}clientBlock:${clientId}` : "",
           clientId ? `${this.keyPrefix}clientBlockLeases:${clientId}` : "",
+          ...accountIds
+            .slice(1)
+            .flatMap((id) => [
+              RedisOidcAdapter.accountBlockKey(this.keyPrefix, id),
+              RedisOidcAdapter.accountBlockLeasesKey(this.keyPrefix, id),
+            ]),
+          ...(requiresGrant ? [`${this.keyPrefix}Grant:${payload.grantId}`] : []),
         ],
         arguments: [
           this.keyPrefix,
@@ -256,10 +317,12 @@ export class RedisOidcAdapter implements Adapter {
           id,
           value,
           String(expiresIn ?? 0),
-          accountId ? "1" : "0",
+          String(accountIds.length),
           clientId ? "1" : "0",
+          ...(requiresGrant ? ["1"] : []),
         ],
       });
+      if (Number(result) === -2) throw new OidcGrantRevokedError();
       if (Number(result) === -1) {
         throw new OidcClientRevokedError();
       }
@@ -418,8 +481,8 @@ export class RedisOidcAdapter implements Adapter {
         const grantIdKey = this.grantIdKey(payload.grantId);
         await client.sRem(grantIdKey, id);
       }
-      if (payload.accountId) {
-        await client.sRem(this.accountIdKey(payload.accountId), `${this.name}:${id}`);
+      for (const accountId of readOidcPayloadAccountIds(payload)) {
+        await client.sRem(this.accountIdKey(accountId), `${this.name}:${id}`);
       }
       const clientId = readOidcPayloadClientId(payload);
       if (clientId) {
@@ -543,12 +606,14 @@ export class RedisOidcAdapter implements Adapter {
     const accountKey = `${keyPrefix}accountId:${accountId}`;
     await client.eval(
       [
+        ...DELETE_ACCOUNT_RECORD_LUA,
         "if redis.call('EXISTS', KEYS[2]) == 0 and redis.call('EXISTS', KEYS[3]) == 0 then",
         "  redis.call('SET', KEYS[2], '1')",
         "end",
         "local members = redis.call('SMEMBERS', KEYS[1])",
         "for _, member in ipairs(members) do",
-        "  if string.find(member, ':', 1, true) then redis.call('DEL', ARGV[1] .. member) end",
+        "  local separator = string.find(member, ':', 1, true)",
+        "  if separator then deleteAccountRecord(ARGV[1], ARGV[1] .. member, string.sub(member, 1, separator - 1), string.sub(member, separator + 1), ARGV[2]) end",
         "end",
         "redis.call('DEL', KEYS[1])",
         "return #members",
@@ -559,9 +624,31 @@ export class RedisOidcAdapter implements Adapter {
           RedisOidcAdapter.accountBlockKey(keyPrefix, accountId),
           RedisOidcAdapter.accountBlockLeasesKey(keyPrefix, accountId),
         ],
-        arguments: [keyPrefix],
+        arguments: [keyPrefix, accountId],
       },
     );
+
+    // 老版本 Interaction 只含嵌套 accountId，未进入 accountId 索引。
+    // 保持账户栅栏时增量扫描；每条删除都在 Lua 内重新检查当前关联，避免误删并发改写。
+    const interactionPrefix = `${keyPrefix}Interaction:`;
+    const pattern = `${interactionPrefix.replace(/[\\*?[\]]/gu, "\\$&")}*`;
+    const deleteScript = [
+      ...DELETE_ACCOUNT_RECORD_LUA,
+      "return deleteAccountRecord(ARGV[1], KEYS[1], 'Interaction', ARGV[2], ARGV[3])",
+    ].join("\n");
+    for await (const batch of client.scanIterator({ MATCH: pattern, COUNT: 100 })) {
+      const keys: string[] = Array.isArray(batch) ? batch : [batch];
+      for (let offset = 0; offset < keys.length; offset += 100) {
+        await Promise.all(
+          keys.slice(offset, offset + 100).map((key) =>
+            client.eval(deleteScript, {
+              keys: [key],
+              arguments: [keyPrefix, key.slice(interactionPrefix.length), accountId],
+            }),
+          ),
+        );
+      }
+    }
   }
 
   static async allowAccountId(
@@ -675,8 +762,11 @@ export class RedisOidcAdapter implements Adapter {
     if (previousPayload.grantId && previousPayload.grantId !== nextPayload.grantId) {
       await client.sRem(this.grantIdKey(previousPayload.grantId), id);
     }
-    if (previousPayload.accountId && previousPayload.accountId !== nextPayload.accountId) {
-      await client.sRem(this.accountIdKey(previousPayload.accountId), `${this.name}:${id}`);
+    const nextAccounts = new Set(readOidcPayloadAccountIds(nextPayload));
+    for (const accountId of readOidcPayloadAccountIds(previousPayload)) {
+      if (!nextAccounts.has(accountId)) {
+        await client.sRem(this.accountIdKey(accountId), `${this.name}:${id}`);
+      }
     }
     const previousClientId = readOidcPayloadClientId(previousPayload);
     const nextClientId = readOidcPayloadClientId(nextPayload);

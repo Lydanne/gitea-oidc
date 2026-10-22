@@ -102,7 +102,7 @@ describe("OidcAdapterFactory", () => {
       expect(adapter).toBeInstanceOf(RedisOidcAdapter);
     });
 
-    it("应该为 Memory 类型返回 undefined", () => {
+    it("应该为 Memory 类型创建可撤销的进程内适配器", () => {
       const config: OidcAdapterConfig = {
         type: "memory",
       };
@@ -110,13 +110,19 @@ describe("OidcAdapterFactory", () => {
       OidcAdapterFactory.configure(config);
       const adapter = OidcAdapterFactory.create("Session");
 
-      expect(adapter).toBeUndefined();
+      expect(adapter).toBeInstanceOf(SqliteOidcAdapter);
     });
 
-    it("memory 类型不会向 oidc-provider 暴露返回 undefined 的 adapter 工厂", () => {
+    it("memory 类型工厂在模型间共享可撤销存储", async () => {
       OidcAdapterFactory.configure({ type: "memory" });
-
-      expect(OidcAdapterFactory.getAdapterFactory()).toBeUndefined();
+      const factory = OidcAdapterFactory.getAdapterFactory()!;
+      const interaction = factory("Interaction");
+      await interaction.upsert("old", { result: { login: { accountId: "user-1" } } }, 60);
+      const lease = await OidcAdapterFactory.acquireAccountIdBlock("user-1");
+      await OidcAdapterFactory.revokeByAccountId("user-1");
+      await lease.commit();
+      await OidcAdapterFactory.allowAccountId("user-1");
+      expect(await factory("Interaction").find("old")).toBeUndefined();
     });
 
     it("只为指定模型使用 override，其他模型仍使用通用持久化适配器", () => {
@@ -537,7 +543,7 @@ describe("OidcAdapterFactory", () => {
 
       OidcAdapterFactory.configure(memoryConfig);
       adapter = OidcAdapterFactory.create("Session");
-      expect(adapter).toBeUndefined();
+      expect(adapter).toBeInstanceOf(SqliteOidcAdapter);
     });
   });
 

@@ -32,6 +32,9 @@ export interface AdminSession {
   /** 用户 ID */
   userId: string;
 
+  /** 签发时的用户会话代际。 */
+  generation: string;
+
   /** 过期时间 */
   expiresAt: number;
 }

@@ -23,6 +23,17 @@ describe("RedisStateStore", () => {
     redisMocks.client.eval.mockResolvedValue(1);
   });
 
+  it("CAS 在一个 Lua 脚本中比较内容并写入带 TTL 的新代际", async () => {
+    const store = new RedisStateStore({ url: "redis://localhost:6379" }, "x-oidc:test-state:");
+    await expect(store.compareAndSet("generation", null, { id: "new" }, 60)).resolves.toBe(true);
+    expect(redisMocks.client.eval).toHaveBeenCalledWith(
+      expect.stringMatching(/GET[\s\S]*current == ARGV\[1\][\s\S]*SETEX/u),
+      { keys: ["x-oidc:test-state:generation"], arguments: ["null", '{"id":"new"}', "60"] },
+    );
+    redisMocks.client.eval.mockResolvedValue(0);
+    await expect(store.compareAndSet("generation", { id: "stale" }, {}, 60)).resolves.toBe(false);
+  });
+
   it("使用单个 Redis 脚本原子递增并刷新 TTL", async () => {
     const store = new RedisStateStore({ url: "redis://localhost:6379" }, "x-oidc:test-state:");
     redisMocks.client.eval.mockResolvedValue(3);

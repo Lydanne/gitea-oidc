@@ -4,7 +4,7 @@
  */
 
 import * as lark from "@larksuiteoapi/node-sdk";
-import { timingSafeEqual } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type {
   AuthContext,
@@ -231,11 +231,26 @@ export class FeishuAuthProvider implements AuthProvider {
   }
 
   async renderLoginUI(context: AuthContext): Promise<LoginUIResult> {
+    const secure = new URL(this.config.redirectUri).protocol === "https:";
+    const cookieName = secure ? "__Host-x_oidc_feishu_login" : "x_oidc_feishu_login";
+    const browserBinding =
+      readLoginBinding(context.request, cookieName) ?? randomBytes(32).toString("hex");
+    const existingCookies = context.reply.getHeader("set-cookie");
+    context.reply.header("Set-Cookie", [
+      ...(Array.isArray(existingCookies)
+        ? existingCookies
+        : typeof existingCookies === "string"
+          ? [existingCookies]
+          : []),
+      `${cookieName}=${browserBinding}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secure ? "; Secure" : ""}`,
+    ]);
+
     // 生成 OAuth state
     const state = await this.coordinator.generateOAuthState(context.interactionUid, this.name, {
       userAgent: context.request.headers["user-agent"],
       ip: context.request.ip,
       clientId: readInteractionClientId(context.interaction),
+      browserBindingHash: hashLoginBinding(browserBinding),
     });
 
     // 构建飞书授权 URL
@@ -315,13 +330,32 @@ export class FeishuAuthProvider implements AuthProvider {
       userAgent: readString(stateData.metadata?.userAgent),
     };
 
+    // state 可以被转发，必须在交换 code、写入用户和令牌之前验证发起浏览器。
+    const secure = new URL(this.config.redirectUri).protocol === "https:";
+    const cookieName = secure ? "__Host-x_oidc_feishu_login" : "x_oidc_feishu_login";
+    const browserBinding = readLoginBinding(context.request, cookieName);
+    const expectedHash = readString(stateData.metadata?.browserBindingHash);
+    if (
+      !browserBinding ||
+      !expectedHash ||
+      !timingSafeStringEqual(expectedHash, hashLoginBinding(browserBinding))
+    ) {
+      return {
+        success: false,
+        error: AuthErrors.invalidState(state as string),
+        metadata: { auditContext },
+      };
+    }
+
     try {
+      await this.coordinator.assertAuthenticationGeneration?.(stateData.authenticationGeneration);
       // 用 code 换取 user_access_token
       const userToken = await this.exchangeCodeForToken(code as string);
 
       // 获取用户信息
       const feishuUser = await this.getFeishuUserInfo(userToken.accessToken);
 
+      await this.coordinator.assertAuthenticationGeneration?.(stateData.authenticationGeneration);
       const email = this.mapEmail(feishuUser);
 
       // 创建或更新本地用户
@@ -346,6 +380,7 @@ export class FeishuAuthProvider implements AuthProvider {
         metadata: feishuUser,
       });
 
+      await this.coordinator.assertAuthenticationGeneration?.(stateData.authenticationGeneration);
       if (user.status && user.status !== "active") {
         return {
           success: false,
@@ -358,7 +393,12 @@ export class FeishuAuthProvider implements AuthProvider {
         };
       }
 
-      await this.storeUserToken(user.sub, userToken, feishuUser);
+      await this.storeUserToken(
+        user.sub,
+        userToken,
+        feishuUser,
+        stateData.authenticationGeneration,
+      );
 
       return {
         success: true,
@@ -366,6 +406,7 @@ export class FeishuAuthProvider implements AuthProvider {
         userInfo: user,
         // 将 stateData 附加到结果中，避免重复验证
         metadata: {
+          authenticationGeneration: stateData.authenticationGeneration,
           interactionUid: stateData.interactionUid,
           auditContext: { ...auditContext, username: user.username },
         },
@@ -478,6 +519,7 @@ export class FeishuAuthProvider implements AuthProvider {
             interactionUid,
             result.userId,
             result.metadata?.auditContext,
+            result.metadata?.authenticationGeneration,
           );
 
           // 重定向回交互页面，让它完成 OIDC 交互
@@ -831,12 +873,14 @@ export class FeishuAuthProvider implements AuthProvider {
       tokenType?: string;
     },
     feishuUser: FeishuUserInfo,
+    authenticationGeneration?: string,
   ): Promise<void> {
     if (!this.tokenRepository) {
       return;
     }
 
-    await this.tokenRepository.upsert({
+    await this.coordinator.assertAuthenticationGeneration?.(authenticationGeneration);
+    const saved = await this.tokenRepository.upsert({
       provider: this.name,
       ownerType: "user",
       ownerId: userId,
@@ -851,6 +895,22 @@ export class FeishuAuthProvider implements AuthProvider {
         tenantKey: feishuUser.tenant_key,
       },
     });
+    try {
+      await this.coordinator.assertAuthenticationGeneration?.(authenticationGeneration);
+    } catch (error) {
+      // 只撤销本次写入的版本，不能覆盖另一次有效登录刚保存的 token。
+      if (saved.revision) {
+        await this.tokenRepository.updateStatus(
+          this.name,
+          "user",
+          userId,
+          "revoked",
+          undefined,
+          saved.revision,
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -1095,6 +1155,20 @@ export class FeishuAuthProvider implements AuthProvider {
 function getSingleHeader(request: FastifyRequest, name: string): string | undefined {
   const value = request.headers[name];
   return typeof value === "string" ? value : undefined;
+}
+
+function readLoginBinding(request: FastifyRequest, cookieName: string): string | undefined {
+  const cookies = (request.headers.cookie ?? "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith(`${cookieName}=`));
+  if (cookies.length !== 1) return undefined;
+  const value = cookies[0]!.slice(cookieName.length + 1);
+  return /^[a-f0-9]{64}$/u.test(value) ? value : undefined;
+}
+
+function hashLoginBinding(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function readInteractionClientId(interaction: unknown): string | undefined {

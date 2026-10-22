@@ -43,13 +43,17 @@ describe("DistributedPortalSessionStore", () => {
   it("uses a portal namespace and atomically consumes shared state", async () => {
     const bindingHash = "a".repeat(64);
     const codeVerifier = "b".repeat(64);
+    const values = new Map<string, unknown>();
     const stateStore = {
-      set: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn().mockResolvedValue({
-        id: "session-1",
-        userId: "user-1",
-        expiresAt: Date.now() + 60_000,
+      compareAndSet: async (key: string, expected: unknown, value: unknown) => {
+        if (JSON.stringify(values.get(key) ?? null) !== JSON.stringify(expected)) return false;
+        values.set(key, value);
+        return true;
+      },
+      set: vi.fn(async (key: string, value: unknown) => {
+        values.set(key, value);
       }),
+      get: vi.fn(async (key: string) => values.get(key) ?? null),
       take: vi.fn().mockResolvedValue({
         returnTo: "/portal",
         bindingHash,
@@ -93,6 +97,7 @@ describe("DistributedPortalSessionStore", () => {
 
   it("uses shared counters to rate limit every source and browser key", async () => {
     const stateStore = {
+      compareAndSet: vi.fn().mockResolvedValue(true),
       increment: vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(2),
     };
     const store = new DistributedPortalSessionStore(stateStore as any, 3600, 600, 1000, 1, 60);
@@ -106,6 +111,7 @@ describe("DistributedPortalSessionStore", () => {
 
   it("rejects malformed shared sessions instead of trusting Redis data", async () => {
     const stateStore = {
+      compareAndSet: vi.fn().mockResolvedValue(true),
       get: vi.fn().mockResolvedValue({ userId: "user-1", expiresAt: "never" }),
       delete: vi.fn().mockResolvedValue(undefined),
     };

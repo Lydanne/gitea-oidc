@@ -2,7 +2,12 @@ import Database from "better-sqlite3";
 import { chmodSync, existsSync } from "fs";
 import type { Adapter } from "oidc-provider";
 import { resolve } from "path";
-import { assertOidcWriteAllowed } from "./oidcClientRevocationBarrier.js";
+import {
+  assertOidcWriteAllowed,
+  OidcGrantRevokedError,
+  readOidcPayloadClientId,
+  requiresOidcGrant,
+} from "./oidcClientRevocationBarrier.js";
 
 interface SharedSqliteConnection {
   db: Database.Database;
@@ -48,6 +53,12 @@ export class SqliteOidcAdapter implements Adapter {
       CREATE INDEX IF NOT EXISTS idx_oidc_consumed ON oidc_store (consumed_at);
       CREATE INDEX IF NOT EXISTS idx_oidc_grant ON oidc_store (name, json_extract(value, '$.grantId'));
       CREATE INDEX IF NOT EXISTS idx_oidc_account ON oidc_store (json_extract(value, '$.accountId'));
+      CREATE INDEX IF NOT EXISTS idx_oidc_interaction_result_account
+        ON oidc_store (json_extract(value, '$.result.login.accountId'));
+      CREATE INDEX IF NOT EXISTS idx_oidc_interaction_submission_account
+        ON oidc_store (json_extract(value, '$.lastSubmission.login.accountId'));
+      CREATE INDEX IF NOT EXISTS idx_oidc_interaction_session_account
+        ON oidc_store (json_extract(value, '$.session.accountId'));
       CREATE INDEX IF NOT EXISTS idx_oidc_client ON oidc_store (json_extract(value, '$.clientId'));
       CREATE INDEX IF NOT EXISTS idx_oidc_interaction_client
         ON oidc_store (json_extract(value, '$.params.client_id'));
@@ -75,16 +86,37 @@ export class SqliteOidcAdapter implements Adapter {
   async upsert(key: string, payload: any, expiresIn?: number): Promise<void> {
     assertOidcWriteAllowed(payload);
     const expiresAt = expiresIn === undefined ? null : nowInSeconds() + expiresIn;
-    this.db
-      .prepare(
-        `INSERT INTO oidc_store (name, key, value, expires_at, consumed_at)
+    const write = this.db.transaction(() => {
+      if (requiresOidcGrant(this.name, payload)) {
+        const grantRow = this.db
+          .prepare(
+            "SELECT value FROM oidc_store WHERE name = 'Grant' AND key = ? AND (expires_at IS NULL OR expires_at > ?)",
+          )
+          .get(payload.grantId, nowInSeconds()) as { value: string } | undefined;
+        const grant = grantRow ? JSON.parse(grantRow.value) : undefined;
+        const clientId = readOidcPayloadClientId(payload);
+        if (
+          !grant ||
+          grant.accountId !== payload.accountId ||
+          !clientId ||
+          readOidcPayloadClientId(grant) !== clientId
+        ) {
+          throw new OidcGrantRevokedError();
+        }
+      }
+      this.db
+        .prepare(
+          `INSERT INTO oidc_store (name, key, value, expires_at, consumed_at)
          VALUES (?, ?, ?, ?, NULL)
          ON CONFLICT(name, key) DO UPDATE SET
            value = excluded.value,
            expires_at = excluded.expires_at,
            consumed_at = NULL`,
-      )
-      .run(this.name, key, JSON.stringify(payload), expiresAt);
+        )
+        .run(this.name, key, JSON.stringify(payload), expiresAt);
+    });
+    // 校验原 Grant 和写入令牌共享写事务，其他连接不能在两步之间撤销 Grant。
+    write.immediate();
     restrictDatabasePermissions(this.connection.dbPath);
   }
 
@@ -165,8 +197,12 @@ export class SqliteOidcAdapter implements Adapter {
   static async revokeByAccountId(dbPath: string, accountId: string): Promise<void> {
     const connection = SqliteOidcAdapter.getConnection(dbPath);
     connection.db
-      .prepare("DELETE FROM oidc_store WHERE json_extract(value, '$.accountId') = ?")
-      .run(accountId);
+      .prepare(`DELETE FROM oidc_store
+        WHERE json_extract(value, '$.accountId') = ?
+           OR json_extract(value, '$.result.login.accountId') = ?
+           OR json_extract(value, '$.lastSubmission.login.accountId') = ?
+           OR json_extract(value, '$.session.accountId') = ?`)
+      .run(accountId, accountId, accountId, accountId);
   }
 
   /** 删除指定 Client 的全部 Grant、Code 和 Token 等 OIDC 记录。 */

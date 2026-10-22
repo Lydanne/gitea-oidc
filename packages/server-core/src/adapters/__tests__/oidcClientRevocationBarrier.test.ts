@@ -7,11 +7,36 @@ import {
   assertOidcAccountWriteAllowed,
   assertOidcClientWriteAllowed,
   clearOidcClientRevocationBarriers,
+  readOidcPayloadAccountIds,
 } from "../oidcClientRevocationBarrier.js";
 
 describe("OIDC Client 撤销栅栏", () => {
   afterEach(() => {
     clearOidcClientRevocationBarriers();
+  });
+
+  it("同时提取旧会话、新登录和上次提交的所有账户并去重", () => {
+    const payload = {
+      accountId: "top",
+      session: { accountId: "old" },
+      result: { login: { accountId: "new" } },
+      lastSubmission: { login: { accountId: "old" } },
+    };
+    expect(readOidcPayloadAccountIds(payload)).toEqual(["top", "new", "old"]);
+    for (const accountId of ["top", "old", "new"]) {
+      const lease = acquireOidcAccountBlock(accountId);
+      expect(() => assertOidcAccountWriteAllowed(payload)).toThrowError(
+        expect.objectContaining({ code: "OIDC_ACCOUNT_REVOKED" }),
+      );
+      lease.release();
+    }
+    expect(
+      readOidcPayloadAccountIds({
+        accountId: 1,
+        result: { login: [] },
+        session: { accountId: "" },
+      }),
+    ).toEqual([]);
   });
 
   it("并发租约只能释放自己的封锁", () => {

@@ -434,6 +434,7 @@ describe("registerAdminRoutes", () => {
   it("returns 429 when a custom distributed state store reaches its login limit", async () => {
     const app = createApp();
     const stateStore = {
+      compareAndSet: vi.fn().mockResolvedValue(true),
       set: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(null),
       take: vi.fn().mockResolvedValue(null),

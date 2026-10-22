@@ -45,6 +45,25 @@ export class OidcAccountRevokedError extends Error {
   }
 }
 
+export class OidcGrantRevokedError extends Error {
+  public readonly code = "OIDC_GRANT_REVOKED";
+  public constructor() {
+    super("OIDC Grant 已撤销，拒绝写入新的授权码或用户令牌");
+    this.name = "OidcGrantRevokedError";
+  }
+}
+
+export function requiresOidcGrant(name: string, payload: unknown): boolean {
+  const record = asRecord(payload);
+  return (
+    ["AuthorizationCode", "AccessToken", "RefreshToken"].includes(name) &&
+    typeof record?.accountId === "string" &&
+    record.accountId !== "" &&
+    typeof record.grantId === "string" &&
+    record.grantId !== ""
+  );
+}
+
 /** 从 oidc-provider 常见模型载荷中提取关联 Client。 */
 export function readOidcPayloadClientId(payload: unknown): string | undefined {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
@@ -60,13 +79,34 @@ export function readOidcPayloadClientId(payload: unknown): string | undefined {
   return typeof clientId === "string" && clientId !== "" ? clientId : undefined;
 }
 
-/** 从 oidc-provider 常见模型载荷中提取关联账户。 */
+/** 提取全部关联账户；Interaction 可同时携带旧 session 和本次新登录账户。 */
+export function readOidcPayloadAccountIds(payload: unknown): string[] {
+  const record = asRecord(payload);
+  if (!record) return [];
+  const result = asRecord(record.result);
+  const lastSubmission = asRecord(record.lastSubmission);
+  const candidates = [
+    record.accountId,
+    asRecord(result?.login)?.accountId,
+    asRecord(lastSubmission?.login)?.accountId,
+    asRecord(record.session)?.accountId,
+  ];
+  return [
+    ...new Set(
+      candidates.filter((value): value is string => typeof value === "string" && value !== ""),
+    ),
+  ];
+}
+
+/** 保留单值读取接口；安全判断和撤销必须使用完整账户集合。 */
 export function readOidcPayloadAccountId(payload: unknown): string | undefined {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    return undefined;
-  }
-  const accountId = (payload as Record<string, unknown>).accountId;
-  return typeof accountId === "string" && accountId !== "" ? accountId : undefined;
+  return readOidcPayloadAccountIds(payload)[0];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 /**
@@ -149,10 +189,11 @@ export function assertOidcClientWriteAllowed(payload: unknown): void {
 }
 
 export function assertOidcAccountWriteAllowed(payload: unknown): void {
-  const accountId = readOidcPayloadAccountId(payload);
-  const state = accountId === undefined ? undefined : blockedAccounts.get(accountId);
-  if (state?.durable || (state?.leases.size ?? 0) > 0) {
-    throw new OidcAccountRevokedError();
+  for (const accountId of readOidcPayloadAccountIds(payload)) {
+    const state = blockedAccounts.get(accountId);
+    if (state?.durable || (state?.leases.size ?? 0) > 0) {
+      throw new OidcAccountRevokedError();
+    }
   }
 }
 

@@ -93,12 +93,13 @@ export class LocalAuthProvider implements AuthProvider {
         <form class="login-form" method="POST" action="/interaction/${this.escapeHtml(encodeURIComponent(context.interactionUid))}/login">
           <input type="hidden" name="authMethod" value="local" />
           
-          ${error ? `<div class="error">${this.escapeHtml(error)}</div>` : ""}
+          ${error ? `<div class="error" role="alert">${this.escapeHtml(error)}</div>` : ""}
           
           <div class="form-group">
             <label for="username">用户名</label>
             <input 
               type="text" 
+              data-slot="input"
               id="username" 
               name="username" 
               required 
@@ -112,6 +113,7 @@ export class LocalAuthProvider implements AuthProvider {
             <label for="password">密码</label>
             <input 
               type="password" 
+              data-slot="input"
               id="password" 
               name="password" 
               required 
@@ -120,7 +122,7 @@ export class LocalAuthProvider implements AuthProvider {
             />
           </div>
           
-          <button type="submit" class="submit-button">登录</button>
+          <button type="submit" class="submit-button" data-slot="button">登录</button>
         </form>
       `,
       showInUnifiedPage: true,

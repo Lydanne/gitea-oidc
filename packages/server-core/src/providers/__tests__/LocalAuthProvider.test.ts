@@ -114,7 +114,7 @@ describe("LocalAuthProvider", () => {
 
     expect(ui.type).toBe("html");
     expect(ui.html).toContain('name="authMethod" value="local"');
-    expect(ui.html).toContain("Oops");
+    expect(ui.html).toContain('class="error" role="alert">Oops</div>');
   });
 
   it("renderLoginUI 应转义表单 action 与错误文案", async () => {

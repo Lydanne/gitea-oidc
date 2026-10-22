@@ -34,14 +34,11 @@ export function renderLoginPageHTML(
       }
       const iconUrl = ui.button.icon ? sanitizeLoginUrl(ui.button.icon) : "";
       buttons.push(`
-        <a href="${escapeHtml(redirectUrl)}" class="oauth-button">
+        <a href="${escapeHtml(redirectUrl)}" class="oauth-button" data-slot="button" data-variant="outline">
           <span class="oauth-icon" aria-hidden="true">
             ${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="" />` : `<span class="oauth-icon-fallback">${escapeHtml(provider.displayName.slice(0, 1).toUpperCase())}</span>`}
           </span>
           <span class="oauth-label">${escapeHtml(ui.button.text)}</span>
-          <svg class="oauth-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-            <path d="M3 8h9m-3.5-3.5L12 8l-3.5 3.5" />
-          </svg>
         </a>
       `);
     }
@@ -56,348 +53,286 @@ export function renderLoginPageHTML(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
   <title>登录 - X OIDC</title>
   <style>
+    /* 与 shadcn-vue neutral 主题保持一致，认证页无需客户端脚本。 */
     :root {
       color-scheme: light;
-      --page-background: #ffffff;
-      --surface: #ffffff;
-      --surface-subtle: #fafafa;
-      --foreground: #1d1d1f;
-      --muted: #666666;
-      --faint: #8f8f8f;
-      --border: #eaeaea;
-      --border-strong: #d4d4d4;
-      --grid-line: rgba(0, 0, 0, 0.045);
-      --control-background: #ffffff;
-      --control-hover: #fafafa;
-      --primary-background: #1d1d1f;
-      --primary-hover: #333333;
-      --primary-foreground: #ffffff;
-      --focus-ring: rgba(0, 112, 243, 0.28);
-      --error-background: #fff5f5;
-      --error-border: #ffdbdb;
-      --error-foreground: #c9242b;
-      --shadow: 0 24px 60px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+      --background: #fafafa;
+      --card: #fff;
+      --foreground: #171717;
+      --muted: #737373;
+      --subtle: #f5f5f5;
+      --border: #e5e5e5;
+      --primary: #171717;
+      --primary-foreground: #fafafa;
+      --ring: #a3a3a3;
+      --error-background: #fef2f2;
+      --error-border: #fecaca;
+      --error-foreground: #b91c1c;
     }
-    * { box-sizing: border-box; }
-    html { min-width: 320px; background: var(--page-background); }
+    * {
+      box-sizing: border-box;
+    }
+    html {
+      background: var(--background);
+    }
     body {
       min-height: 100vh;
+      min-height: 100svh;
+      display: grid;
+      place-items: center;
       margin: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow-x: hidden;
-      padding: 40px 20px;
-      background: var(--page-background);
+      padding: 32px 20px;
       color: var(--foreground);
-      font-family: Geist, "Geist Sans", Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont,
-        "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      font-family:
+        ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
+        sans-serif;
       font-size: 14px;
       -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
-    }
-    body::before {
-      position: fixed;
-      inset: 0;
-      content: "";
-      pointer-events: none;
-      background-image:
-        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-      background-size: 32px 32px;
-      -webkit-mask-image: radial-gradient(circle at center, #000 0%, transparent 72%);
-      mask-image: radial-gradient(circle at center, #000 0%, transparent 72%);
     }
     button,
-    input { font: inherit; }
+    input {
+      font: inherit;
+    }
     .page-shell {
-      position: relative;
-      z-index: 1;
       display: grid;
-      width: min(100%, 440px);
       gap: 24px;
+      width: min(100%, 400px);
+      min-width: 0;
     }
     .brand {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 10px;
-      color: var(--foreground);
       font-size: 16px;
       font-weight: 600;
-      letter-spacing: -0.02em;
     }
     .brand-mark {
       display: grid;
-      width: 28px;
-      height: 28px;
       place-items: center;
-      border-radius: 7px;
-      background: var(--primary-background);
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--primary);
       color: var(--primary-foreground);
-      font-family: "Geist Mono", "SFMono-Regular", Consolas, monospace;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: -0.08em;
     }
     .login-card {
-      overflow: hidden;
+      min-width: 0;
       border: 1px solid var(--border);
       border-radius: 12px;
-      background: var(--surface);
-      box-shadow: var(--shadow);
+      background: var(--card);
+      box-shadow: 0 1px 3px rgb(0 0 0 / 0.05);
     }
     .login-header {
-      padding: 32px 32px 28px;
-      border-bottom: 1px solid var(--border);
+      padding: 24px 24px 0;
       text-align: center;
     }
     .login-header h1 {
       margin: 0;
-      color: var(--foreground);
       font-size: 24px;
       font-weight: 600;
-      letter-spacing: -0.04em;
-      line-height: 1.25;
+      letter-spacing: -0.035em;
+      line-height: 1.4;
     }
     .login-header p {
-      margin: 10px 0 0;
+      margin: 8px 0 0;
       color: var(--muted);
-      font-size: 14px;
-      line-height: 1.55;
+      line-height: 1.7;
     }
-    .login-content { padding: 28px 32px 32px; }
-    .login-form { display: grid; gap: 18px; }
-    .form-group { display: grid; gap: 8px; }
+    .login-content {
+      padding: 24px;
+    }
+    .login-form {
+      display: grid;
+      gap: 20px;
+    }
+    .form-group {
+      display: grid;
+      gap: 9px;
+    }
     .form-group label {
-      color: var(--foreground);
-      font-size: 14px;
       font-weight: 500;
-      line-height: 1.35;
+      line-height: 1.4;
     }
     .form-group input {
       width: 100%;
-      height: 44px;
+      min-width: 0;
+      height: 42px;
       padding: 0 12px;
-      border: 1px solid var(--border-strong);
+      border: 1px solid var(--border);
       border-radius: 6px;
       outline: none;
-      background: var(--control-background);
+      background: transparent;
       color: var(--foreground);
-      font-size: 14px;
-      transition: border-color 150ms ease, box-shadow 150ms ease;
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
+      transition:
+        border-color 150ms,
+        box-shadow 150ms;
     }
-    .form-group input::placeholder { color: var(--faint); }
-    .form-group input:hover { border-color: var(--faint); }
+    .form-group input::placeholder {
+      color: var(--muted);
+    }
     .form-group input:focus-visible {
-      border-color: var(--foreground);
-      box-shadow: 0 0 0 3px var(--focus-ring);
+      border-color: var(--ring);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent);
+    }
+    .submit-button,
+    .oauth-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 42px;
+      padding: 10px 14px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      font-weight: 500;
+      line-height: 1.4;
+      text-decoration: none;
+      cursor: pointer;
+      transition:
+        background-color 150ms,
+        box-shadow 150ms;
     }
     .submit-button {
-      width: 100%;
-      min-height: 44px;
-      padding: 0 16px;
-      border: 1px solid var(--primary-background);
-      border-radius: 6px;
-      background: var(--primary-background);
+      background: var(--primary);
       color: var(--primary-foreground);
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
     }
     .submit-button:hover {
-      border-color: var(--primary-hover);
-      background: var(--primary-hover);
+      background: color-mix(in srgb, var(--primary) 90%, var(--card));
     }
-    .submit-button:active { transform: translateY(1px); }
     .submit-button:focus-visible,
     .oauth-button:focus-visible {
-      outline: 2px solid var(--foreground);
+      outline: 3px solid var(--ring);
       outline-offset: 3px;
     }
     .divider {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
+      display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       margin: 24px 0;
-      color: var(--faint);
+      color: var(--muted);
       font-size: 12px;
-      line-height: 1;
     }
     .divider::before,
     .divider::after {
       content: "";
+      flex: 1;
       height: 1px;
       background: var(--border);
     }
-    .oauth-buttons { display: grid; gap: 12px; }
-    .oauth-button {
+    .oauth-buttons {
       display: grid;
-      grid-template-columns: 20px minmax(0, 1fr) 16px;
-      align-items: center;
       gap: 12px;
-      min-height: 44px;
-      padding: 0 13px;
-      border: 1px solid var(--border-strong);
-      border-radius: 6px;
-      background: var(--control-background);
+    }
+    .oauth-button {
+      border-color: var(--border);
+      background: var(--card);
       color: var(--foreground);
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
     }
     .oauth-button:hover {
-      border-color: var(--foreground);
-      background: var(--control-hover);
+      background: var(--subtle);
     }
-    .oauth-button:active { transform: translateY(1px); }
-    .oauth-icon {
-      display: grid;
+    .oauth-icon,
+    .oauth-icon img,
+    .oauth-icon-fallback {
+      display: block;
+      flex: 0 0 auto;
       width: 20px;
       height: 20px;
-      place-items: center;
     }
     .oauth-icon img {
-      display: block;
-      width: 20px;
-      height: 20px;
       object-fit: contain;
     }
     .oauth-icon-fallback {
       display: grid;
-      width: 20px;
-      height: 20px;
       place-items: center;
-      border: 1px solid var(--border-strong);
-      border-radius: 5px;
-      background: var(--surface-subtle);
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 600;
+      border-radius: 4px;
+      background: var(--subtle);
+      font-size: 12px;
     }
     .oauth-label {
-      overflow: hidden;
-      text-align: center;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .oauth-arrow {
-      width: 16px;
-      height: 16px;
-      fill: none;
-      stroke: currentColor;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      stroke-width: 1.5;
-      opacity: 0.52;
-      transition: transform 150ms ease, opacity 150ms ease;
-    }
-    .oauth-button:hover .oauth-arrow {
-      opacity: 1;
-      transform: translateX(2px);
+      overflow-wrap: anywhere;
     }
     .error {
-      display: flex;
-      align-items: flex-start;
-      gap: 9px;
-      padding: 11px 12px;
+      padding: 12px;
       border: 1px solid var(--error-border);
       border-radius: 6px;
       background: var(--error-background);
       color: var(--error-foreground);
-      font-size: 13px;
-      line-height: 1.45;
-    }
-    .error::before {
-      display: grid;
-      flex: 0 0 auto;
-      width: 16px;
-      height: 16px;
-      place-items: center;
-      margin-top: 1px;
-      border: 1px solid currentColor;
-      border-radius: 50%;
-      content: "!";
-      font-size: 10px;
-      font-weight: 700;
-      line-height: 1;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
     }
     .empty-state {
       margin: 0;
-      padding: 20px 16px;
-      border: 1px dashed var(--border-strong);
-      border-radius: 8px;
-      background: var(--surface-subtle);
+      padding: 16px;
+      border: 1px dashed var(--border);
+      border-radius: 6px;
       color: var(--muted);
-      line-height: 1.6;
       text-align: center;
+      line-height: 1.7;
     }
     .login-footer {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 7px;
+      gap: 6px;
       margin: 0;
-      color: var(--faint);
+      color: var(--muted);
       font-size: 12px;
-      line-height: 1.4;
+      line-height: 1.6;
+      text-align: center;
     }
     .login-footer svg {
+      flex: 0 0 auto;
       width: 14px;
       height: 14px;
       fill: none;
       stroke: currentColor;
+      stroke-width: 1.5;
       stroke-linecap: round;
       stroke-linejoin: round;
-      stroke-width: 1.5;
     }
     @media (prefers-color-scheme: dark) {
       :root {
         color-scheme: dark;
-        --page-background: #000000;
-        --surface: #0a0a0a;
-        --surface-subtle: #111111;
-        --foreground: #ededed;
-        --muted: #a1a1a1;
-        --faint: #7a7a7a;
-        --border: #262626;
-        --border-strong: #3a3a3a;
-        --grid-line: rgba(255, 255, 255, 0.06);
-        --control-background: #0a0a0a;
-        --control-hover: #151515;
-        --primary-background: #ededed;
-        --primary-hover: #ffffff;
-        --primary-foreground: #0a0a0a;
-        --focus-ring: rgba(0, 112, 243, 0.4);
-        --error-background: #2a1113;
-        --error-border: #5f2024;
-        --error-foreground: #ff8d94;
-        --shadow: 0 24px 60px rgba(0, 0, 0, 0.48);
+        --background: #0a0a0a;
+        --card: #171717;
+        --foreground: #fafafa;
+        --muted: #a3a3a3;
+        --subtle: #262626;
+        --border: #404040;
+        --primary: #fafafa;
+        --primary-foreground: #171717;
+        --ring: #737373;
+        --error-background: #301719;
+        --error-border: #7f1d1d;
+        --error-foreground: #fca5a5;
       }
     }
     @media (max-width: 480px) {
-      body { padding: 24px 16px; }
-      .page-shell { gap: 20px; }
-      .login-header { padding: 28px 24px 24px; }
-      .login-content { padding: 24px; }
-      .login-header h1 { font-size: 22px; }
-    }
-    @media (max-height: 680px) {
-      body { align-items: flex-start; }
+      body {
+        padding: 24px 16px;
+      }
+      .form-group input {
+        font-size: 16px;
+      }
+      .submit-button,
+      .oauth-button {
+        min-height: 44px;
+      }
     }
     @media (prefers-reduced-motion: reduce) {
       *,
       *::before,
       *::after {
-        scroll-behavior: auto !important;
-        transition-duration: 0.01ms !important;
+        transition: none !important;
       }
     }
   </style>
@@ -405,17 +340,22 @@ export function renderLoginPageHTML(
 <body>
   <div class="page-shell">
     <div class="brand" aria-label="X OIDC">
-      <span class="brand-mark" aria-hidden="true">GO</span>
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
+          <path d="m6 5 12 14M18 5 6 19" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+          <path d="M4 12h3m10 0h3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </span>
       <span>X OIDC</span>
     </div>
-    <main class="login-card" aria-labelledby="login-title">
+    <main class="login-card" aria-labelledby="login-title" data-slot="card">
       <header class="login-header">
-        <h1 id="login-title">继续登录</h1>
-        <p>选择一种身份验证方式以继续访问</p>
+        <h1 id="login-title">登录你的账号</h1>
+        <p>欢迎回来，选择一种方式继续。</p>
       </header>
       <div class="login-content">
         ${forms.join("\n")}
-        ${forms.length > 0 && buttons.length > 0 ? '<div class="divider" role="separator" aria-label="其他登录方式"><span>或</span></div>' : ""}
+        ${forms.length > 0 && buttons.length > 0 ? '<div class="divider" role="separator" aria-label="其他登录方式"><span>或使用其他方式</span></div>' : ""}
         ${buttons.length > 0 ? `<div class="oauth-buttons">${buttons.join("\n")}</div>` : ""}
         ${hasLoginOptions ? "" : '<p class="empty-state" role="status">当前没有可用的登录方式，请联系系统管理员。</p>'}
       </div>

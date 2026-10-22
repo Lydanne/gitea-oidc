@@ -254,7 +254,7 @@ export class FeishuAuthProvider implements AuthProvider {
       showInUnifiedPage: true,
       button: {
         text: this.displayName,
-        icon: "/auth/feishu/icon.svg",
+        icon: "/auth/feishu/logo.svg",
         style: "background: #00b96b; color: white; border: none;",
         order: 2,
       },
@@ -548,15 +548,17 @@ export class FeishuAuthProvider implements AuthProvider {
    * 注册静态资源
    */
   registerStaticAssets() {
-    return [
-      {
-        path: "/icon.svg",
-        content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#00b96b">
-  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+    // 保留旧地址兼容已有引用，新地址避免浏览器继续使用旧占位图缓存。
+    return ["/icon.svg", "/logo.svg"].map((path) => ({
+      path,
+      content: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <path d="M3 8.5 14 14l-4.5 7L3 8.5Z" fill="#00D6B9"/>
+  <path d="m3 8.5 17 2.8L14 17 3 8.5Z" fill="#00B3EB"/>
+  <path d="m14 14 15-8-9 19-10.5-4L14 14Z" fill="#3370FF"/>
+  <path d="m14 14 6-2.7-5 7-5.5 2.2L14 14Z" fill="#2AC6DF"/>
 </svg>`,
-        contentType: "image/svg+xml",
-      },
-    ];
+      contentType: "image/svg+xml",
+    }));
   }
 
   /**
@@ -750,7 +752,7 @@ export class FeishuAuthProvider implements AuthProvider {
       description: "飞书 OAuth 2.0 认证插件，支持企业内部应用和自建应用",
       author: "XGJ Team By Lyda",
       homepage: "https://github.com/Lydanne/gitea-oidc",
-      icon: "https://p1-hera.feishucdn.com/tos-cn-i-jbbdkfciu3/84a9f036fe2b44f99b899fff4beeb963~tplv-jbbdkfciu3-image:0:0.image",
+      icon: "/auth/feishu/logo.svg",
       permissions: [
         PluginPermission.READ_USER,
         PluginPermission.CREATE_USER,

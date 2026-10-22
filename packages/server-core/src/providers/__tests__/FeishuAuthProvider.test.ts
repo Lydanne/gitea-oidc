@@ -432,6 +432,20 @@ describe("FeishuAuthProvider", () => {
       expect(assets[0]).toMatchObject({ path: "/icon.svg", contentType: "image/svg+xml" });
     });
 
+    it("登录按钮与插件元数据使用同一份本地图标，无需外部 CDN", async () => {
+      coordinator.generateOAuthState.mockResolvedValue("icon-test-state");
+      const ui = await provider.renderLoginUI(createContext());
+      const asset = provider.registerStaticAssets().find((item) => item.path === "/logo.svg");
+      expect(asset).toBeDefined();
+      const iconPath = `/auth/${provider.name}${asset?.path}`;
+
+      expect(ui.button?.icon).toBe(iconPath);
+      expect(provider.getMetadata().icon).toBe(iconPath);
+      expect(asset?.content).toContain('xmlns="http://www.w3.org/2000/svg"');
+      expect(asset?.content).toContain('viewBox="0 0 32 32"');
+      expect(asset?.content).not.toMatch(/<script|<image|href=/u);
+    });
+
     it("getMetadata 返回健康状态并包含权限", () => {
       // larkClient 已在 beforeEach 中 mock
       const metadata = provider.getMetadata();

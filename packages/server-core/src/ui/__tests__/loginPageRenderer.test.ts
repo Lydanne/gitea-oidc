@@ -28,8 +28,10 @@ describe("renderLoginPageHTML", () => {
       },
     ]);
 
-    expect(html).toContain('<main class="login-card" aria-labelledby="login-title">');
-    expect(html).toContain('<h1 id="login-title">继续登录</h1>');
+    expect(html).toContain(
+      '<main class="login-card" aria-labelledby="login-title" data-slot="card">',
+    );
+    expect(html).toContain('<h1 id="login-title">登录你的账号</h1>');
     expect(html).toContain('<form id="local-login"></form>');
     expect(html).toContain('role="separator" aria-label="其他登录方式"');
     expect(html).toContain('<img src="/auth/test/icon.svg" alt="" />');

@@ -161,6 +161,8 @@ describe("RedisOidcAdapter", () => {
             "test:Session:token-1",
             "test:accountBlock:user-1",
             "test:accountBlockLeases:user-1",
+            "test:clientBlock:client-1",
+            "test:clientBlockLeases:client-1",
           ],
           arguments: [
             "test:",
@@ -168,6 +170,8 @@ describe("RedisOidcAdapter", () => {
             "token-1",
             JSON.stringify({ clientId: "client-1", accountId: "user-1" }),
             "0",
+            "1",
+            "1",
           ],
         },
       );
@@ -315,9 +319,17 @@ describe("RedisOidcAdapter", () => {
     it("应该为 Interaction 的 params.client_id 创建撤销索引", async () => {
       await adapter.upsert("interaction-1", { params: { client_id: "client-1" } });
 
-      expect(mockClient.sAdd).toHaveBeenCalledWith(
-        "test:clientId:client-1",
-        "Session:interaction-1",
+      expect(mockClient.eval).toHaveBeenCalledWith(
+        expect.stringContaining("clientId:"),
+        expect.objectContaining({
+          keys: [
+            "test:Session:interaction-1",
+            "",
+            "",
+            "test:clientBlock:client-1",
+            "test:clientBlockLeases:client-1",
+          ],
+        }),
       );
     });
 
@@ -439,12 +451,13 @@ describe("RedisOidcAdapter", () => {
         keyPrefix: "test:",
       });
 
-      expect(mockClient.sMembers).toHaveBeenCalledWith("test:clientId:client-1");
-      const multi = mockClient.multi();
-      expect(multi.del).toHaveBeenCalledWith("test:AuthorizationCode:code-1");
-      expect(multi.del).toHaveBeenCalledWith("test:RefreshToken:refresh-1");
-      expect(multi.del).toHaveBeenCalledWith("test:clientId:client-1");
-      expect(multi.exec).toHaveBeenCalled();
+      expect(mockClient.eval).toHaveBeenCalledWith(
+        expect.stringMatching(/SET[\s\S]*SMEMBERS[\s\S]*DEL/),
+        {
+          keys: ["test:clientId:client-1", "test:clientBlock:client-1"],
+          arguments: ["test:"],
+        },
+      );
     });
   });
 

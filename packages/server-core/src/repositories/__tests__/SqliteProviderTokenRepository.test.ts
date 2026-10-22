@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SqliteProviderTokenRepository } from "../SqliteProviderTokenRepository.js";
 
@@ -133,5 +136,42 @@ describe("SqliteProviderTokenRepository", () => {
     });
 
     expect(candidates.map((candidate) => candidate.ownerId)).toEqual(["unknown", "unprobed"]);
+  });
+  it("升级旧数据库后仍可原子刷新，并拒绝另一连接中的旧版本", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "x-oidc-token-migration-"));
+    const dbPath = join(directory, "tokens.db");
+    const seed = new SqliteProviderTokenRepository(dbPath, "A".repeat(32));
+    await seed.upsert({
+      provider: "feishu",
+      ownerType: "user",
+      ownerId: "u1",
+      accessToken: "legacy",
+      status: "valid",
+    });
+    (seed as any).db.exec("ALTER TABLE provider_tokens DROP COLUMN revision");
+    await seed.close();
+    const first = new SqliteProviderTokenRepository(dbPath, "A".repeat(32));
+    const second = new SqliteProviderTokenRepository(dbPath, "A".repeat(32));
+    try {
+      const legacy = (await first.find("feishu", "user", "u1"))!;
+      expect(legacy.revision).toBe("");
+      const refreshed = await first.compareAndSwap(
+        { ...legacy, accessToken: "next" },
+        legacy.revision!,
+      );
+      expect(refreshed?.accessToken).toBe("next");
+      expect(
+        await second.compareAndSwap({ ...legacy, accessToken: "stale" }, legacy.revision!),
+      ).toBeNull();
+      const current = (await second.find("feishu", "user", "u1"))!;
+      await first.deleteByOwnerId("u1");
+      expect(
+        await second.compareAndSwap({ ...current, accessToken: "late" }, current.revision!),
+      ).toBeNull();
+    } finally {
+      await first.close();
+      await second.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

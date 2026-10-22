@@ -2,6 +2,7 @@
  * 内存 Provider token 仓储
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   ProviderTokenListOptions,
   ProviderTokenOwnerType,
@@ -33,6 +34,7 @@ export class MemoryProviderTokenRepository implements ProviderTokenRepository {
       ...existing,
       ...record,
       id,
+      revision: randomUUID(),
       lastError: sanitizeTokenErrorText(lastErrorSource),
       createdAt: existing?.createdAt ?? record.createdAt ?? now,
       updatedAt: now,
@@ -40,6 +42,20 @@ export class MemoryProviderTokenRepository implements ProviderTokenRepository {
 
     this.tokens.set(id, this.clone(saved));
     return this.clone(saved);
+  }
+
+  async compareAndSwap(
+    record: ProviderTokenRecord,
+    expectedRevision: string,
+  ): Promise<ProviderTokenRecord | null> {
+    const current = this.tokens.get(
+      this.createId(record.provider, record.ownerType, record.ownerId),
+    );
+    if (!current || current.status === "revoked" || current.revision !== expectedRevision) {
+      return null;
+    }
+    // upsert 在首个 await 前完成 Map 写入，比较与替换不会被其他调用插入。
+    return this.upsert(record);
   }
 
   async find(
@@ -92,15 +108,21 @@ export class MemoryProviderTokenRepository implements ProviderTokenRepository {
     ownerId: string,
     status: ProviderTokenStatus,
     lastError?: string,
+    expectedRevision?: string,
   ): Promise<void> {
     const id = this.createId(provider, ownerType, ownerId);
     const record = this.tokens.get(id);
-    if (!record) {
+    if (
+      !record ||
+      (expectedRevision !== undefined &&
+        (record.revision !== expectedRevision || record.status === "revoked"))
+    ) {
       return;
     }
 
     this.tokens.set(id, {
       ...record,
+      revision: status === "revoked" ? randomUUID() : record.revision,
       status,
       lastError: sanitizeTokenErrorText(lastError),
       lastProbedAt: new Date(),

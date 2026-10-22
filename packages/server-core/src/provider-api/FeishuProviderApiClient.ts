@@ -119,7 +119,7 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
       throw new Error(`Failed to fetch Feishu app token: ${data.msg ?? response.status}`);
     }
 
-    return this.tokenRepository.upsert({
+    const record: ProviderTokenRecord = {
       provider: this.provider,
       ownerType: "app",
       ownerId,
@@ -127,7 +127,10 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
       expiresAt: new Date(Date.now() + (data.expire ?? data.expires_in ?? 7200) * 1000),
       status: "valid",
       tokenType: "Bearer",
-    });
+    };
+    return existing
+      ? this.tokenRepository.compareAndSwap(record, existing.revision ?? "")
+      : this.tokenRepository.upsert(record);
   }
 
   async refreshUserToken(userId: string): Promise<ProviderTokenRecord> {
@@ -136,7 +139,7 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
 
   private async refreshUserTokenOnce(userId: string): Promise<ProviderTokenRecord> {
     const existing = await this.tokenRepository.find(this.provider, "user", userId);
-    if (!existing?.refreshToken) {
+    if (!existing?.refreshToken || existing.status === "revoked") {
       throw new Error(`Feishu refresh token not found for user: ${userId}`);
     }
 
@@ -164,38 +167,38 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
         throw new Error(`Failed to refresh Feishu user token: ${data.msg ?? response.status}`);
       }
 
-      return this.tokenRepository.upsert({
-        ...existing,
-        accessToken: data.data.access_token,
-        refreshToken: data.data.refresh_token ?? existing.refreshToken,
-        tokenType: data.data.token_type ?? existing.tokenType ?? "Bearer",
-        scope: data.data.scope ?? existing.scope,
-        expiresAt: data.data.expires_in
-          ? new Date(Date.now() + data.data.expires_in * 1000)
-          : existing.expiresAt,
-        refreshExpiresAt: data.data.refresh_expires_in
-          ? new Date(Date.now() + data.data.refresh_expires_in * 1000)
-          : existing.refreshExpiresAt,
-        lastRefreshAt: new Date(),
-        lastError: undefined,
-        status: "valid",
-      });
-    } catch (err) {
-      const current = await this.tokenRepository.find(this.provider, "user", userId);
-      // 仅在仓储仍是本次尝试读取到的 token 时标记失败；若另一次刷新已经写入新
-      // refresh token，则旧请求的失败不能覆盖成功状态。
-      if (
-        current?.refreshToken === existing.refreshToken &&
-        current.accessToken === existing.accessToken
-      ) {
-        await this.tokenRepository.updateStatus(
-          this.provider,
-          "user",
-          userId,
-          "refresh_failed",
-          summarizeTokenError(err),
-        );
+      const refreshed = await this.tokenRepository.compareAndSwap(
+        {
+          ...existing,
+          accessToken: data.data.access_token,
+          refreshToken: data.data.refresh_token ?? existing.refreshToken,
+          tokenType: data.data.token_type ?? existing.tokenType ?? "Bearer",
+          scope: data.data.scope ?? existing.scope,
+          expiresAt: data.data.expires_in
+            ? new Date(Date.now() + data.data.expires_in * 1000)
+            : existing.expiresAt,
+          refreshExpiresAt: data.data.refresh_expires_in
+            ? new Date(Date.now() + data.data.refresh_expires_in * 1000)
+            : existing.refreshExpiresAt,
+          lastRefreshAt: new Date(),
+          lastError: undefined,
+          status: "valid",
+        },
+        existing.revision ?? "",
+      );
+      if (!refreshed) {
+        throw new Error("Feishu token changed or was revoked during refresh");
       }
+      return refreshed;
+    } catch (err) {
+      await this.tokenRepository.updateStatus(
+        existing.provider,
+        existing.ownerType,
+        existing.ownerId,
+        "refresh_failed",
+        summarizeTokenError(err),
+        existing.revision ?? "",
+      );
       throw err;
     }
   }
@@ -245,6 +248,7 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
     );
     if (
       !current ||
+      current.status === "revoked" ||
       current.accessToken !== record.accessToken ||
       current.refreshToken !== record.refreshToken
     ) {
@@ -256,6 +260,7 @@ export class FeishuProviderApiClient extends BaseProviderApiClient {
       record.ownerId,
       status,
       lastError,
+      current.revision ?? "",
     );
   }
 }

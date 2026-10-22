@@ -533,7 +533,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
         return toAdminUser(user);
       } catch (error) {
         if (!stateChanged) {
-          await releaseOidcAccountLease(lease);
+          await releaseOidcLease(lease);
         }
         throw error;
       }
@@ -566,7 +566,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
       return reply.code(204).send();
     } catch (error) {
       if (!stateChanged) {
-        await releaseOidcAccountLease(lease);
+        await releaseOidcLease(lease);
       }
       throw error;
     }
@@ -830,7 +830,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
               blockLeases.push(await lifecycle.acquireBlock(clientId));
             }
           } catch (error) {
-            for (const lease of blockLeases) lease.release();
+            for (const lease of blockLeases) await releaseOidcLease(lease);
             throw error;
           }
 
@@ -844,10 +844,10 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
                     actor: { type: "user", id: user.sub },
                   });
           } catch (error) {
-            for (const lease of blockLeases) lease.release();
+            for (const lease of blockLeases) await releaseOidcLease(lease);
             throw error;
           }
-          for (const lease of blockLeases) lease.commit();
+          for (const lease of blockLeases) await lease.commit();
           for (const clientId of readApplicationClientIds(staged)) {
             await lifecycle.revoke(clientId);
           }
@@ -1111,12 +1111,12 @@ async function revokeUserCredentials(
   await options.tokenRepository?.deleteByOwnerId(userId);
 }
 
-async function releaseOidcAccountLease(lease: OidcAccountBlockLease): Promise<void> {
+async function releaseOidcLease(lease: Pick<OidcAccountBlockLease, "release">): Promise<void> {
   try {
     await lease.release();
   } catch (error) {
     // 释放失败时保持 fail-closed，并保留原始业务错误给调用方。
-    Logger.error("[用户管理] 释放 OIDC 账户栅栏失败:", sanitizeForLog(error));
+    Logger.error("[管理台] 释放 OIDC 栅栏失败:", sanitizeForLog(error));
   }
 }
 

@@ -434,4 +434,105 @@ describe("FeishuProviderApiClient", () => {
       ),
     ).rejects.toThrow(/path does not match/);
   });
+  it.each([
+    "delete",
+    "revoke",
+    "replace",
+  ])("刷新期间凭证发生 %s 时拒绝旧结果写回", async (mutation) => {
+    await repository.upsert({
+      provider: "feishu",
+      ownerType: "app",
+      ownerId: "default",
+      accessToken: "app",
+      expiresAt: new Date(Date.now() + 3600000),
+      status: "valid",
+    });
+    const original = await repository.upsert({
+      provider: "feishu",
+      ownerType: "user",
+      ownerId: "user-1",
+      accessToken: "old",
+      refreshToken: "old-refresh",
+      expiresAt: new Date(Date.now() + 1000),
+      status: "valid",
+    });
+    let finish!: (response: Response) => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    fetchMock.mockImplementationOnce(() => {
+      started();
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    });
+    const flight = client.getUserToken("user-1");
+    await pending;
+    if (mutation === "delete") await repository.deleteByOwnerId("user-1");
+    if (mutation === "revoke") await repository.updateStatus("feishu", "user", "user-1", "revoked");
+    if (mutation === "replace")
+      await repository.upsert({
+        ...original,
+        accessToken: "new-login",
+        refreshToken: "new-login-refresh",
+      });
+    finish(
+      new Response(
+        JSON.stringify({
+          code: 0,
+          data: { access_token: "late-access", refresh_token: "late-refresh", expires_in: 7200 },
+        }),
+        { status: 200 },
+      ),
+    );
+    await expect(flight).rejects.toThrow("changed or was revoked");
+    const current = await repository.find("feishu", "user", "user-1");
+    if (mutation === "delete") expect(current).toBeNull();
+    if (mutation === "revoke") expect(current?.status).toBe("revoked");
+    if (mutation === "replace") expect(current?.accessToken).toBe("new-login");
+  });
+
+  it("旧刷新失败不会覆盖管理员撤销状态", async () => {
+    await repository.upsert({
+      provider: "feishu",
+      ownerType: "app",
+      ownerId: "default",
+      accessToken: "app",
+      expiresAt: new Date(Date.now() + 3600000),
+      status: "valid",
+    });
+    await repository.upsert({
+      provider: "feishu",
+      ownerType: "user",
+      ownerId: "user-1",
+      accessToken: "old",
+      refreshToken: "refresh",
+      status: "valid",
+    });
+    fetchMock.mockImplementationOnce(async () => {
+      await repository.updateStatus("feishu", "user", "user-1", "revoked");
+      throw new Error("upstream failed");
+    });
+    await expect(client.refreshUserToken("user-1")).rejects.toThrow("upstream failed");
+    expect((await repository.find("feishu", "user", "user-1"))?.status).toBe("revoked");
+  });
+  it("应用 token 更新期间撤销后不恢复为 valid", async () => {
+    await repository.upsert({
+      provider: "feishu",
+      ownerType: "app",
+      ownerId: "default",
+      accessToken: "old-app",
+      expiresAt: new Date(Date.now() + 1000),
+      status: "valid",
+    });
+    fetchMock.mockImplementationOnce(async () => {
+      await repository.updateStatus("feishu", "app", "default", "revoked");
+      return new Response(JSON.stringify({ code: 0, app_access_token: "late-app", expire: 7200 }), {
+        status: 200,
+      });
+    });
+    expect(await client.getAppToken()).toBeNull();
+    expect((await repository.find("feishu", "app", "default"))?.status).toBe("revoked");
+  });
 });

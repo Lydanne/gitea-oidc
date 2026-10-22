@@ -2,6 +2,7 @@
  * SQLite Provider token 仓储
  */
 
+import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import type {
   ProviderTokenListOptions,
@@ -38,6 +39,7 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
       ...existing,
       ...record,
       id,
+      revision: randomUUID(),
       createdAt: existing?.createdAt ?? record.createdAt ?? now,
       updatedAt: now,
     };
@@ -47,8 +49,8 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
       INSERT INTO provider_tokens (
         id, provider, "ownerType", "ownerId", "accessToken", "refreshToken", "tokenType",
         scope, "expiresAt", "refreshExpiresAt", status, "lastProbedAt", "lastRefreshAt",
-        "lastError", metadata, "createdAt", "updatedAt"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "lastError", metadata, "createdAt", "updatedAt", revision
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(provider, "ownerType", "ownerId") DO UPDATE SET
         "accessToken" = excluded."accessToken",
         "refreshToken" = excluded."refreshToken",
@@ -61,7 +63,8 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
         "lastRefreshAt" = excluded."lastRefreshAt",
         "lastError" = excluded."lastError",
         metadata = excluded.metadata,
-        "updatedAt" = excluded."updatedAt"
+        "updatedAt" = excluded."updatedAt",
+        revision = excluded.revision
     `;
 
     this.db
@@ -84,9 +87,50 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
         row.metadata,
         row.createdAt,
         row.updatedAt,
+        row.revision,
       );
 
     return saved;
+  }
+
+  async compareAndSwap(
+    record: ProviderTokenRecord,
+    expectedRevision: string,
+  ): Promise<ProviderTokenRecord | null> {
+    const saved = { ...record, revision: randomUUID(), updatedAt: new Date() };
+    const row = this.recordToRow(saved);
+    const sql = `
+      UPDATE provider_tokens SET
+        "accessToken" = ?, "refreshToken" = ?, "tokenType" = ?,
+        "scope" = ?, "expiresAt" = ?, "refreshExpiresAt" = ?,
+        "status" = ?, "lastProbedAt" = ?, "lastRefreshAt" = ?,
+        "lastError" = ?, "metadata" = ?, "updatedAt" = ?,
+        "revision" = ?
+      WHERE provider = ? AND "ownerType" = ? AND "ownerId" = ?
+        AND COALESCE(revision, '') = ? AND status != 'revoked'
+    `;
+    const result = this.db
+      .prepare(sql)
+      .run(
+        row.accessToken,
+        row.refreshToken,
+        row.tokenType,
+        row.scope,
+        row.expiresAt,
+        row.refreshExpiresAt,
+        row.status,
+        row.lastProbedAt,
+        row.lastRefreshAt,
+        row.lastError,
+        row.metadata,
+        row.updatedAt,
+        row.revision,
+        record.provider,
+        record.ownerType,
+        record.ownerId,
+        expectedRevision,
+      );
+    return result.changes === 1 ? saved : null;
   }
 
   async find(
@@ -189,13 +233,15 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
     ownerId: string,
     status: ProviderTokenStatus,
     lastError?: string,
+    expectedRevision?: string,
   ): Promise<void> {
     this.db
       .prepare(
         `
           UPDATE provider_tokens
-          SET status = ?, "lastError" = ?, "lastProbedAt" = ?, "updatedAt" = ?
+          SET status = ?, "lastError" = ?, "lastProbedAt" = ?, "updatedAt" = ?, revision = CASE WHEN ? = 'revoked' THEN ? ELSE revision END
           WHERE provider = ? AND "ownerType" = ? AND "ownerId" = ?
+          ${expectedRevision === undefined ? "" : "AND COALESCE(revision, '') = ? AND status != 'revoked'"}
         `,
       )
       .run(
@@ -203,9 +249,12 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
         sanitizeTokenErrorText(lastError) ?? null,
         Date.now(),
         Date.now(),
+        status,
+        randomUUID(),
         provider,
         ownerType,
         ownerId,
+        ...(expectedRevision === undefined ? [] : [expectedRevision]),
       );
   }
 
@@ -262,6 +311,16 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
       CREATE INDEX IF NOT EXISTS idx_provider_tokens_status
       ON provider_tokens(status);
     `);
+    this.db
+      .transaction(() => {
+        const columns = this.db.prepare("PRAGMA table_info(provider_tokens)").all() as {
+          name: string;
+        }[];
+        if (!columns.some((column) => column.name === "revision")) {
+          this.db.exec("ALTER TABLE provider_tokens ADD COLUMN revision TEXT");
+        }
+      })
+      .immediate();
   }
 
   private createId(provider: string, ownerType: ProviderTokenOwnerType, ownerId: string): string {
@@ -270,6 +329,7 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
 
   private recordToRow(record: ProviderTokenRecord): any {
     return {
+      revision: record.revision,
       id: record.id ?? this.createId(record.provider, record.ownerType, record.ownerId),
       provider: record.provider,
       ownerType: record.ownerType,
@@ -292,6 +352,7 @@ export class SqliteProviderTokenRepository implements ProviderTokenRepository {
 
   private rowToRecord(row: any): ProviderTokenRecord {
     return {
+      revision: row.revision ?? "",
       id: row.id,
       provider: row.provider,
       ownerType: row.ownerType,

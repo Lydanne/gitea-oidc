@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type OidcAdapterConfig, OidcAdapterFactory } from "../OidcAdapterFactory.js";
+import { assertOidcClientWriteAllowed } from "../oidcClientRevocationBarrier.js";
 import { RedisOidcAdapter } from "../RedisOidcAdapter.js";
 import { SqliteOidcAdapter } from "../SqliteOidcAdapter.js";
 
@@ -16,6 +17,7 @@ describe("OidcAdapterFactory", () => {
   afterEach(async () => {
     // 清理资源
     await OidcAdapterFactory.cleanup();
+    vi.restoreAllMocks();
   });
 
   describe("configure", () => {
@@ -415,10 +417,49 @@ describe("OidcAdapterFactory", () => {
         adapter.upsert("other-client", { clientId: "client-2" }),
       ).resolves.toBeUndefined();
 
-      OidcAdapterFactory.allowClientId("client-1");
+      await OidcAdapterFactory.allowClientId("client-1");
       await expect(
         adapter.upsert("after-enable", { clientId: "client-1" }),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("Redis Client 租约失败路径", () => {
+    const setup = () => {
+      OidcAdapterFactory.configure({ type: "redis", redis: { host: "localhost" } });
+      vi.spyOn(RedisOidcAdapter, "disconnect").mockResolvedValue();
+    };
+    it("远端租约创建失败时释放本地租约", async () => {
+      setup();
+      vi.spyOn(RedisOidcAdapter, "acquireClientBlock").mockRejectedValue(new Error("offline"));
+      await expect(OidcAdapterFactory.acquireClientIdBlock("c1")).rejects.toThrow("offline");
+      expect(() => assertOidcClientWriteAllowed({ clientId: "c1" })).not.toThrow();
+    });
+    it("远端提交失败时本地保持封锁", async () => {
+      setup();
+      vi.spyOn(RedisOidcAdapter, "acquireClientBlock").mockResolvedValue({
+        clientId: "c1",
+        commit: async () => {
+          throw new Error("offline");
+        },
+        release: async () => {},
+      });
+      const lease = await OidcAdapterFactory.acquireClientIdBlock("c1");
+      await expect(lease.commit()).rejects.toThrow("offline");
+      expect(() => assertOidcClientWriteAllowed({ clientId: "c1" })).toThrow("Client 已禁用");
+    });
+    it("远端释放失败时仍清理本地临时租约", async () => {
+      setup();
+      vi.spyOn(RedisOidcAdapter, "acquireClientBlock").mockResolvedValue({
+        clientId: "c1",
+        commit: async () => {},
+        release: async () => {
+          throw new Error("offline");
+        },
+      });
+      const lease = await OidcAdapterFactory.acquireClientIdBlock("c1");
+      await expect(lease.release()).rejects.toThrow("offline");
+      expect(() => assertOidcClientWriteAllowed({ clientId: "c1" })).not.toThrow();
     });
   });
 

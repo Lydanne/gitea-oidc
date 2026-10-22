@@ -9,18 +9,22 @@ import { randomBytes } from "crypto";
 import type { Adapter } from "oidc-provider";
 import { createClient } from "redis";
 import {
-  assertOidcWriteAllowed,
   type OidcAccountBlockLease,
   OidcAccountRevokedError,
+  type OidcClientBlockLease,
+  OidcClientRevokedError,
   readOidcPayloadAccountId,
   readOidcPayloadClientId,
 } from "./oidcClientRevocationBarrier.js";
 
-const ACCOUNT_BLOCK_LEASE_TTL_SECONDS = 900;
+const BLOCK_LEASE_TTL_SECONDS = 900;
 
-const UPSERT_ACCOUNT_BOUND_RECORD_SCRIPT = [
-  "if redis.call('EXISTS', KEYS[2]) == 1 or redis.call('EXISTS', KEYS[3]) == 1 then",
+const UPSERT_BOUND_RECORD_SCRIPT = [
+  "if ARGV[6] == '1' and (redis.call('EXISTS', KEYS[2]) == 1 or redis.call('EXISTS', KEYS[3]) == 1) then",
   "  return 0",
+  "end",
+  "if ARGV[7] == '1' and (redis.call('EXISTS', KEYS[4]) == 1 or redis.call('EXISTS', KEYS[5]) == 1) then",
+  "  return -1",
   "end",
   "local keyPrefix = ARGV[1]",
   "local name = ARGV[2]",
@@ -91,7 +95,7 @@ const UPSERT_ACCOUNT_BOUND_RECORD_SCRIPT = [
   "if nextPayload.grantId then",
   "  addSetIndex(keyPrefix .. name .. ':grantId:' .. nextPayload.grantId, id)",
   "end",
-  "addSetIndex(keyPrefix .. 'accountId:' .. nextPayload.accountId, member)",
+  "if nextPayload.accountId then addSetIndex(keyPrefix .. 'accountId:' .. nextPayload.accountId, member) end",
   "local clientId = readClientId(nextPayload)",
   "if clientId then addSetIndex(keyPrefix .. 'clientId:' .. clientId, member) end",
   "return 1",
@@ -231,22 +235,39 @@ export class RedisOidcAdapter implements Adapter {
    * 插入或更新记录
    */
   async upsert(id: string, payload: any, expiresIn?: number): Promise<void> {
-    assertOidcWriteAllowed(payload);
+    // Redis 的共享栅栏是事实源，其他实例重新启用后不能继续受本地旧状态阻塞。
     const client = await this.getClient();
     const key = this.key(id);
     const value = JSON.stringify(payload);
     const accountId = readOidcPayloadAccountId(payload);
-    if (accountId) {
-      const result = await client.eval(UPSERT_ACCOUNT_BOUND_RECORD_SCRIPT, {
+    const clientId = readOidcPayloadClientId(payload);
+    if (accountId || clientId) {
+      const result = await client.eval(UPSERT_BOUND_RECORD_SCRIPT, {
         keys: [
           key,
-          RedisOidcAdapter.accountBlockKey(this.keyPrefix, accountId),
-          RedisOidcAdapter.accountBlockLeasesKey(this.keyPrefix, accountId),
+          accountId ? RedisOidcAdapter.accountBlockKey(this.keyPrefix, accountId) : "",
+          accountId ? RedisOidcAdapter.accountBlockLeasesKey(this.keyPrefix, accountId) : "",
+          clientId ? `${this.keyPrefix}clientBlock:${clientId}` : "",
+          clientId ? `${this.keyPrefix}clientBlockLeases:${clientId}` : "",
         ],
-        arguments: [this.keyPrefix, this.name, id, value, String(expiresIn ?? 0)],
+        arguments: [
+          this.keyPrefix,
+          this.name,
+          id,
+          value,
+          String(expiresIn ?? 0),
+          accountId ? "1" : "0",
+          clientId ? "1" : "0",
+        ],
       });
+      if (Number(result) === -1) {
+        throw new OidcClientRevokedError();
+      }
       if (Number(result) === 0) {
         throw new OidcAccountRevokedError();
+      }
+      if (Number(result) !== 1) {
+        throw new Error("OIDC Redis write barrier operation failed");
       }
       return;
     }
@@ -283,21 +304,6 @@ export class RedisOidcAdapter implements Adapter {
     if (payload.grantId) {
       const grantIdKey = this.grantIdKey(payload.grantId);
       await this.addExpiringSetMember(client, grantIdKey, id, expiresIn);
-    }
-
-    if (payload.accountId) {
-      const accountIdKey = this.accountIdKey(payload.accountId);
-      await this.addExpiringSetMember(client, accountIdKey, `${this.name}:${id}`, expiresIn);
-    }
-
-    const clientId = readOidcPayloadClientId(payload);
-    if (clientId) {
-      await this.addExpiringSetMember(
-        client,
-        this.clientIdKey(clientId),
-        `${this.name}:${id}`,
-        expiresIn,
-      );
     }
   }
 
@@ -461,6 +467,30 @@ export class RedisOidcAdapter implements Adapter {
     const keyPrefix = options?.keyPrefix || "oidc:";
     const leaseKey = RedisOidcAdapter.accountBlockLeasesKey(keyPrefix, accountId);
     const durableKey = RedisOidcAdapter.accountBlockKey(keyPrefix, accountId);
+    return { accountId, ...(await RedisOidcAdapter.acquireBlock(client, durableKey, leaseKey)) };
+  }
+
+  static async acquireClientBlock(
+    clientId: string,
+    options: RedisOidcAdapterOptions | undefined,
+  ): Promise<OidcClientBlockLease> {
+    const client = await RedisOidcAdapter.getSharedClient(options);
+    const prefix = options?.keyPrefix || "oidc:";
+    return {
+      clientId,
+      ...(await RedisOidcAdapter.acquireBlock(
+        client,
+        `${prefix}clientBlock:${clientId}`,
+        `${prefix}clientBlockLeases:${clientId}`,
+      )),
+    };
+  }
+
+  private static async acquireBlock(
+    client: any,
+    durableKey: string,
+    leaseKey: string,
+  ): Promise<Pick<OidcClientBlockLease, "commit" | "release">> {
     const token = randomBytes(32).toString("hex");
     await client.eval(
       [
@@ -470,13 +500,12 @@ export class RedisOidcAdapter implements Adapter {
       ].join("\n"),
       {
         keys: [leaseKey],
-        arguments: [token, String(ACCOUNT_BLOCK_LEASE_TTL_SECONDS)],
+        arguments: [token, String(BLOCK_LEASE_TTL_SECONDS)],
       },
     );
 
     let settled = false;
     return Object.freeze({
-      accountId,
       async commit(): Promise<void> {
         if (settled) return;
         await client.eval(
@@ -551,24 +580,26 @@ export class RedisOidcAdapter implements Adapter {
   ): Promise<void> {
     const client = await RedisOidcAdapter.getSharedClient(options);
     const keyPrefix = options?.keyPrefix || "oidc:";
-    const clientKey = `${keyPrefix}clientId:${clientId}`;
-    const members = await client.sMembers(clientKey);
-    if (members.length === 0) {
-      return;
-    }
+    await client.eval(
+      [
+        "redis.call('SET', KEYS[2], '1')",
+        "local members = redis.call('SMEMBERS', KEYS[1])",
+        "for _, member in ipairs(members) do",
+        "  if string.find(member, ':', 1, true) then redis.call('DEL', ARGV[1] .. member) end",
+        "end",
+        "redis.call('DEL', KEYS[1])",
+        "return #members",
+      ].join("\n"),
+      {
+        keys: [`${keyPrefix}clientId:${clientId}`, `${keyPrefix}clientBlock:${clientId}`],
+        arguments: [keyPrefix],
+      },
+    );
+  }
 
-    const pipeline = client.multi();
-    for (const member of members) {
-      const separator = member.indexOf(":");
-      if (separator <= 0) {
-        continue;
-      }
-      const name = member.slice(0, separator);
-      const id = member.slice(separator + 1);
-      pipeline.del(`${keyPrefix}${name}:${id}`);
-    }
-    pipeline.del(clientKey);
-    await pipeline.exec();
+  static async allowClientId(clientId: string, options?: RedisOidcAdapterOptions): Promise<void> {
+    const client = await RedisOidcAdapter.getSharedClient(options);
+    await client.del(`${options?.keyPrefix || "oidc:"}clientBlock:${clientId}`);
   }
 
   /**

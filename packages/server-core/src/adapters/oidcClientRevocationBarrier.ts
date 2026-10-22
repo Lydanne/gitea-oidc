@@ -11,9 +11,9 @@ interface AccountBlockState {
 export interface OidcClientBlockLease {
   readonly clientId: string;
   /** 状态转换提交后把临时栅栏提升为持久栅栏。 */
-  commit(): void;
+  commit(): void | Promise<void>;
   /** 状态转换失败时只释放当前调用持有的临时栅栏。 */
-  release(): void;
+  release(): void | Promise<void>;
 }
 
 export interface OidcAccountBlockLease {

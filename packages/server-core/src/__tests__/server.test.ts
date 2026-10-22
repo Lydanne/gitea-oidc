@@ -922,3 +922,48 @@ describe("server resource cleanup", () => {
     stateDestroySpy.mockRestore();
   });
 });
+
+describe("OIDC 代理信任边界", () => {
+  it.each([
+    ["203.0.113.44", "attacker.example", "https", "http://id.example.com/oidc/auth"],
+    ["10.1.2.3", "id.example.com", "https", "https://id.example.com/oidc/auth"],
+    [
+      "::ffff:10.1.2.3",
+      "attacker.example, id.example.com",
+      "http, https",
+      "https://id.example.com/oidc/auth",
+    ],
+  ])("只采用受信任来源的转发头：%s", async (remoteAddress, forwardedHost, forwardedProto, expected) => {
+    const tempDir = await mkdtemp(join(tmpdir(), "x-oidc-proxy-"));
+    const config = createValidRuntimeConfig();
+    config.logging.enabled = false;
+    config.admin.enabled = false;
+    config.providerApi.enabled = false;
+    config.auth.providers = {};
+    config.auth.userRepository = { type: "memory" };
+    config.adapter = { type: "memory" };
+    config.jwks = { filePath: join(tempDir, "jwks.json"), keyId: "test" };
+    config.server.trustProxy = true;
+    config.server.trustedProxyIps = ["10.0.0.0/8"];
+    const app = await createIdentityServer(config);
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/oidc/.well-known/openid-configuration",
+        remoteAddress,
+        headers: {
+          host: "id.example.com",
+          "x-forwarded-host": forwardedHost,
+          "x-forwarded-proto": forwardedProto,
+          "x-forwarded-for": "198.51.100.1",
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().authorization_endpoint).toBe(expected);
+      expect(response.json().token_endpoint).toBe(expected.replace(/auth$/, "token"));
+    } finally {
+      await app.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});

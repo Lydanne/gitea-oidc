@@ -176,4 +176,27 @@ describe("PgsqlProviderTokenRepository", () => {
     expect(params).toEqual(["revoked", "valid", new Date("2026-01-01T00:05:00Z"), 20]);
     expect(queryClient.release).toHaveBeenCalled();
   });
+  it.each([0, 1])("使用单条条件 UPDATE 完成并发替换：影响 %s 行", async (rowCount) => {
+    const queryClient = setupNextClient(() => ({ rows: [], rowCount }));
+    const result = await repository.compareAndSwap(
+      {
+        provider: "feishu",
+        ownerType: "user",
+        ownerId: "u1",
+        accessToken: "next",
+        status: "valid",
+      },
+      "expected-revision",
+    );
+    const [sql, params] = queryClient.query.mock.calls[0];
+    expect(sql).toContain("UPDATE provider_tokens");
+    expect(sql).not.toContain("INSERT");
+    expect(sql).toContain("COALESCE(revision, '') = $17 AND status != 'revoked'");
+    expect(params.slice(13)).toEqual(["feishu", "user", "u1", "expected-revision"]);
+    expect(params[0]).not.toBe("next");
+    expect(params[12]).toEqual(expect.any(String));
+    if (rowCount === 0) expect(result).toBeNull();
+    else expect(result).toMatchObject({ accessToken: "next", revision: params[12] });
+    expect(queryClient.release).toHaveBeenCalled();
+  });
 });

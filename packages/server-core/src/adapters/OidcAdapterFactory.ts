@@ -274,13 +274,51 @@ export class OidcAdapterFactory {
   }
 
   /** 应用完成启用后，允许该 Client 再次写入新的 OIDC Artifact。 */
-  static allowClientId(clientId: string): void {
+  static async allowClientId(clientId: string): Promise<void> {
+    if (OidcAdapterFactory.config?.type === "redis") {
+      await RedisOidcAdapter.allowClientId(clientId, OidcAdapterFactory.config.redis);
+    }
     allowOidcClient(clientId);
   }
 
-  /** 在应用状态提交前取得独立栅栏租约，避免并发请求互相解除封锁。 */
-  static acquireClientIdBlock(clientId: string): OidcClientBlockLease {
-    return acquireOidcClientBlock(clientId);
+  /** 在状态提交前建立跨实例租约，失败时只释放当前操作持有的租约。 */
+  static async acquireClientIdBlock(clientId: string): Promise<OidcClientBlockLease> {
+    const localLease = acquireOidcClientBlock(clientId);
+    if (OidcAdapterFactory.config?.type !== "redis") return localLease;
+    let redisLease: OidcClientBlockLease;
+    try {
+      redisLease = await RedisOidcAdapter.acquireClientBlock(
+        clientId,
+        OidcAdapterFactory.config.redis,
+      );
+    } catch (error) {
+      await localLease.release();
+      throw error;
+    }
+    let settled = false;
+    return Object.freeze({
+      clientId,
+      async commit(): Promise<void> {
+        if (settled) return;
+        try {
+          await redisLease.commit();
+        } catch (error) {
+          await localLease.commit();
+          throw error;
+        }
+        await localLease.commit();
+        settled = true;
+      },
+      async release(): Promise<void> {
+        if (settled) return;
+        try {
+          await redisLease.release();
+        } finally {
+          await localLease.release();
+          settled = true;
+        }
+      },
+    });
   }
 
   /**

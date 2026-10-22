@@ -159,6 +159,17 @@ async function createIdentityServerFromConfig(
   try {
     // 从配置获取日志设置并配置 Logger
     Logger.setLevel(config.logging.enabled ? toLogLevel(config.logging.level) : LogLevel.ERROR);
+    // 先按 Fastify 的代理白名单解析，再把规范化结果交给 Koa，避免下游重新信任原始头。
+    app.addHook("onRequest", async (request) => {
+      if (!config.server.trustProxy) return;
+      const host = request.host;
+      const protocol = request.protocol;
+      const ip = request.ip;
+      request.raw.headers["x-forwarded-host"] = host;
+      request.raw.headers["x-forwarded-proto"] = protocol;
+      request.raw.headers["x-forwarded-for"] = ip;
+      delete request.raw.headers.forwarded;
+    });
     // 注册中间件插件
     await app.register(middie);
     await app.register(cors, { origin: resolveCorsOrigin(config.server.corsOrigins) });

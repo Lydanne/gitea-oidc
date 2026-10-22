@@ -18,6 +18,9 @@ export type ProviderTokenStatus = "valid" | "expired" | "refresh_failed" | "revo
  * Provider token 记录
  */
 export interface ProviderTokenRecord {
+  /** 仓储生成的并发版本；调用方不得自行复用。 */
+  revision?: string;
+
   /** 记录唯一 ID，默认由 provider、ownerType、ownerId 组成 */
   id?: string;
 
@@ -115,6 +118,12 @@ export interface ProviderTokenRepository {
    */
   upsert(record: ProviderTokenRecord): Promise<ProviderTokenRecord>;
 
+  /** 原子替换指定版本的未撤销记录；记录已删除或变更时返回 null，禁止重新创建。 */
+  compareAndSwap(
+    record: ProviderTokenRecord,
+    expectedRevision: string,
+  ): Promise<ProviderTokenRecord | null>;
+
   /**
    * 查找指定主体的 token
    * @param provider Provider 名称
@@ -143,12 +152,13 @@ export interface ProviderTokenRepository {
   listProbeCandidates?(options: ProviderTokenProbeCandidateOptions): Promise<ProviderTokenRecord[]>;
 
   /**
-   * 更新 token 健康状态
+   * 更新 token 健康状态；普通探测保留凭证版本，撤销使在途快照失效。
    * @param provider Provider 名称
    * @param ownerType token 所属主体类型
    * @param ownerId token 所属主体 ID
    * @param status 健康状态
    * @param lastError 最近错误摘要
+   * @param expectedRevision 后台刷新或探活的快照版本；不匹配或已撤销时忽略更新
    */
   updateStatus(
     provider: string,
@@ -156,6 +166,7 @@ export interface ProviderTokenRepository {
     ownerId: string,
     status: ProviderTokenStatus,
     lastError?: string,
+    expectedRevision?: string,
   ): Promise<void>;
 
   /**

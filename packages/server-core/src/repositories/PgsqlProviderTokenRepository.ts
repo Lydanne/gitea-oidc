@@ -2,6 +2,7 @@
  * PostgreSQL Provider token 仓储
  */
 
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import type {
   ProviderTokenListOptions,
@@ -39,6 +40,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
       ...existing,
       ...record,
       id,
+      revision: randomUUID(),
       createdAt: existing?.createdAt ?? record.createdAt ?? now,
       updatedAt: now,
     };
@@ -48,8 +50,8 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
       INSERT INTO provider_tokens (
         id, provider, "ownerType", "ownerId", "accessToken", "refreshToken", "tokenType",
         scope, "expiresAt", "refreshExpiresAt", status, "lastProbedAt", "lastRefreshAt",
-        "lastError", metadata, "createdAt", "updatedAt"
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        "lastError", metadata, "createdAt", "updatedAt", revision
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       ON CONFLICT(provider, "ownerType", "ownerId") DO UPDATE SET
         "accessToken" = excluded."accessToken",
         "refreshToken" = excluded."refreshToken",
@@ -62,7 +64,8 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
         "lastRefreshAt" = excluded."lastRefreshAt",
         "lastError" = excluded."lastError",
         metadata = excluded.metadata,
-        "updatedAt" = excluded."updatedAt"
+        "updatedAt" = excluded."updatedAt",
+        revision = excluded.revision
     `;
 
     const client = await this.pool.connect();
@@ -85,8 +88,53 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
         row.metadata,
         row.createdAt,
         row.updatedAt,
+        row.revision,
       ]);
       return saved;
+    } finally {
+      client.release();
+    }
+  }
+
+  async compareAndSwap(
+    record: ProviderTokenRecord,
+    expectedRevision: string,
+  ): Promise<ProviderTokenRecord | null> {
+    await this.ready;
+    const saved = { ...record, revision: randomUUID(), updatedAt: new Date() };
+    const row = this.recordToRow(saved);
+    const sql = `
+      UPDATE provider_tokens SET
+        "accessToken" = $1, "refreshToken" = $2, "tokenType" = $3,
+        "scope" = $4, "expiresAt" = $5, "refreshExpiresAt" = $6,
+        "status" = $7, "lastProbedAt" = $8, "lastRefreshAt" = $9,
+        "lastError" = $10, "metadata" = $11, "updatedAt" = $12,
+        "revision" = $13
+      WHERE provider = $14 AND "ownerType" = $15 AND "ownerId" = $16
+        AND COALESCE(revision, '') = $17 AND status != 'revoked'
+    `;
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(sql, [
+        row.accessToken,
+        row.refreshToken,
+        row.tokenType,
+        row.scope,
+        row.expiresAt,
+        row.refreshExpiresAt,
+        row.status,
+        row.lastProbedAt,
+        row.lastRefreshAt,
+        row.lastError,
+        row.metadata,
+        row.updatedAt,
+        row.revision,
+        record.provider,
+        record.ownerType,
+        record.ownerId,
+        expectedRevision,
+      ]);
+      return result.rowCount === 1 ? saved : null;
     } finally {
       client.release();
     }
@@ -201,6 +249,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
     ownerId: string,
     status: ProviderTokenStatus,
     lastError?: string,
+    expectedRevision?: string,
   ): Promise<void> {
     await this.ready;
     const client = await this.pool.connect();
@@ -208,8 +257,9 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
       await client.query(
         `
           UPDATE provider_tokens
-          SET status = $1, "lastError" = $2, "lastProbedAt" = $3, "updatedAt" = $4
+          SET status = $1, "lastError" = $2, "lastProbedAt" = $3, "updatedAt" = $4, revision = CASE WHEN $1 = 'revoked' THEN $8 ELSE revision END
           WHERE provider = $5 AND "ownerType" = $6 AND "ownerId" = $7
+          ${expectedRevision === undefined ? "" : "AND COALESCE(revision, '') = $9 AND status != 'revoked'"}
         `,
         [
           status,
@@ -219,6 +269,8 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
           provider,
           ownerType,
           ownerId,
+          randomUUID(),
+          ...(expectedRevision === undefined ? [] : [expectedRevision]),
         ],
       );
     } finally {
@@ -293,6 +345,8 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
           UNIQUE(provider, "ownerType", "ownerId")
         );
 
+        ALTER TABLE provider_tokens ADD COLUMN IF NOT EXISTS revision TEXT;
+
         CREATE INDEX IF NOT EXISTS idx_provider_tokens_lookup
         ON provider_tokens(provider, "ownerType", "ownerId");
 
@@ -310,6 +364,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
 
   private recordToRow(record: ProviderTokenRecord): any {
     return {
+      revision: record.revision,
       id: record.id ?? this.createId(record.provider, record.ownerType, record.ownerId),
       provider: record.provider,
       ownerType: record.ownerType,
@@ -332,6 +387,7 @@ export class PgsqlProviderTokenRepository implements ProviderTokenRepository {
 
   private rowToRecord(row: any): ProviderTokenRecord {
     return {
+      revision: row.revision ?? "",
       id: row.id,
       provider: row.provider,
       ownerType: row.ownerType,

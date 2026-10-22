@@ -8,6 +8,7 @@
 - [插件动态路由开发指南](./PLUGIN_ROUTES_GUIDE.md)
 - [Provider API 设计](./PROVIDER_API_DESIGN.md)
 - [Monorepo 架构与包边界](./MONOREPO_ARCHITECTURE.md)
+- [UI 设计与组件约定](./UI_DESIGN.md)：shadcn-vue、现有组件边界、认证页约束和验证
 
 应用管理当前的部署约束和接入流程见[应用管理接入指南](../APPLICATION_MANAGEMENT.md)。
 

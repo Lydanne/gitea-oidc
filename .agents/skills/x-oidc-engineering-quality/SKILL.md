@@ -27,6 +27,7 @@ change touches their area.
 
 ## Pull In Specialized Skills
 
+- Use `$x-oidc-ui-quality` for login, admin, and portal UI components, styling, icons, and browser validation.
 - Use `$x-oidc-auth-provider` for auth providers, OAuth callbacks, permissions, and users.
 - Use `$x-oidc-oidc-storage` for OIDC adapters, Redis, SQLite, TTL, and cleanup.
 - Use `$x-oidc-config-safety` for config loading, schema, JWKS, proxy, and production safety.

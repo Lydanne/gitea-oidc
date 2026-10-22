@@ -40,6 +40,7 @@
 
 - 默认开发入口：`$x-oidc-engineering-quality`，用于新增功能、修 bug、重构维护、
   补测试和质量审查。
+- UI 专项：`$x-oidc-ui-quality`，用于登录页、管理台和门户的组件选型、样式、图标和响应式验证。
 - 认证专项：`$x-oidc-auth-provider`，用于认证插件、OAuth 回调、权限和用户映射。
 - 存储专项：`$x-oidc-oidc-storage`，用于 OIDC SQLite/Redis 适配器和 TTL 语义。
 - 配置专项：`$x-oidc-config-safety`，用于配置加载、Zod schema、JWKS、代理和生产安全。

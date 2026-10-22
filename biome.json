@@ -137,6 +137,14 @@
           }
         }
       }
+    },
+    {
+      "includes": ["apps/admin-web/src/shadcn.css"],
+      "css": {
+        "parser": {
+          "tailwindDirectives": true
+        }
+      }
     }
   ]
 }

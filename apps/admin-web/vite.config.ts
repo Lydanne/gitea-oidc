@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite";
 
@@ -6,7 +7,8 @@ export default defineConfig(({ command }) => ({
   root: fileURLToPath(new URL(".", import.meta.url)),
   // 发布产物使用相对路径，运行时由服务端注入真实 admin.basePath。
   base: command === "build" ? "./" : "/admin/",
-  plugins: [vue()],
+  plugins: [vue(), tailwindcss()],
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: {
     proxy: {
       "/admin/api": "http://localhost:3000",

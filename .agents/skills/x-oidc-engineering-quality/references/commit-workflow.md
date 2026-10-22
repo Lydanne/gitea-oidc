@@ -1,9 +1,10 @@
-# Commit Workflow
+# AI Commit and Push Workflow
 
 ## Mandatory Delivery Rule
 
 After a write task is complete and appropriately validated, create a commit without waiting for a
-second user request. Skip the commit only when the user explicitly requested no commit, the task is
+second user request, then push the current branch unless the user explicitly requested no push or
+local commits only. Skip the commit only when the user explicitly requested no commit, the task is
 read-only, or the implementation is incomplete or known to be broken.
 
 ## Safe Staging
@@ -23,8 +24,20 @@ read-only, or the implementation is incomplete or known to be broken.
 - Split independent package changes when they can be reviewed and reverted separately.
 - Do not use `--no-verify`; Husky and commitlint are required delivery gates.
 
+## Automatic Push
+
+- Inspect the current branch, remotes, upstream, and commits to publish before pushing.
+- Fetch the target remote without tags. Use the configured upstream remote and branch explicitly.
+  Without an upstream, use `origin` with the same branch name and set the upstream only when that
+  target is unambiguous. For a new remote branch, inspect commits since the task's starting revision.
+- Publish only task commits or commits already authorized by the user. If earlier unapproved local
+  commits would be included, preserve the new commit and report the blocker.
+- Stop on detached HEAD, ambiguous targets, divergent remote history, or rejected pushes. Never use
+  force push, bypass hooks or branch protection, or automatically rewrite history to make push succeed.
+- Verify the target branch SHA with `git ls-remote --heads` against local HEAD after pushing.
+- This rule does not authorize tag creation, publication, PR creation, or PR merging.
+
 ## Handoff
 
-After committing, inspect `git status --short` again. Report the commit hash and any remaining
-uncommitted files. A local commit does not authorize push, tag creation, release, or pull-request
-creation.
+Check `git status --short` and report the commit hash, push target and outcome, and remaining
+uncommitted files. Distinguish a successful local commit from a failed or intentionally skipped push.

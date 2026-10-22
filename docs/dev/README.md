@@ -13,7 +13,7 @@
 
 ## 发布与维护
 
-- [开发、验证与自动提交规范](./DEVELOPMENT_WORKFLOW.md)：任务交付边界、提交拆分与强制校验
+- [AI 开发工作流](./DEVELOPMENT_WORKFLOW.md)：验证、自动提交、自动推送与交付边界
 - [发布流程与 CI/CD 指南](./RELEASE_AND_CI_CD.md)：Prepare Release PR、npm OIDC、Docker 标签与失败恢复
 
 ## 草案区

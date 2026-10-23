@@ -570,7 +570,18 @@ client.setAccessToken("<new-oidc-access-token>");
 
 ## Express 接入
 
-Express 中间件通过 OIDC `userinfo` 端点校验 bearer token，并把用户信息放到 `req.user`。
+旧版 `@x-oidc/server-core/express` 和 `/nest` 入口通过受认证的 OAuth Introspection
+校验业务资源的 bearer access token，把可信声明放到 `req.user`。两种入口使用同一校验规则。
+
+**迁移要求：** 原来的 `userInfoEndpoint` 配置已移除，只配置 UserInfo 的旧调用会在初始化时抛错。
+必须提供准确的 `issuer`、当前业务 API 的资源 `audience`、`introspectionEndpoint`，以及资源服务器的
+`clientId` / `clientSecret`。客户端凭据仅保存在业务服务端，不能交给浏览器。
+
+授权服务器需要支持受认证的 Introspection，允许该资源服务器查询令牌，并在资源授权后签发包含资源
+`aud` 的 access token。`audience` 是业务资源标识，不能用发起登录的 `client_id` 替代。
+当前 X OIDC 默认配置未开放资源受众签发及 Introspection 配置，默认的 UserInfo access token
+不能直接用作此处的业务资源令牌。如果授权服务器无法提供这些能力，应使用
+[应用 BFF 连接器](APPLICATION_MANAGEMENT.md#使用-sdk连接器和-cli) 完成应用登录，不要恢复 UserInfo 放行逻辑。
 
 ```typescript
 import express from "express";
@@ -580,7 +591,12 @@ const app = express();
 
 app.use(
   createXOidcExpressMiddleware({
-    userInfoEndpoint: "https://id.example.com/oidc/me",
+    issuer: "https://id.example.com/oidc",
+    audience: "https://api.example.com",
+    introspectionEndpoint: "https://id.example.com/oidc/token/introspection",
+    clientId: "resource-server",
+    clientSecret: process.env.RESOURCE_SERVER_CLIENT_SECRET!,
+    requiredScopes: ["read:items"],
   }),
 );
 
@@ -589,8 +605,19 @@ app.get("/api/me", (req, res) => {
 });
 ```
 
-如果需要在 Express 服务里继续调用 Provider API，可以结合 `@x-oidc/server-core/client` 使用请求中的
-bearer token。
+`req.user` 来自可信 Introspection 响应，不再自动包含 UserInfo 的昵称、邮箱等资料。
+SDK 要求响应包含 `active: true`、准确的 `iss`、非空 `sub`、匹配的 `aud`、未来的整数 `exp`，以及
+`token_type: "Bearer"`；`aud` 可为字符串或字符串数组。配置 `requiredScopes` 时，响应 `scope`
+必须包含全部指定权限，按完整权限名匹配。可选 `nbf` / `iat` 不得晚于当前时间。
+SDK 不支持验证 DPoP 或 mTLS 证明，带 `cnf` 的令牌会被拒绝；RefreshToken 和 ID Token 不能替代访问令牌。
+这些校验基于 [OAuth Introspection](https://www.rfc-editor.org/rfc/rfc7662.html) 的可信响应，
+不会把调用方提供的 JWT payload 或成功的 UserInfo 响应当作资源授权。
+
+`issuer` 和 `introspectionEndpoint` 必须同源，使用 HTTPS；仅本机 loopback 地址允许 HTTP。
+URL 不能包含账号密码、查询参数或 fragment。请求禁止重定向，不缓存验证结果，响应体最多 64 KiB。
+`requestTimeoutMs` 默认为 5000，允许 1–30000 毫秒，覆盖整个请求及响应体读取。
+上游失败或声明不满足条件时，Express 返回通用 401，Nest Guard 返回 `false`。
+业务路由仍需自行检查对象归属等细粒度权限，不应把资源 access token 转交给其他受众的 Provider API。
 
 ## Nest 接入
 
@@ -601,7 +628,12 @@ import { CanActivate, Injectable } from "@nestjs/common";
 import { createXOidcNestGuard, getXOidcUser } from "@x-oidc/server-core/nest";
 
 const BaseGuard = createXOidcNestGuard({
-  userInfoEndpoint: "https://id.example.com/oidc/me",
+  issuer: "https://id.example.com/oidc",
+  audience: "https://api.example.com",
+  introspectionEndpoint: "https://id.example.com/oidc/token/introspection",
+  clientId: "resource-server",
+  clientSecret: process.env.RESOURCE_SERVER_CLIENT_SECRET!,
+  requiredScopes: ["read:items"],
 });
 
 @Injectable()

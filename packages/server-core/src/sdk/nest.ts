@@ -2,6 +2,7 @@
  * Nest 接入工具
  */
 
+import { createBearerTokenVerifier } from "./bearer.js";
 import type { XOidcExpressOptions } from "./express.js";
 
 /**
@@ -9,6 +10,7 @@ import type { XOidcExpressOptions } from "./express.js";
  * @param options bearer token 校验配置
  */
 export function createXOidcNestGuard(options: XOidcExpressOptions) {
+  const verify = createBearerTokenVerifier(options);
   return class XOidcNestGuard {
     /**
      * Nest Guard 入口
@@ -16,22 +18,10 @@ export function createXOidcNestGuard(options: XOidcExpressOptions) {
      */
     async canActivate(context: any): Promise<boolean> {
       const request = context.switchToHttp().getRequest();
-      const authorization = request.headers?.authorization;
-
-      if (!authorization) {
-        return false;
-      }
-
-      const response = await fetch(options.userInfoEndpoint, {
-        headers: { Authorization: authorization },
-      });
-
-      if (!response.ok) {
-        return false;
-      }
-
-      request.user = await response.json();
-      return !!request.user;
+      const user = await verify(request.headers?.authorization);
+      if (!user) return false;
+      request.user = user;
+      return true;
     }
   };
 }

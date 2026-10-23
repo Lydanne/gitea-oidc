@@ -1,41 +1,21 @@
-/**
- * Express 接入中间件
- */
+import { createBearerTokenVerifier, type XOidcBearerOptions } from "./bearer.js";
 
-/**
- * Express 中间件配置
- */
-export interface XOidcExpressOptions {
-  /** userinfo 端点 URL */
-  userInfoEndpoint: string;
-}
+export type XOidcExpressOptions = XOidcBearerOptions;
+export type { XOidcBearerClaims } from "./bearer.js";
 
 /**
  * 创建 Express bearer token 中间件
  * @param options 中间件配置
  */
 export function createXOidcExpressMiddleware(options: XOidcExpressOptions) {
+  const verify = createBearerTokenVerifier(options);
   return async (req: any, res: any, next: any) => {
-    const authorization = req.headers?.authorization;
-    if (!authorization) {
-      res.status(401).json({ error: "Missing Authorization header" });
+    const user = await verify(req.headers?.authorization);
+    if (!user) {
+      res.status(401).json({ error: "Invalid access token" });
       return;
     }
-
-    try {
-      const response = await fetch(options.userInfoEndpoint, {
-        headers: { Authorization: authorization },
-      });
-
-      if (!response.ok) {
-        res.status(401).json({ error: "Invalid access token" });
-        return;
-      }
-
-      req.user = await response.json();
-      next();
-    } catch (err) {
-      next(err);
-    }
+    req.user = user;
+    next();
   };
 }

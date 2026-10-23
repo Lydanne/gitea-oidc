@@ -1,368 +1,189 @@
 # Redis OIDC 适配器使用指南
 
-## 概述
+Redis Adapter 用于多实例 X OIDC，共享 OIDC 协议记录、撤销屏障和短期状态。单实例且启用应用
+管理时应优先使用 SQLite；拓扑选择见[OIDC 适配器配置指南](./ADAPTER_CONFIGURATION.md)。
 
-`RedisOidcAdapter` 是一个使用 Redis 作为持久化存储的 OIDC Provider 适配器,适合高并发和分布式部署场景。
+## 支持边界
 
-## 特性
+当前配置支持：
 
-- ✅ **高性能**: Redis 内存数据库,读写速度快
-- ✅ **分布式支持**: 多个服务实例可共享同一个 Redis
-- ✅ **自动过期**: 利用 Redis 的 TTL 机制自动清理过期数据
-- ✅ **索引支持**: 支持 userCode、uid、grantId 等索引查询
-- ✅ **连接池**: 所有适配器实例共享同一个 Redis 连接
+- Redis URL，包含可选用户名、密码、数据库编号和 TLS scheme。
+- `host`、`port`、`password`、`database` 参数。
+- 独立 `keyPrefix`。
+- OIDC 记录 TTL、索引和原子 Lua 操作。
+- Redis `auth.stateStore`，用于 OAuth state、后台会话和登录失败计数。
 
-## 基本使用
+当前配置不直接支持 Redis Cluster 节点列表或 Sentinel 参数。需要高可用时，应使用提供稳定主节点
+端点的托管 Redis、代理或基础设施层故障切换，并完成真实故障演练。
 
-项目已经包含 Redis 依赖，不需要额外安装。只需要在配置文件中选择 Redis 适配器。
-
-### URL 方式
-
-```json
-{
-  "adapter": {
-    "type": "redis",
-    "redis": {
-      "url": "redis://localhost:6379",
-      "keyPrefix": "oidc:"
-    }
-  }
-}
-```
-
-### 主机和端口方式
+## 完整最小配置
 
 ```json
 {
-  "adapter": {
-    "type": "redis",
-    "redis": {
-      "host": "localhost",
-      "port": 6379,
-      "password": "your-password",
-      "database": 0,
-      "keyPrefix": "oidc:"
+  "auth": {
+    "userRepository": {
+      "type": "pgsql",
+      "pgsql": {
+        "connectionString": "postgresql://x_oidc:your-password@postgres:5432/x_oidc"
+      }
+    },
+    "stateStore": {
+      "type": "redis",
+      "redis": {
+        "url": "redis://:your-password@redis:6379/0",
+        "keyPrefix": "x-oidc:state:"
+      }
     }
-  }
-}
-```
-
-## 配置选项
-
-### RedisOidcAdapterOptions
-
-| 选项 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `url` | `string` | - | Redis 连接 URL,格式: `redis://[:password@]host[:port][/db-number]` |
-| `host` | `string` | `'localhost'` | Redis 主机地址 |
-| `port` | `number` | `6379` | Redis 端口 |
-| `password` | `string` | - | Redis 密码 |
-| `database` | `number` | `0` | Redis 数据库编号 (0-15) |
-| `keyPrefix` | `string` | `'oidc:'` | 键前缀,用于区分不同应用 |
-
-## 环境变量配置
-
-如果使用 `gitea-oidc.config.js`，推荐通过环境变量管理 Redis 连接：
-
-```bash
-REDIS_URL=redis://localhost:6379
-REDIS_PASSWORD=your-password
-REDIS_DB=0
-```
-
-```javascript
-export default {
-  adapter: {
-    type: "redis",
-    redis: {
-      url: process.env.REDIS_URL,
-      password: process.env.REDIS_PASSWORD,
-      database: Number(process.env.REDIS_DB || 0),
-      keyPrefix: "oidc:"
-    }
-  }
-};
-```
-
-## Redis 键结构
-
-适配器使用以下键结构:
-
-```
-oidc:Session:session-id-123           # 主数据
-oidc:AccessToken:token-id-456         # 主数据
-oidc:userCode:USER-CODE-789           # userCode 索引 -> id
-oidc:uid:interaction-uid-012          # uid 索引 -> id
-oidc:grantId:grant-id-345             # grantId 索引 -> Set<id>
-```
-
-### 键命名规则
-
-- **主键**: `{keyPrefix}{name}:{id}`
-- **userCode 索引**: `{keyPrefix}userCode:{userCode}`
-- **uid 索引**: `{keyPrefix}uid:{uid}`
-- **grantId 索引**: `{keyPrefix}grantId:{grantId}` (使用 Set 存储)
-
-## 生产环境部署
-
-### 1. Redis 集群
-
-```typescript
-import { createCluster } from 'redis';
-
-// 注意: 当前实现使用单个客户端
-// 如需集群支持,需要修改 RedisOidcAdapter 使用 createCluster
-const redisOptions = {
-  url: 'redis://redis-cluster:6379',
-};
-```
-
-### 2. Redis Sentinel
-
-```typescript
-const redisOptions = {
-  url: 'redis://sentinel-host:26379',
-  // Sentinel 配置需要额外的选项
-};
-```
-
-### 3. 性能优化
-
-```typescript
-const redisOptions = {
-  url: 'redis://localhost:6379',
-  keyPrefix: 'prod:oidc:',
-  // 可以在 createClient 中添加更多选项
-};
-```
-
-## 监控和调试
-
-### 查看 Redis 中的数据
-
-```bash
-# 连接到 Redis
-redis-cli
-
-# 查看所有 OIDC 相关的键
-KEYS oidc:*
-
-# 查看特定键的值
-GET oidc:Session:session-id-123
-
-# 查看键的 TTL
-TTL oidc:Session:session-id-123
-
-# 查看 grantId 关联的所有 ID
-SMEMBERS oidc:grantId:grant-id-345
-```
-
-### 监控连接
-
-```typescript
-const client = await RedisOidcAdapter.getClient();
-
-client.on('error', (err) => {
-  console.error('Redis Error:', err);
-  // 发送告警
-});
-
-client.on('reconnecting', () => {
-  console.log('Redis Reconnecting...');
-});
-
-client.on('ready', () => {
-  console.log('Redis Ready');
-});
-```
-
-## 与 SQLite 适配器对比
-
-| 特性 | Redis | SQLite |
-|------|-------|--------|
-| **性能** | ⭐⭐⭐⭐⭐ 极快 | ⭐⭐⭐ 快 |
-| **分布式** | ✅ 支持 | ❌ 不支持 |
-| **持久化** | ✅ 支持 (RDB/AOF) | ✅ 支持 |
-| **内存占用** | 较高 | 较低 |
-| **部署复杂度** | 需要 Redis 服务 | 无需额外服务 |
-| **适用场景** | 高并发、分布式 | 单实例、中小规模 |
-
-## 故障排除
-
-### 问题 1: 连接失败
-
-**错误**: `Redis Client Error: connect ECONNREFUSED`
-
-**解决**:
-
-```bash
-# 检查 Redis 是否运行
-redis-cli ping
-
-# 启动 Redis
-redis-server
-
-# 或使用 Docker
-docker run -d -p 6379:6379 redis:latest
-```
-
-### 问题 2: 认证失败
-
-**错误**: `Redis Client Error: NOAUTH Authentication required`
-
-**解决**:
-
-```typescript
-const redisOptions = {
-  url: 'redis://:your-password@localhost:6379',
-  // 或
-  password: 'your-password',
-};
-```
-
-### 问题 3: 数据丢失
-
-**原因**: Redis 重启后数据丢失
-
-**解决**: 启用 Redis 持久化
-
-```bash
-# redis.conf
-save 900 1
-save 300 10
-save 60 10000
-
-appendonly yes
-appendfsync everysec
-```
-
-### 问题 4: 内存不足
-
-**错误**: `OOM command not allowed when used memory > 'maxmemory'`
-
-**解决**:
-
-```bash
-# redis.conf
-maxmemory 2gb
-maxmemory-policy allkeys-lru
-```
-
-## 最佳实践
-
-### 1. 使用键前缀
-
-不同环境使用不同的键前缀:
-
-```typescript
-const redisOptions = {
-  keyPrefix: process.env.NODE_ENV === 'production' 
-    ? 'prod:oidc:' 
-    : 'dev:oidc:',
-};
-```
-
-### 2. 设置合理的 TTL
-
-OIDC Provider 会自动设置 TTL,但可以在配置中调整:
-
-```typescript
-const configuration: Configuration = {
-  ttl: {
-    AccessToken: 3600,      // 1 小时
-    AuthorizationCode: 600, // 10 分钟
-    RefreshToken: 86400,    // 1 天
   },
-};
+  "applications": {
+    "enabled": false,
+    "clientSource": "config"
+  },
+  "adapter": {
+    "type": "redis",
+    "redis": {
+      "url": "redis://:your-password@redis:6379/0",
+      "keyPrefix": "x-oidc:oidc:"
+    }
+  }
+}
 ```
 
-### 3. 监控 Redis 性能
+该片段需要合并到完整生产配置中。所有实例还必须共享相同的静态 `clients`、Cookie Keys、
+Provider 配置和 JWKS。
+
+## Redis 服务要求
+
+### 网络和认证
+
+- Redis 只允许 X OIDC 实例所在网络访问。
+- 启用 Redis ACL 或密码认证。
+- 跨不可信网络时使用 TLS 或受控的加密隧道。
+- 不在配置示例、日志和 Shell 历史中保存真实 Redis URL。
+
+### 内存策略
+
+使用：
+
+```text
+maxmemory-policy noeviction
+```
+
+不要使用 `allkeys-lru`、`volatile-lru` 或其他逐出策略。OIDC Token 带 TTL 不代表它们是普通缓存；
+提前逐出会使会话、授权码、索引或撤销状态不一致。
+
+容量不足时让写入明确失败并触发告警，比静默丢弃认证状态更安全。
+
+### 持久化
+
+按业务 RPO 选择 AOF、RDB 或托管服务备份。恢复演练必须覆盖：
+
+- OIDC 主记录与索引。
+- Account 和 Client 撤销状态。
+- OAuth state 与后台会话。
+- 与同一恢复点匹配的 PostgreSQL 用户数据和 JWKS。
+
+Redis 不是可以随时清空的缓存。执行 `FLUSHDB` 会让已有登录、刷新和撤销语义发生变化。
+
+## Key Prefix
+
+为不同环境和用途使用不同前缀：
+
+```json
+{
+  "adapter": {
+    "type": "redis",
+    "redis": {
+      "keyPrefix": "production:x-oidc:oidc:"
+    }
+  },
+  "auth": {
+    "stateStore": {
+      "type": "redis",
+      "redis": {
+        "keyPrefix": "production:x-oidc:state:"
+      }
+    }
+  }
+}
+```
+
+不要让生产、预发布和开发环境共享相同前缀。修改前缀等同于切换到空存储，会使旧会话不可见。
+
+## 多实例启动
+
+建议顺序：
+
+1. 预置并安全分发同一份 `jwks.json`，不要让不同实例独立生成签名密钥。
+2. 确认所有实例使用完全相同的配置和密钥版本。
+3. 启动一个实例，验证 Redis 连接、发现文档、登录和退出。
+4. 再增加副本并验证任意节点都能处理 Callback 和后台会话。
+5. 验证负载均衡器健康检查和优雅退出。
+
+生产校验会拒绝“Redis OIDC Adapter + memory stateStore”的组合。
+
+## 监控
+
+至少监控：
+
+- `connected_clients` 和连接拒绝。
+- `used_memory`、`maxmemory` 和内存增长趋势。
+- `evicted_keys`，生产目标必须为 `0`。
+- AOF/RDB 最近成功时间和错误。
+- 主从复制延迟和故障切换状态。
+- Lua 执行错误、超时和应用侧 Redis 重连日志。
+
+排查键数量时使用增量 `SCAN`，不要在生产执行阻塞式 `KEYS`：
 
 ```bash
-# 实时监控
-redis-cli --stat
-
-# 查看慢查询
-redis-cli slowlog get 10
-
-# 查看内存使用
-redis-cli info memory
+redis-cli --scan --pattern 'production:x-oidc:oidc:*' | wc -l
+redis-cli --scan --pattern 'production:x-oidc:state:*' | wc -l
 ```
 
-### 4. 定期清理
+命令中的连接凭据应通过安全方式注入。不要把键值正文复制到日志或工单，其中可能包含会话元数据。
 
-虽然 Redis 会自动清理过期键,但可以手动触发:
+## 备份与恢复
 
-```bash
-# 清理所有过期键
-redis-cli --scan --pattern "oidc:*" | xargs redis-cli del
-```
+使用 Redis 平台自身的备份和恢复流程，不手工复制在线数据目录。恢复后：
 
-### 5. 备份策略
+1. 确认 Redis 角色、持久化和复制状态正常。
+2. 使用匹配恢复点的用户数据库、配置和 JWKS 启动一个实例。
+3. 检查发现文档和 JWKS。
+4. 完成登录、刷新和退出测试。
+5. 确认已禁用用户和 Client 的撤销状态符合预期。
+6. 再恢复全部副本。
 
-```bash
-# 手动备份
-redis-cli BGSAVE
+如果恢复点丢失了认证状态，应评估强制全部用户重新登录，而不是假设遗留 Refresh Token 仍被正确
+撤销。
 
-# 定时备份 (crontab)
-0 2 * * * redis-cli BGSAVE
-```
+## 故障排查
 
-## 迁移指南
+### 配置校验提示缺少 Redis
 
-### 从 SQLite 迁移到 Redis
+`adapter.type: "redis"` 和 `auth.stateStore.type: "redis"` 都必须提供 `url` 或 `host`。
 
-1. **安装 Redis**
+### 登录偶发 state 无效
 
-   ```bash
-   # macOS
-   brew install redis
-   brew services start redis
-   
-   # Ubuntu
-   sudo apt install redis-server
-   sudo systemctl start redis
-   
-   # Docker
-   docker run -d -p 6379:6379 redis:latest
-   ```
+确认所有实例都使用 Redis stateStore、相同前缀和相同 Redis 数据库，并检查负载均衡器是否把流量
+发送到了仍使用旧配置的实例。
 
-2. **更新代码**
+### 后台登录或会话跨节点失败
 
-   ```typescript
-   // 旧代码
-   import { SqliteOidcAdapter } from './adapters/SqliteOidcAdapter';
-   adapter: SqliteOidcAdapter,
-   
-   // 新代码
-   import { RedisOidcAdapter } from './adapters/RedisOidcAdapter';
-   adapter: (name) => new RedisOidcAdapter(name, { url: 'redis://localhost:6379' }),
-   ```
+后台会话也保存在 `auth.stateStore`。检查 Redis 连接、前缀、TTL 和各节点时间，不能用 memory
+stateStore 依赖会话粘滞规避。
 
-3. **测试**
+### 出现 `OOM command not allowed`
 
-   ```bash
-   # 启动服务
-   pnpm dev
-   
-   # 检查 Redis 中的数据
-   redis-cli KEYS "oidc:*"
-   ```
+容量已经不足。保持 `noeviction`，先阻止扩容前的持续写入并增加内存或清理其他业务数据。不要切换
+为逐出策略临时掩盖问题。
 
-## 相关资源
+### 故障切换后出现数据回退
 
-- [Redis 官方文档](https://redis.io/documentation)
-- [node-redis 文档](https://github.com/redis/node-redis)
-- [OIDC Provider 文档](https://github.com/panva/node-oidc-provider)
-- [Redis 最佳实践](https://redis.io/docs/manual/patterns/)
+检查 Redis 持久化与复制 RPO，评估丢失的 OIDC 和撤销状态。必要时撤销全部会话、轮换相关 Client
+Secret，并要求用户重新登录。
 
-## 总结
+## 相关文档
 
-Redis OIDC 适配器提供了高性能、可扩展的持久化存储方案,特别适合:
-
-- ✅ 高并发场景
-- ✅ 分布式部署
-- ✅ 需要快速响应的应用
-- ✅ 已有 Redis 基础设施的项目
-
-对于单实例、中小规模的应用,SQLite 适配器可能是更简单的选择。
+- [OIDC 适配器配置指南](./ADAPTER_CONFIGURATION.md)
+- [生产部署指南](./PRODUCTION_SETUP.md)
+- [生产运维手册](./OPERATIONS.md)

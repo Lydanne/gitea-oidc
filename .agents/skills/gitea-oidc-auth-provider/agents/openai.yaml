@@ -1,4 +1,0 @@
-interface:
-  display_name: "Gitea OIDC Auth Provider"
-  short_description: "Build and review auth providers for this repo"
-  default_prompt: "Use $gitea-oidc-auth-provider to add or review an authentication provider."

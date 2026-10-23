@@ -1,0 +1,4 @@
+interface:
+  display_name: "X OIDC Storage"
+  short_description: "Maintain OIDC storage adapters safely"
+  default_prompt: "Use $x-oidc-oidc-storage to change an OIDC persistence adapter."

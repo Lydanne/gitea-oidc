@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Docker 镜像构建脚本
-# 用于构建 gitea-oidc 的 Docker 镜像
+# 用于构建 x-oidc 的 Docker 镜像
 # 可以从任何位置运行
 
 set -e
@@ -40,7 +40,7 @@ fi
 echo -e "${BLUE}📍 找到项目根目录: ${PROJECT_ROOT}${NC}"
 
 # 配置
-IMAGE_NAME="gitea-oidc"
+IMAGE_NAME="x-oidc"
 TAG="latest"
 FULL_IMAGE_NAME="${IMAGE_NAME}:${TAG}"
 

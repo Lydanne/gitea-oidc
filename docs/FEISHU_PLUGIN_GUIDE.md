@@ -35,7 +35,7 @@
 2. 进入「开发者后台」→「企业自建应用」
 3. 点击「创建企业自建应用」
 4. 填写应用信息：
-   - **应用名称**：例如 "Gitea OIDC 登录"
+   - **应用名称**：例如 "X OIDC 登录"
    - **应用描述**：描述应用用途
    - **应用图标**：上传应用图标
 
@@ -51,7 +51,8 @@
   "scopes": {
     "tenant": [
       "contact:user.base:readonly",
-      "contact:user.email:readonly"
+      "contact:user.email:readonly",
+      "tenant:tenant:readonly"
     ],
     "user": [
       "contact:contact.base:readonly",
@@ -99,7 +100,7 @@
 
 ### 方式一：使用 JavaScript 配置文件（推荐）
 
-编辑 `gitea-oidc.config.js`：
+编辑 `x-oidc.config.js`：
 
 ```javascript
 export default {
@@ -170,7 +171,7 @@ export default {
 
 ### 方式二：使用 JSON 配置文件
 
-编辑 `gitea-oidc.config.json`：
+编辑 `x-oidc.config.json`：
 
 ```json
 {
@@ -222,6 +223,33 @@ export default {
 | `config.userMapping` | object | 见下文 | 用户字段映射配置 |
 | `config.apiEndpoint` | string | 飞书公有云 | 私有化部署的 API 端点 |
 
+### 用户组和 Claims
+
+飞书登录成功后，用户组包含一个固定的 `Default` 分组。它替代旧版自动添加的 `Owners`，但不会
+自动获得管理后台权限；后台权限仍由独立的 `admin.allowedGroups` 控制。
+
+未配置 `groupMapping` 时，Provider 会读取飞书企业和部门路径，形成以企业为根节点的
+`groups_tree`。OIDC `groups` 同时输出从根节点到每个节点的名称路径和 ID 路径，例如：
+
+```json
+[
+  "Default",
+  "示例组织",
+  "tenant_example",
+  "示例组织/研发中心",
+  "tenant_example/od_engineering",
+  "示例组织/研发中心/后端组",
+  "tenant_example/od_engineering/od_backend"
+]
+```
+
+飞书应用必须开通 `tenant:tenant:readonly`（获取企业信息），才能保存真实企业名称和
+`tenant_key`。如果该权限缺失，登录不会失败，但组织根节点无法写入，服务端会记录不含敏感数据的
+警告。部门名称和层级还需要 `contact:user.department:readonly` 与
+`contact:user.department_path:readonly`。
+
+配置 `groupMapping` 后，Claim 保留 `Default`，并使用映射后的自定义分组值，不再输出原始企业部门树。
+
 ### redirectUri 配置规则
 
 回调地址格式固定为：
@@ -269,7 +297,7 @@ http(s)://your-server:port/auth/feishu/callback
 │                                                              │
 │  5. 用户登录飞书账号并授权                                   │
 │     ┌────────────────────────────────┐                      │
-│     │  是否允许 "Gitea OIDC 登录"    │                      │
+│     │  是否允许 "X OIDC 登录"    │                      │
 │     │  访问你的基本信息？             │                      │
 │     │                                 │                      │
 │     │  [拒绝]          [同意]        │ ← 用户点击同意       │
@@ -368,7 +396,7 @@ userMapping: {
 
 **解决方案**：
 
-1. 检查 `gitea-oidc.config.js` 中的 `redirectUri`
+1. 检查 `x-oidc.config.js` 中的 `redirectUri`
 2. 检查飞书开放平台「安全设置」中的重定向 URL
 3. 确保两者完全一致（协议、域名、端口、路径）
 4. 不要使用 `localhost`，使用实际的外网地址
@@ -484,7 +512,7 @@ userMapping: {
 ✅ **推荐做法**：
 
 ```javascript
-// gitea-oidc.config.js
+// x-oidc.config.js
 export default {
   auth: {
     providers: {
@@ -522,6 +550,8 @@ export default {
 
 - `cookieKeys`：用于 Cookie 签名
 - `appSecret`：飞书应用密钥（需在飞书平台重新生成）
+- `encryptKey`：用于飞书事件订阅签名校验和加密回调解密
+- `verificationToken`：用于校验飞书 Webhook 和 URL 验证 payload 中的 token
 
 ### 5. 监控异常登录
 
@@ -537,6 +567,9 @@ export default {
 
 - 基础信息：`contact:contact.base:readonly`
 - 邮箱（如需要）：`contact:user.email:readonly`
+- 企业名称：`tenant:tenant:readonly`
+- 部门路径（用于用户组）：`contact:user.department:readonly`、
+  `contact:user.department_path:readonly`
 - 避免申请不必要的权限
 
 ---
@@ -549,16 +582,54 @@ export default {
 
 1. **配置 Webhook URL**（在飞书开放平台）：
 
-   ```
-   http://your-server:3000/auth/feishu/webhook
+   ```text
+   https://your-domain.com/auth/feishu/webhook
    ```
 
-2. **处理的事件类型**：
+2. **配置签名校验和 payload token 校验**：
+
+   在 `auth.providers.feishu.config.encryptKey` 中填写飞书开放平台事件订阅里的 Encrypt Key。
+   服务会使用 `X-Lark-Signature`、`X-Lark-Request-Timestamp`、
+   `X-Lark-Request-Nonce` 和原始 HTTP 请求体校验签名；未配置时会拒绝
+   `/auth/feishu/webhook` 请求。
+
+   在 `auth.providers.feishu.config.verificationToken` 中填写飞书开放平台事件订阅里的
+   Verification Token。服务会校验 webhook 或 URL 验证 payload 中的 token；未配置或不匹配时
+   会拒绝请求。
+
+   ```json
+   {
+     "auth": {
+       "providers": {
+         "feishu": {
+           "enabled": true,
+           "config": {
+             "appId": "cli_your_app_id",
+             "appSecret": "your_app_secret",
+             "redirectUri": "https://your-domain.com/auth/feishu/callback",
+             "encryptKey": "your_encrypt_key_here",
+             "verificationToken": "your_verification_token_here"
+           }
+         }
+       }
+     }
+   }
+   ```
+
+   Webhook 签名时间戳只接受短时间窗口内的请求，过期请求会被拒绝。反向代理不要改写
+   Webhook JSON 请求体，否则签名会无法匹配。
+   如果启用了飞书加密回调，`/auth/feishu/callback` 上的 URL 验证请求会按飞书官方
+   `random + msg_len + msg + app_id` 格式解析密文，并同时校验 `verificationToken` 和密文尾部
+   `app_id`。`app_id` 必须匹配 `auth.providers.feishu.config.appId`，否则请求会被拒绝。
+
+3. **处理的事件类型**：
+
    - 用户信息变更
    - 部门变更
    - 员工入职/离职
 
-3. **自定义事件处理**：
+4. **自定义事件处理**：
+
    可以修改 `FeishuAuthProvider.ts` 中的 `registerWebhooks()` 方法
 
 ### 私有化部署
@@ -585,7 +656,7 @@ feishu: {
 ## 完整配置示例
 
 ```javascript
-// gitea-oidc.config.js
+// x-oidc.config.js
 export default {
   server: {
     host: '0.0.0.0',
@@ -601,8 +672,8 @@ export default {
   oidc: {
     issuer: 'https://oidc.example.com/oidc',
     cookieKeys: [
-      'GqNusJ6i5ZYAzchKV36xydAtAuru5VCb',
-      'gSyHGRASCLersS4Saf3NWUFCYKVBa6hR'
+      'replace-with-random-cookie-key-current',
+      'replace-with-random-cookie-key-previous'
     ],
     claims: {
       openid: ['sub'],
@@ -623,7 +694,7 @@ export default {
   
   clients: [{
     client_id: 'gitea',
-    client_secret: process.env.GITEA_OIDC_CLIENT_SECRET || 'change-this-client-secret',
+    client_secret: process.env.X_OIDC_CLIENT_SECRET || 'change-this-client-secret',
     redirect_uris: ['https://gitea.example.com/user/oauth2/oidc/callback'],
     response_types: ['code'],
     grant_types: ['authorization_code', 'refresh_token'],

@@ -1,181 +1,195 @@
 # 反向代理 HTTPS 配置指南
 
-当你在反向代理（如 Nginx、Traefik、Caddy）后部署 gitea-oidc 时，需要正确配置以确保 OIDC 发现文档中的所有 URL 都使用 HTTPS。
+生产环境必须由受信任的反向代理终止 TLS。X OIDC 根据公开 URL 和代理转发头生成 OIDC
+端点，因此代理信任边界配置错误会导致 HTTP 端点、错误回调或伪造来源地址。
 
-## 问题现象
-
-如果配置不正确，访问 `https://your-domain.com/oidc/.well-known/openid-configuration` 会看到：
-
-```json
-{
-  "issuer": "https://your-domain.com",
-  "authorization_endpoint": "http://your-domain.com/oidc/auth",  // ❌ 错误：应该是 https
-  "token_endpoint": "http://your-domain.com/oidc/token",         // ❌ 错误：应该是 https
-  ...
-}
-```
-
-## 解决方案
-
-### 1. 配置文件设置
-
-在你的 `gitea-oidc.config.json` 或 `gitea-oidc.config.js` 中：
+## 服务端配置
 
 ```json
 {
   "server": {
     "host": "0.0.0.0",
     "port": 3000,
-    "url": "https://your-domain.com",
-    "trustProxy": true  // ⭐ 关键配置：启用代理信任
+    "url": "https://id.example.com",
+    "trustProxy": true,
+    "trustedProxyIps": ["127.0.0.1"],
+    "corsOrigins": []
   },
   "oidc": {
-    "issuer": "https://your-domain.com",  // ⭐ 使用 HTTPS
-    ...
+    "issuer": "https://id.example.com/oidc"
   }
 }
 ```
 
-**关键配置说明：**
+关键约束：
 
-- `server.url`: 设置为公网访问的 HTTPS 地址
-- `oidc.issuer`: 必须与 `server.url` 一致，使用 HTTPS
-- `server.trustProxy`: **必须设置为 `true`**，这样应用才能识别反向代理传递的协议信息
+- `server.url` 是公开服务根地址，不包含 `/oidc`、query 或 fragment。
+- `oidc.issuer` 必须精确等于 `${server.url}/oidc`。
+- `trustProxy` 在生产环境必须为 `true`。
+- `trustedProxyIps` 只包含应用实际看到的代理来源 IP 或最小 CIDR。
+- `corsOrigins` 与反向代理无关，默认保持空数组；只有浏览器跨域调用时才添加精确 HTTPS Origin。
 
-### 2. 反向代理配置
+当代理和服务都在宿主机上时，来源通常是 `127.0.0.1`。当任一方位于容器中时，应用看到的来源
+可能是容器 IP、网桥网关或内部负载均衡地址，必须按实际网络确认，不能照抄示例。
 
-确保你的反向代理正确转发了 `X-Forwarded-*` 头信息。
+OIDC Provider 会启用代理模式读取 `X-Forwarded-*`。因此服务端口必须只对代理所在的受控网络
+开放，不能同时暴露给公网客户端。Docker 映射到宿主机代理时使用：
 
-#### Nginx 配置示例
+```yaml
+ports:
+  - "127.0.0.1:3000:3000"
+```
+
+## Nginx
 
 ```nginx
 server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
+    listen 80;
+    server_name id.example.com;
+    return 301 https://$host$request_uri;
+}
 
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+server {
+    listen 443 ssl;
+    server_name id.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/id.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/id.example.com/privkey.pem;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
 
     location / {
-        proxy_pass http://localhost:3000;
-        
-        # ⭐ 关键：转发原始请求信息
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;  # 告诉应用原始协议是 HTTPS
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
     }
 }
 ```
 
-#### Traefik 配置示例（docker-compose.yml）
+如果代理到容器或远端节点，将 `proxy_pass` 和 `trustedProxyIps` 同时改成实际内部地址。不要使用
+客户端可控制的请求头覆盖固定的 `X-Forwarded-Proto`。
+
+## Traefik
 
 ```yaml
 services:
-  gitea-oidc:
-    image: your-image
+  idp:
+    image: lydamirror/x-oidc:${X_OIDC_VERSION}
+    networks:
+      - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.oidc.rule=Host(`your-domain.com`)"
-      - "traefik.http.routers.oidc.entrypoints=websecure"
-      - "traefik.http.routers.oidc.tls.certresolver=letsencrypt"
-      - "traefik.http.services.oidc.loadbalancer.server.port=3000"
+      - "traefik.http.routers.x-oidc.rule=Host(`id.example.com`)"
+      - "traefik.http.routers.x-oidc.entrypoints=websecure"
+      - "traefik.http.routers.x-oidc.tls=true"
+      - "traefik.http.services.x-oidc.loadbalancer.server.port=3000"
+
+networks:
+  proxy:
+    external: true
 ```
 
-Traefik 会自动添加 `X-Forwarded-*` 头。
+把 `trustedProxyIps` 设置为 Traefik 在该网络中的实际 IP 或受控子网。不要发布 IdP 的 `3000`
+端口到公网。
 
-#### Caddy 配置示例
+## Caddy
 
 ```caddy
-your-domain.com {
-    reverse_proxy localhost:3000
+id.example.com {
+    reverse_proxy 127.0.0.1:3000
 }
 ```
 
-Caddy 会自动处理 HTTPS 和转发头信息。
+Caddy 默认传递所需的反向代理头。服务端仍需设置 `trustProxy: true`，并将
+`trustedProxyIps` 限制为 Caddy 的实际来源地址。
 
-## 工作原理
-
-1. **客户端** → HTTPS 请求 → **反向代理**（Nginx/Traefik）
-2. **反向代理** → HTTP 请求 + `X-Forwarded-Proto: https` 头 → **gitea-oidc**
-3. **gitea-oidc** 检测到 `trustProxy: true`，识别 `X-Forwarded-Proto` 头
-4. **oidc-provider** 生成 HTTPS 的端点 URL
-
-### 技术细节
-
-- `trustProxy: true` 会同时配置 Fastify 和 oidc-provider（Koa）
-- Fastify 的 `trustProxy` 让它能识别 `X-Forwarded-*` 头
-- oidc-provider 的 `proxy` 属性（Koa 特性）让它能正确生成 HTTPS URL
-
-## 验证配置
-
-配置完成后，重启服务并验证：
+## 验证 HTTPS 边界
 
 ```bash
-# 检查发现文档
-curl https://your-domain.com/oidc/.well-known/openid-configuration | jq
-
-# 确认所有端点都是 HTTPS
+curl --fail --silent --show-error \
+  https://id.example.com/oidc/.well-known/openid-configuration | jq \
+  '{issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, end_session_endpoint, jwks_uri}'
 ```
 
-正确的输出应该是：
+检查每个 URL：
 
-```json
-{
-  "issuer": "https://your-domain.com",
-  "authorization_endpoint": "https://your-domain.com/oidc/auth",  // ✅ 正确
-  "token_endpoint": "https://your-domain.com/oidc/token",         // ✅ 正确
-  "userinfo_endpoint": "https://your-domain.com/oidc/me",         // ✅ 正确
-  ...
-}
+- 协议都是 `https`。
+- 主机都是 `id.example.com`。
+- Issuer 精确等于 `https://id.example.com/oidc`。
+- 没有容器名、内网 IP、错误端口或重复 `/oidc`。
+
+确认 HTTP 入口只做重定向：
+
+```bash
+curl --head http://id.example.com/oidc/.well-known/openid-configuration
 ```
+
+确认公网不能直接访问源站端口：
+
+```bash
+nc -vz id.example.com 3000
+```
+
+该连接应失败；只有反向代理所在主机或内部网络可以连接源站端口。
+
+## Gitea 和飞书回调
+
+公开域名变化时，同时更新：
+
+- `server.url`
+- `oidc.issuer`
+- `clients[].redirect_uris`
+- `clients[].post_logout_redirect_uris`
+- `auth.providers.feishu.config.redirectUri`
+- Gitea 或其他业务 Client 保存的发现 URL和 Client 配置
+- 飞书开放平台登记的回调地址
+
+飞书生产回调必须是：
+
+```text
+https://id.example.com/auth/feishu/callback
+```
+
+Gitea 的 Callback URL 和退出回跳见[Gitea 接入指南](./GITEA_INTEGRATION.md)。
 
 ## 常见问题
 
-### Q: 我已经设置了 `issuer` 为 HTTPS，为什么其他端点还是 HTTP？
+### Issuer 正确，但其他端点仍是 HTTP
 
-A: 仅设置 `issuer` 不够，必须同时设置 `trustProxy: true`。oidc-provider 会根据**实际请求的协议**生成端点 URL，而不是仅依赖 issuer 配置。
+确认代理传递了 `X-Forwarded-Proto: https`，服务开启了 `trustProxy`，并且请求确实经过受信任
+代理。修改后重新请求发现文档，不要只查看浏览器缓存。
 
-### Q: 本地开发时需要设置 `trustProxy` 吗？
+### 日志中的客户端 IP 是代理地址
 
-A: 不需要。本地开发直接访问应用时，设置为 `false` 即可。只有在反向代理后才需要启用。
+检查 `trustedProxyIps` 是否匹配应用实际看到的代理来源。容器网络下不要假设代理是
+`127.0.0.1`。
 
-### Q: 我使用的是 Docker，需要特别配置吗？
+### 配置校验提示缺少 `trustedProxyIps`
 
-A: 配置方式相同。确保：
+生产环境禁止无边界信任转发头。填写真实代理 IP 或最小 CIDR，不能使用空数组。
 
-1. 容器内的配置文件设置了 `trustProxy: true`
-2. 反向代理正确转发了 `X-Forwarded-*` 头
-3. 容器可以被反向代理访问（网络配置正确）
+### 反向代理返回 `502`
 
-### Q: 飞书登录的回调 URL 也需要改吗？
+检查：
 
-A: 是的。如果启用了飞书登录，`redirectUri` 也要使用 HTTPS：
+- 容器或进程是否正在监听 `server.host` 和 `server.port`。
+- 代理是否能访问源站网络。
+- Docker 端口是否只绑定到正确宿主地址。
+- 服务是否因生产配置校验失败而退出。
 
-```json
-{
-  "auth": {
-    "providers": {
-      "feishu": {
-        "enabled": true,
-        "config": {
-          "redirectUri": "https://your-domain.com/auth/feishu/callback"
-        }
-      }
-    }
-  }
-}
-```
+### 修改域名后登录或退出失败
 
-## 安全建议
+旧的 Redirect URI 和 Post Logout Redirect URI 不会自动迁移。同步更新所有 Client，并检查精确
+匹配和末尾 `/`。
 
-1. **生产环境必须使用 HTTPS**
-2. **使用有效的 SSL 证书**（Let's Encrypt 免费证书即可）
-3. **定期更新 `cookieKeys`**
-4. **启用 HSTS**（在反向代理层配置）
+## 相关文档
 
-```nginx
-# Nginx HSTS 配置
-add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-```
+- [生产部署指南](./PRODUCTION_SETUP.md)
+- [生产运维手册](./OPERATIONS.md)
+- [Gitea 接入指南](./GITEA_INTEGRATION.md)

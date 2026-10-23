@@ -1,0 +1,51 @@
+/* shadcn-vue 使用独立主题；不导入 preflight，避免改变现有管理页面。 */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  --color-background: var(--ui-background);
+  --color-foreground: var(--ui-foreground);
+  --color-card: var(--ui-card);
+  --color-card-foreground: var(--ui-foreground);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-muted: var(--ui-muted);
+  --color-muted-foreground: var(--ui-muted-foreground);
+  --color-accent: var(--ui-muted);
+  --color-accent-foreground: var(--ui-foreground);
+  --color-secondary: var(--ui-muted);
+  --color-secondary-foreground: var(--ui-foreground);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-border);
+  --color-ring: var(--ui-ring);
+  --color-destructive: #dc2626;
+}
+
+.shadcn-theme {
+  --ui-background: #fafafa;
+  --ui-foreground: #171717;
+  --ui-card: #fff;
+  --ui-primary: #171717;
+  --ui-primary-foreground: #fafafa;
+  --ui-muted: #f5f5f5;
+  --ui-muted-foreground: #737373;
+  --ui-border: #e5e5e5;
+  --ui-ring: #a3a3a3;
+}
+
+@layer base {
+  :where(.shadcn-theme [data-slot="button"]) {
+    border-width: 0;
+  }
+}
+
+/* 未启用 preflight 时，为组件显式提供默认边框。 */
+.shadcn-theme [data-slot="card"] {
+  border: 1px solid var(--ui-border);
+}
+.shadcn-theme [data-slot="button"] {
+  border-style: solid;
+  cursor: pointer;
+  text-decoration: none;
+}

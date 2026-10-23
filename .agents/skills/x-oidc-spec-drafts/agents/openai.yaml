@@ -1,0 +1,4 @@
+interface:
+  display_name: "X OIDC Spec Drafts"
+  short_description: "Manage AI proposals and TODO drafts"
+  default_prompt: "Use $x-oidc-spec-drafts to create or review a temporary AI proposal under docs/spec."

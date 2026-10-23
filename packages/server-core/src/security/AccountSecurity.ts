@@ -13,6 +13,7 @@ import { compare, hash } from "bcrypt";
 import { TOTP } from "otpauth";
 import type { LocalAuthConfig, StateStore, UserInfo, UserRepository } from "../types/auth.js";
 import { Logger } from "../utils/Logger.js";
+import type { PasswordChangeLifecycle } from "./PasswordChangeRevocations.js";
 import {
   newSecurityRecord,
   type SecurityRecord,
@@ -33,6 +34,7 @@ export class AccountSecurity {
     private stateStore: StateStore,
     private users: UserRepository,
     serverUrl: string,
+    private readonly passwordChanges?: PasswordChangeLifecycle,
   ) {
     const url = new URL(serverUrl);
     this.origin = url.origin;
@@ -178,7 +180,9 @@ export class AccountSecurity {
       mustChangePassword: false,
       bootstrapPassword: undefined,
     };
-    await this.save(record.key, record.value, saved);
+    const persist = () => this.save(record.key, record.value, saved);
+    if (this.passwordChanges) await this.passwordChanges.run(user.sub, persist);
+    else await persist();
     if (record.key === "bootstrap") await this.removeBootstrapFile();
   }
 

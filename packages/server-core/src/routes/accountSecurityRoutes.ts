@@ -89,6 +89,10 @@ export function registerAccountSecurityRoutes(options: {
               localProvider.getConfig(),
               revision,
             );
+            return {
+              ok: true,
+              redirectTo: `${basePath}/login/start?returnTo=${encodeURIComponent(`${basePath}/security`)}`,
+            };
           } else if (action === "otp/start")
             return await security.beginOtp(user, binding, revision);
           else if (action === "otp/confirm") {

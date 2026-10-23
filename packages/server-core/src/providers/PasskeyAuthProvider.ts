@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AuthCoordinator } from "../core/AuthCoordinator.js";
 import { type AccountSecurity, SecurityInputError } from "../security/AccountSecurity.js";
 import { passkeyLoginPage } from "../security/securityPages.js";
+import { BffSessionRevokedError } from "../sessions/BffSessionRevocations.js";
 import type {
   AuthContext,
   AuthProvider,
@@ -99,9 +100,14 @@ export class PasskeyAuthProvider implements AuthProvider {
             return reply.code(400).send("Invalid interaction");
           try {
             const pending = await this.security.readLoginFlow(flow, binding);
+            await this.coordinator.assertAuthenticationGeneration(pending.generation);
             return reply.type("text/html").send(passkeyLoginPage(pending.interactionUid, flow));
           } catch (error) {
-            if (!(error instanceof SecurityInputError)) throw error;
+            if (
+              !(error instanceof SecurityInputError) &&
+              !(error instanceof BffSessionRevokedError)
+            )
+              throw error;
             return reply.code(400).send("Invalid interaction");
           }
         },
@@ -160,7 +166,11 @@ export class PasskeyAuthProvider implements AuthProvider {
                 redirectTo: `/interaction/${encodeURIComponent(pending.interactionUid)}/complete`,
               };
             } catch (error) {
-              if (!(error instanceof SecurityInputError)) throw error;
+              if (
+                !(error instanceof SecurityInputError) &&
+                !(error instanceof BffSessionRevokedError)
+              )
+                throw error;
               await this.coordinator.recordAuthenticationEvent({
                 provider: this.name,
                 outcome: "failure",
@@ -168,7 +178,12 @@ export class PasskeyAuthProvider implements AuthProvider {
                 ipAddress: request.ip,
                 userAgent: request.headers["user-agent"],
               });
-              return reply.code(400).send({ error: error.message });
+              return reply.code(400).send({
+                error:
+                  error instanceof BffSessionRevokedError
+                    ? "登录状态已失效，请重新发起登录"
+                    : error.message,
+              });
             }
           },
         }),

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryUserRepository } from "../../repositories/MemoryUserRepository.js";
 import { AccountSecurity } from "../../security/AccountSecurity.js";
 import { MemorySecurityRepository } from "../../security/SecurityRepository.js";
+import { BffSessionRevokedError } from "../../sessions/BffSessionRevocations.js";
 import { MemoryStateStore } from "../../stores/MemoryStateStore.js";
 import { PasskeyAuthProvider } from "../PasskeyAuthProvider.js";
 
@@ -11,20 +12,29 @@ describe("Passkey 浏览器绑定入口", () => {
   let state: MemoryStateStore;
   let flow: string;
   let cookie: string;
+  let revoked = false;
   beforeEach(async () => {
     app = Fastify();
+    revoked = false;
+    const users = new MemoryUserRepository();
     state = new MemoryStateStore();
     const security = new AccountSecurity(
       new MemorySecurityRepository(),
       state,
-      new MemoryUserRepository(),
+      users,
       "https://id.example.com",
     );
-    const provider = new PasskeyAuthProvider(security, {
-      captureAuthenticationGeneration: vi.fn().mockResolvedValue("generation"),
-      assertAuthenticationGeneration: vi.fn(),
-      recordAuthenticationEvent: vi.fn(),
-    } as any);
+    const provider = new PasskeyAuthProvider(
+      security,
+      {
+        captureAuthenticationGeneration: vi.fn().mockResolvedValue("generation"),
+        assertAuthenticationGeneration: vi.fn(() => {
+          if (revoked) throw new BffSessionRevokedError();
+        }),
+        recordAuthenticationEvent: vi.fn(),
+      } as any,
+      users,
+    );
     for (const route of provider.registerRoutes())
       app.route({
         method: route.method,
@@ -56,6 +66,22 @@ describe("Passkey 浏览器绑定入口", () => {
         .statusCode,
     ).toBe(400);
   });
+  it("改密撤销后旧 Passkey 流程返回失效提示，不能继续生成挑战", async () => {
+    revoked = true;
+    expect(
+      (await app.inject({ url: `/auth/passkey/login?flow=${flow}`, headers: { cookie } }))
+        .statusCode,
+    ).toBe(400);
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/passkey/options",
+      headers: { cookie, origin: "https://id.example.com", "x-oidc-security": "1" },
+      payload: { flow, username: "alice" },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "登录状态已失效，请重新发起登录" });
+  });
+
   it("挑战请求需要同源防 CSRF 头、浏览器绑定和有效流程", async () => {
     const headers = { origin: "https://id.example.com", "x-oidc-security": "1", cookie };
     const payload = { flow, username: "unknown" };

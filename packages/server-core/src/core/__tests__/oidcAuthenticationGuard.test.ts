@@ -6,8 +6,15 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { Provider } from "oidc-provider";
 import { afterEach, describe, expect, it } from "vitest";
+import { acquireOidcAccountBlock } from "../../adapters/oidcClientRevocationBarrier.js";
 import { SqliteOidcAdapter } from "../../adapters/SqliteOidcAdapter.js";
+import { MemoryUserRepository } from "../../repositories/MemoryUserRepository.js";
+import { AccountSecurity } from "../../security/AccountSecurity.js";
+import { PasswordChangeRevocations } from "../../security/PasswordChangeRevocations.js";
+import { MemorySecurityRepository } from "../../security/SecurityRepository.js";
 import { MemoryBffSessionRevocations } from "../../sessions/BffSessionRevocations.js";
+import { MemoryStateStore } from "../../stores/MemoryStateStore.js";
+import type { UserInfo } from "../../types/auth.js";
 import { registerOidcAuthenticationGuard } from "../oidcAuthenticationGuard.js";
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -24,6 +31,7 @@ const redirectUri = "https://client.example/callback";
 describe("OIDC 认证撤销请求边界", () => {
   const directories: string[] = [];
   const servers: Server[] = [];
+  const states: MemoryStateStore[] = [];
   afterEach(async () => {
     for (const server of servers.splice(0)) {
       await new Promise<void>((resolve, reject) => {
@@ -31,11 +39,12 @@ describe("OIDC 认证撤销请求边界", () => {
         server.closeAllConnections();
       });
     }
+    for (const state of states.splice(0)) state.destroy();
     await SqliteOidcAdapter.closeAll();
     for (const directory of directories.splice(0)) rmSync(directory, { recursive: true });
   });
 
-  async function setup(findAccountGate?: () => Promise<void>) {
+  async function setup(findAccountGate?: () => Promise<void>, passwordChange = false) {
     const directory = mkdtempSync(join(tmpdir(), "x-oidc-guard-"));
     directories.push(directory);
     const database = join(directory, "oidc.db");
@@ -75,7 +84,31 @@ describe("OIDC 认证撤销请求边界", () => {
       },
     };
     registerOidcAuthenticationGuard(oidc, coordinator);
+    const passwordState = new MemoryStateStore();
+    states.push(passwordState);
+    const passwordSecurity = new AccountSecurity(
+      new MemorySecurityRepository(),
+      passwordState,
+      new MemoryUserRepository(),
+      issuer,
+      new PasswordChangeRevocations(generations, {
+        acquireBlock: acquireOidcAccountBlock,
+        revoke: (accountId) => SqliteOidcAdapter.revokeByAccountId(database, accountId),
+      }),
+    );
     const invalidate = async () => {
+      if (passwordChange) {
+        try {
+          await passwordSecurity.changePassword(
+            { id: "record-1", sub: "user-1", username: "test-user" } as UserInfo,
+            "Test-Changed-Password-123!",
+            { passwordFile: "test.htpasswd", passwordFormat: "bcrypt" },
+          );
+        } finally {
+          passwordState.destroy();
+        }
+        return;
+      }
       const lease = generations.blockUser("user-1");
       await lease.commit();
       generations.allowUser("user-1");
@@ -252,6 +285,57 @@ describe("OIDC 认证撤销请求边界", () => {
     const db = new Database(fixture.database, { readonly: true });
     expect(
       db.prepare("SELECT count(*) AS count FROM oidc_store WHERE name = 'AccessToken'").get(),
+    ).toEqual({ count: 0 });
+    db.close();
+  });
+
+  it.each(["resume", "code"])("真实 OIDC %s 请求跨越改密后不返回旧认证凭据", async (kind) => {
+    let release!: () => void;
+    let entered!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fixture = await setup(async () => {
+      entered();
+      await pending;
+    }, true);
+    let responsePromise: Promise<Response>;
+    if (kind === "resume") {
+      const { interaction, grantId, resume } = await fixture.createInteraction({
+        login: { accountId: "user-1" },
+        x_oidc_authentication: fixture.proof(),
+      });
+      interaction.result!.consent = { grantId };
+      await interaction.persist();
+      responsePromise = resume();
+    } else {
+      const { code } = await fixture.createCode();
+      responsePromise = fixture.requestToken(code);
+    }
+    await paused;
+    try {
+      await fixture.invalidate();
+    } finally {
+      release();
+    }
+    const response = await responsePromise;
+    expect(response.status).toBe(400);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    const body = await response.json();
+    expect(body).toMatchObject({ error: "invalid_request" });
+    expect(body).not.toHaveProperty("access_token");
+    expect(body).not.toHaveProperty("id_token");
+    const db = new Database(fixture.database, { readonly: true });
+    expect(
+      db
+        .prepare(
+          "SELECT count(*) AS count FROM oidc_store WHERE name IN ('Session', 'Grant', 'AccessToken', 'RefreshToken', 'AuthorizationCode')",
+        )
+        .get(),
     ).toEqual({ count: 0 });
     db.close();
   });

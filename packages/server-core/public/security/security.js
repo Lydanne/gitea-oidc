@@ -148,14 +148,15 @@
     event.preventDefault();
     void run(async () => {
       const fields = new FormData(event.target);
-      await request(`${api}/password`, {
+      const result = await request(`${api}/password`, {
         ...proof(),
         newPassword: fields.get("newPassword"),
         confirmPassword: fields.get("confirmPassword"),
       });
       event.target.reset();
       clearProof();
-      show("密码已更新，下次登录请使用新密码");
+      show("密码已更新，所有会话已退出，请使用新密码重新登录");
+      window.location.assign(result.redirectTo);
     });
   });
   byId("begin-otp").addEventListener(

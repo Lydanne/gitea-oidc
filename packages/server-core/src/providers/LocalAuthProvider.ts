@@ -268,6 +268,8 @@ export class LocalAuthProvider implements AuthProvider {
             this.config,
             credentialAfter?.revision ?? null,
           );
+          await this.clearFailedAttempts(username);
+          return { success: false, metadata: { passwordChanged: true } };
         } catch (error) {
           if (!(error instanceof SecurityInputError)) throw error;
           return {

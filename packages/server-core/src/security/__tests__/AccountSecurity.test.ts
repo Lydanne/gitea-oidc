@@ -101,7 +101,7 @@ describe("账号安全与首次登录", () => {
           }),
         )
       ).success,
-    ).toBe(true);
+    ).toBe(false);
     expect(await coordinator.findAccount(admin.sub)).not.toBeNull();
     await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
     expect((await provider.authenticate(context("admin", credentials.password))).success).toBe(
@@ -141,7 +141,7 @@ describe("账号安全与首次登录", () => {
         confirmPassword: createdPassword,
       }),
     );
-    expect(result.success).toBe(true);
+    expect(result).toMatchObject({ success: false, metadata: { passwordChanged: true } });
     expect((await users.findByUsername("admin"))?.groups).toContainEqual({
       id: "operators",
       name: "operators",

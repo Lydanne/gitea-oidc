@@ -431,7 +431,10 @@ export class AuthCoordinator implements IAuthCoordinator {
       // Provider 这里只确认凭据；OIDC 登录成功由 authorization.success 统一记录。
       if (result.success && result.userId) {
         this.app.log.info(`User ${result.userId} authenticated successfully via ${authMethod}`);
-      } else if (result.metadata?.passwordChangeRequired !== true) {
+      } else if (
+        result.metadata?.passwordChangeRequired !== true &&
+        result.metadata?.passwordChanged !== true
+      ) {
         const attemptedUsername = readAttemptedUsername(context);
         const subject = await this.resolveFailedAuthenticationSubject(
           authMethod,

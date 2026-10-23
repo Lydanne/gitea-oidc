@@ -1814,6 +1814,7 @@ function normalizeAdminReturnPath(basePath: string, value?: string): string {
     `${basePath}/providers`,
     `${basePath}/tokens`,
     `${basePath}/audit-logs`,
+    `${basePath}/security`,
   ]);
   if (!value) {
     return `${basePath}/users`;

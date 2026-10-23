@@ -377,7 +377,7 @@ describe("registerAdminRoutes", () => {
     expect(result).toEqual({ items: [], total: 250, allTotal: 250 });
   });
 
-  it("builds the admin login URL and preserves the applications return path", async () => {
+  it("builds the admin login URL and preserves applications and security return paths", async () => {
     const app = createApp();
     const sessionStore = registerAdminRoutes({
       publicDir,
@@ -415,6 +415,14 @@ describe("registerAdminRoutes", () => {
       "Set-Cookie",
       expect.stringMatching(/x_oidc_admin_login=[a-f0-9]{64}/u),
     );
+
+    reply.redirect.mockClear();
+    await handler({ query: { returnTo: "/admin/security" } }, reply);
+    const securityRedirectUrl = new URL(reply.redirect.mock.calls[0][0]);
+    expect(
+      (await sessionStore!.consumeLoginState(securityRedirectUrl.searchParams.get("state") ?? ""))
+        ?.returnTo,
+    ).toBe("/admin/security");
 
     for (const returnTo of [
       "https://evil.example.com/admin/applications",

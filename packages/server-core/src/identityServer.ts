@@ -39,11 +39,12 @@ import { registerAdminRoutes, setAdminSecurityHeaders } from "./routes/adminRout
 import { registerPortalRoutes, setPortalSecurityHeaders } from "./routes/portalRoutes.js";
 import { registerProviderApiRoutes } from "./routes/providerApiRoutes.js";
 import { AccountSecurity } from "./security/AccountSecurity.js";
+import { PasswordChangeRevocations } from "./security/PasswordChangeRevocations.js";
 import {
   createSecurityRepository,
   type SecurityRepository,
 } from "./security/SecurityRepository.js";
-import { passwordChangePage } from "./security/securityPages.js";
+import { passwordChangedPage, passwordChangePage } from "./security/securityPages.js";
 import {
   DistributedBffSessionRevocations,
   getMemoryBffSessionRevocations,
@@ -261,6 +262,10 @@ async function createIdentityServerFromConfig(
       stateStore,
       userRepository,
       config.server.url,
+      new PasswordChangeRevocations(authenticationRevocations, {
+        acquireBlock: (accountId) => OidcAdapterFactory.acquireAccountIdBlock(accountId),
+        revoke: (accountId) => OidcAdapterFactory.revokeByAccountId(accountId),
+      }),
     );
     // 创建认证协调器
     const authCoordinator = new AuthCoordinator({
@@ -784,6 +789,20 @@ async function createIdentityServerFromConfig(
         // 执行认证
         const result = await authCoordinator.handleAuthentication(context);
 
+        if (result.metadata?.passwordChanged === true) {
+          setSecurityPageHeaders(reply, false);
+          const restart = new URL(`${config.oidc.issuer.replace(/\/+$/u, "")}/auth`);
+          for (const [name, value] of Object.entries(details.params)) {
+            if (value === undefined || value === null) continue;
+            for (const item of Array.isArray(value) ? value : [value]) {
+              restart.searchParams.append(
+                name,
+                typeof item === "object" ? JSON.stringify(item) : String(item),
+              );
+            }
+          }
+          return reply.type("text/html").send(passwordChangedPage(restart.toString()));
+        }
         if (result.metadata?.passwordChangeRequired === true) {
           setSecurityPageHeaders(reply, false);
           return reply

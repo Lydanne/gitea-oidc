@@ -424,7 +424,7 @@ export class AuthCoordinator implements IAuthCoordinator {
       const generation = await this.captureAuthenticationGeneration();
       const result = await provider.authenticate(context);
       if (result.success) {
-        await this.assertAuthenticationGeneration(generation);
+        await this.assertAuthenticationGeneration(generation, result.userId);
         result.metadata = { ...result.metadata, authenticationGeneration: generation };
       }
 
@@ -571,10 +571,10 @@ export class AuthCoordinator implements IAuthCoordinator {
     _auditContext?: AuthenticationAuditContext,
     authenticationGeneration?: string,
   ): Promise<void> {
-    await this.assertAuthenticationGeneration(authenticationGeneration);
+    await this.assertAuthenticationGeneration(authenticationGeneration, userId);
     const user = this.authenticationRevocations ? await this.findAccount(userId) : undefined;
     if (this.authenticationRevocations && !user) throw new Error("Authentication expired");
-    await this.assertAuthenticationGeneration(authenticationGeneration);
+    await this.assertAuthenticationGeneration(authenticationGeneration, userId);
     const authResult = {
       authenticationGeneration,
       userRecordId: user?.id,
@@ -585,7 +585,7 @@ export class AuthCoordinator implements IAuthCoordinator {
 
     await this.stateStore.set(`auth_result_${interactionUid}`, authResult, 300); // 5分钟过期
 
-    await this.assertAuthenticationGeneration(authenticationGeneration);
+    await this.assertAuthenticationGeneration(authenticationGeneration, userId);
 
     this.app.log.info(`Stored auth result for interaction: ${interactionUid}, user: ${userId}`);
   }
@@ -599,20 +599,33 @@ export class AuthCoordinator implements IAuthCoordinator {
   }
 
   async captureAuthenticationGeneration(): Promise<string | undefined> {
-    return this.authenticationRevocations?.captureLoginGeneration();
+    const login = await this.authenticationRevocations?.captureLoginGeneration();
+    if (!this.accountSecurity) return login;
+    return JSON.stringify({
+      login,
+      security: await this.accountSecurity.captureAuthenticationVersion(),
+    });
   }
 
-  async assertAuthenticationGeneration(generation: unknown): Promise<void> {
+  async assertAuthenticationGeneration(generation: unknown, userId?: string): Promise<void> {
+    let login = generation;
+    if (this.accountSecurity) {
+      if (typeof generation !== "string") throw new Error("Authentication expired");
+      const snapshot = JSON.parse(generation);
+      if (!snapshot || typeof snapshot !== "object") throw new Error("Authentication expired");
+      await this.accountSecurity.assertAuthenticationVersion(snapshot.security, userId);
+      login = snapshot.login;
+    }
     if (!this.authenticationRevocations) return;
-    if (typeof generation !== "string") throw new Error("Authentication expired");
-    await this.authenticationRevocations.assertLoginGeneration(generation);
+    if (typeof login !== "string") throw new Error("Authentication expired");
+    await this.authenticationRevocations.assertLoginGeneration(login);
   }
 
   async createInteractionAuthentication(generation: unknown, userId: string) {
-    await this.assertAuthenticationGeneration(generation);
+    await this.assertAuthenticationGeneration(generation, userId);
     const user = this.authenticationRevocations ? await this.findAccount(userId) : undefined;
     if (this.authenticationRevocations && !user) throw new Error("Authentication expired");
-    await this.assertAuthenticationGeneration(generation);
+    await this.assertAuthenticationGeneration(generation, userId);
     return { generation, userId, recordId: user?.id };
   }
 
@@ -620,12 +633,12 @@ export class AuthCoordinator implements IAuthCoordinator {
     if (!this.authenticationRevocations) return;
     if (!proof || typeof proof !== "object") throw new Error("Authentication expired");
     const value = proof as Record<string, unknown>;
-    await this.assertAuthenticationGeneration(value.generation);
+    await this.assertAuthenticationGeneration(value.generation, accountId);
     const user = await this.findAccount(accountId);
     if (!user || value.userId !== accountId || value.recordId !== user.id) {
       throw new Error("Authentication expired");
     }
-    await this.assertAuthenticationGeneration(value.generation);
+    await this.assertAuthenticationGeneration(value.generation, accountId);
   }
 
   async consumeAuthResult(interactionUid: string): Promise<PendingAuthentication | null> {

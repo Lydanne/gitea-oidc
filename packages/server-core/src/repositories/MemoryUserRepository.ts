@@ -33,6 +33,9 @@ export class MemoryUserRepository implements UserRepository {
     }
     return null;
   }
+  async findByRecordId(id: string): Promise<UserInfo | null> {
+    return Array.from(this.users.values()).find((user) => user.id === id) ?? null;
+  }
 
   async findByEmail(email: string): Promise<UserInfo | null> {
     for (const user of this.users.values()) {

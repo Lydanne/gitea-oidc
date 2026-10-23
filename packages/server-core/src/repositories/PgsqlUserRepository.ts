@@ -167,6 +167,11 @@ export class PgsqlUserRepository implements UserRepository {
       client.release();
     }
   }
+  async findByRecordId(id: string): Promise<UserInfo | null> {
+    await this.ready;
+    const result = await this.pool.query("SELECT * FROM users WHERE id = $1", [id]);
+    return result.rows.length > 0 ? this.userFromRow(result.rows[0]) : null;
+  }
 
   async findByEmail(email: string): Promise<UserInfo | null> {
     await this.ready;

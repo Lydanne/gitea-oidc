@@ -25,7 +25,7 @@ export function passwordChangedPage(restartUrl: string): string {
 export function passkeyLoginPage(uid: string, flow: string): string {
   return securityPage(
     "使用 Passkey 登录",
-    `<form id="passkey-login" data-flow="${escapeHtml(flow)}"><p>使用已绑定的设备、指纹或安全密钥验证身份。</p><label>用户名<input name="username" autocomplete="username webauthn" required autofocus maxlength="200"></label><button type="submit">使用 Passkey 登录</button></form><a href="/interaction/${encodeURIComponent(uid)}?autoLogin=0">返回其他登录方式</a>`,
+    `<form id="passkey-login" data-flow="${escapeHtml(flow)}"><p>使用已绑定的设备、指纹或安全密钥验证身份。</p><p>请在设备提示中选择要登录的账号。</p><button type="submit">使用 Passkey 登录</button></form><a href="/interaction/${encodeURIComponent(uid)}?autoLogin=0">返回其他登录方式</a>`,
     true,
   );
 }

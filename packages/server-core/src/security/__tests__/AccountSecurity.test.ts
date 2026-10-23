@@ -289,7 +289,7 @@ describe("账号安全与首次登录", () => {
     await expect(
       security.finishRegistration(user, "session", valid.id, {} as any, "key"),
     ).rejects.toThrow();
-    const login = await security.beginAuthentication("alice", "browser", "uid", "generation");
+    const login = await security.beginAuthentication("browser", "uid", "generation");
     await expect(
       security.finishAuthentication("other", "uid", login.id, {} as any),
     ).rejects.toThrow();

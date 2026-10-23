@@ -92,7 +92,6 @@
         const flow = login.dataset.flow;
         const { id, options } = await request("/auth/passkey/options", {
           flow,
-          username: new FormData(login).get("username"),
         });
         const response = await webauthn(options, false);
         const result = await request("/auth/passkey/verify", { flow, id, response });

@@ -3,6 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AccountSecurity } from "../../security/AccountSecurity.js";
+import { MemorySecurityRepository, newSecurityRecord } from "../../security/SecurityRepository.js";
+import { MemoryStateStore } from "../../stores/MemoryStateStore.js";
 import { registerPortalRoutes, setPortalSecurityHeaders } from "../portalRoutes.js";
 
 describe("registerPortalRoutes", () => {
@@ -177,6 +180,64 @@ describe("registerPortalRoutes", () => {
     const binding = String(setCookie).match(/x_oidc_portal_login=([a-f0-9]{64})/u)?.[1];
     return { reply, authorizationUrl, binding: binding! };
   };
+
+  it.each(["token", "session"])("认证策略变化跨越门户回调的 %s 阶段时不签发会话", async (phase) => {
+    const credentials = new MemorySecurityRepository();
+    const stateStore = new MemoryStateStore();
+    const user = createUser();
+    const security = new AccountSecurity(
+      credentials,
+      stateStore,
+      { findById: async () => user } as any,
+      "http://localhost:3000",
+    );
+    const invalidate = () =>
+      credentials.compareAndSet(
+        `user:${user.id}`,
+        null,
+        newSecurityRecord(user.id, user.username),
+        true,
+      );
+    try {
+      const { app, sessionStore } = register({ accountSecurity: security });
+      let sessionId: string | undefined;
+      if (phase === "session") {
+        const create = sessionStore.createSession.bind(sessionStore);
+        vi.spyOn(sessionStore, "createSession").mockImplementation(async (...args) => {
+          const session = await create(...args);
+          sessionId = session.id;
+          await invalidate();
+          return session;
+        });
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          if (phase === "token") await invalidate();
+          return { ok: true, json: async () => ({ access_token: "test-token" }) };
+        }),
+      );
+      const { authorizationUrl, binding } = await startLogin(app);
+      const reply = createReply();
+      await handler(
+        app,
+        "get",
+        "/portal/callback",
+      )(
+        {
+          query: { code: "code", state: authorizationUrl.searchParams.get("state") },
+          headers: { cookie: `x_oidc_portal_login=${binding}` },
+        },
+        reply,
+      );
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.redirect).not.toHaveBeenCalled();
+      expect(reply.header.mock.calls.some(([_, value]) => Array.isArray(value))).toBe(false);
+      if (sessionId) expect(await sessionStore.getSession(sessionId)).toBeNull();
+    } finally {
+      stateStore.destroy();
+    }
+  });
 
   it("serves the portal shell with runtime paths and hardened headers", async () => {
     const { app } = register();

@@ -1,5 +1,5 @@
 import type { LocalAuthProvider } from "../providers/LocalAuthProvider.js";
-import type { AccountSecurity } from "../security/AccountSecurity.js";
+import { type AccountSecurity, SecurityInputError } from "../security/AccountSecurity.js";
 import { registerAccountSecurityRoutes } from "./accountSecurityRoutes.js";
 /**
  * 内置后台管理路由
@@ -367,6 +367,7 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
     }
 
     const loginGeneration = await sessionStore.captureLoginGeneration();
+    const securityVersion = await options.accountSecurity?.captureAuthenticationVersion();
     let userId: string | null;
     try {
       const tokenResponse = await exchangeAdminCode(config, basePath, adminClient, query.code);
@@ -406,9 +407,17 @@ export function registerAdminRoutes(options: AdminRoutesOptions): AdminSessionSt
 
     let session: Awaited<ReturnType<AdminSessionStoreLike["createSession"]>>;
     try {
+      await options.accountSecurity?.assertAuthenticationVersion(securityVersion, user.sub);
       session = await sessionStore.createSession(user.sub, loginGeneration);
+      try {
+        await options.accountSecurity?.assertAuthenticationVersion(securityVersion, user.sub);
+      } catch (error) {
+        await sessionStore.deleteSession(session.id);
+        throw error;
+      }
     } catch (error) {
-      if (error instanceof BffSessionRevokedError) return reply.code(403).send("Login was revoked");
+      if (error instanceof BffSessionRevokedError || error instanceof SecurityInputError)
+        return reply.code(403).send("Login was revoked");
       throw error;
     }
     await appendAuditSafely(auditLogRepository, {

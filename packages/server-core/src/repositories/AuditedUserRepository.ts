@@ -34,6 +34,9 @@ export class AuditedUserRepository implements UserRepository {
   findById(sub: string): Promise<UserInfo | null> {
     return this.delegate.findById(sub);
   }
+  findByRecordId(id: string): Promise<UserInfo | null> {
+    return this.delegate.findByRecordId(id);
+  }
 
   findByUsername(username: string): Promise<UserInfo | null> {
     return this.delegate.findByUsername(username);

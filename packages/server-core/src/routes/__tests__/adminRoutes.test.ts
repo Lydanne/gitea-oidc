@@ -1,6 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { createHash } from "crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountSecurity } from "../../security/AccountSecurity.js";
+import { MemorySecurityRepository, newSecurityRecord } from "../../security/SecurityRepository.js";
+import { MemoryStateStore } from "../../stores/MemoryStateStore.js";
 import { registerAdminRoutes, setAdminSecurityHeaders } from "../adminRoutes.js";
 
 const publicDir = fileURLToPath(new URL("../../../public", import.meta.url));
@@ -1899,6 +1902,92 @@ describe("registerAdminRoutes", () => {
       ipAddress: "203.0.113.10",
       userAgent: "Audit Test",
     });
+  });
+
+  it.each([
+    "token",
+    "session",
+  ])("认证策略变化跨越管理台回调的 %s 阶段时不签发会话", async (phase) => {
+    const app = createApp();
+    const admin = {
+      id: "record-1",
+      sub: "admin-1",
+      username: "admin",
+      groups: createAdminGroups(),
+      status: "active",
+    };
+    const users = { findById: vi.fn().mockResolvedValue(admin) };
+    const stateStore = new MemoryStateStore();
+    const credentials = new MemorySecurityRepository();
+    const security = new AccountSecurity(
+      credentials,
+      stateStore,
+      users as any,
+      "http://localhost:3000",
+    );
+    const invalidate = () =>
+      credentials.compareAndSet(
+        "user:record-1",
+        null,
+        newSecurityRecord("record-1", "admin"),
+        true,
+      );
+    try {
+      const sessionStore = registerAdminRoutes({
+        publicDir,
+        app: app as any,
+        config: {
+          admin: {
+            enabled: true,
+            basePath: "/admin",
+            allowedGroups: ["x-oidc-admins"],
+            sessionTtlSeconds: 3600,
+          },
+          server: { url: "http://localhost:3000" },
+          oidc: { issuer: "http://localhost:3000/oidc" },
+          clients: [createAdminClient()],
+        } as any,
+        oidcProvider: createAdminCallbackOidcProvider() as any,
+        authCoordinator: { getProviders: vi.fn().mockReturnValue([]) } as any,
+        userRepository: users as any,
+        accountSecurity: security,
+      })!;
+      let sessionId: string | undefined;
+      if (phase === "session") {
+        const create = sessionStore.createSession.bind(sessionStore);
+        vi.spyOn(sessionStore, "createSession").mockImplementation(async (...args) => {
+          const session = await create(...args);
+          sessionId = session.id;
+          await invalidate();
+          return session;
+        });
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          if (phase === "token") await invalidate();
+          return { ok: true, json: async () => ({ access_token: "test-token" }) };
+        }),
+      );
+      const loginState = await sessionStore.createLoginState("/admin/users", adminLoginBindingHash);
+      const callback = app.get.mock.calls.find(([path]) => path === "/admin/callback")?.[1];
+      const reply = {
+        code: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+        header: vi.fn().mockReturnThis(),
+        redirect: vi.fn(),
+      };
+      await callback(
+        { headers: adminLoginCookieHeader(), query: { code: "code", state: loginState } },
+        reply,
+      );
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.redirect).not.toHaveBeenCalled();
+      expect(reply.header.mock.calls.some(([_, value]) => Array.isArray(value))).toBe(false);
+      if (sessionId) expect(await sessionStore.getSession(sessionId)).toBeNull();
+    } finally {
+      stateStore.destroy();
+    }
   });
 
   it("rejects admin callbacks that are not bound to the initiating browser", async () => {

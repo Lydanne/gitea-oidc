@@ -582,6 +582,8 @@ export interface UserRepository {
    * 根据 ID 查找用户
    */
   findById(sub: string): Promise<UserInfo | null>;
+  /** 按不可复用的用户记录 ID 查找，供可发现 Passkey 定位凭据所有者。 */
+  findByRecordId(id: string): Promise<UserInfo | null>;
 
   /**
    * 根据用户名查找用户

@@ -82,6 +82,25 @@ describe("Passkey 浏览器绑定入口", () => {
     expect(response.json()).toEqual({ error: "登录状态已失效，请重新发起登录" });
   });
 
+  it("匿名 options 不查询用户名，也不暴露凭据 ID 或账号存在性", async () => {
+    const results = [];
+    for (const username of ["alice", "nonexistent", undefined]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/passkey/options",
+        headers: { cookie, origin: "https://id.example.com", "x-oidc-security": "1" },
+        payload: { flow, username },
+      });
+      expect(response.statusCode).toBe(200);
+      const { options } = response.json();
+      expect(options.allowCredentials ?? []).toEqual([]);
+      const { challenge: _challenge, ...publicOptions } = options;
+      results.push(publicOptions);
+    }
+    expect(results[0]).toEqual(results[1]);
+    expect(results[0]).toEqual(results[2]);
+  });
+
   it("挑战请求需要同源防 CSRF 头、浏览器绑定和有效流程", async () => {
     const headers = { origin: "https://id.example.com", "x-oidc-security": "1", cookie };
     const payload = { flow, username: "unknown" };

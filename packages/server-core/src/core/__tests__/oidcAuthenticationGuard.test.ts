@@ -69,9 +69,21 @@ describe("OIDC 认证撤销请求边界", () => {
     });
     const generations = new MemoryBffSessionRevocations();
     const coordinator = {
-      captureAuthenticationGeneration: async () => generations.captureLoginGeneration(),
-      assertAuthenticationGeneration: async (generation: unknown) => {
+      captureAuthenticationGeneration: async () =>
+        passwordChange
+          ? JSON.stringify({
+              login: generations.captureLoginGeneration(),
+              security: await passwordSecurity.captureAuthenticationVersion(),
+            })
+          : generations.captureLoginGeneration(),
+      assertAuthenticationGeneration: async (generation: unknown, accountId?: string) => {
         if (typeof generation !== "string") throw new Error("Missing generation");
+        if (passwordChange) {
+          const snapshot = JSON.parse(generation);
+          generations.assertLoginGeneration(snapshot.login);
+          await passwordSecurity.assertAuthenticationVersion(snapshot.security, accountId);
+          return;
+        }
         generations.assertLoginGeneration(generation);
       },
       validateInteractionAuthentication: async (proof: unknown, accountId: string) => {
@@ -80,27 +92,34 @@ describe("OIDC 认证撤销请求边界", () => {
         if (value.userId !== accountId || value.recordId !== "record-1") {
           throw new Error("Authentication principal changed");
         }
-        await coordinator.assertAuthenticationGeneration(value.generation);
+        await coordinator.assertAuthenticationGeneration(value.generation, accountId);
       },
     };
     registerOidcAuthenticationGuard(oidc, coordinator);
     const passwordState = new MemoryStateStore();
     states.push(passwordState);
+    const passwordUsers = new MemoryUserRepository();
+    passwordUsers.findById = async (sub) =>
+      ({ id: sub === "user-1" ? "record-1" : "record-2", sub, username: sub }) as UserInfo;
     const passwordSecurity = new AccountSecurity(
       new MemorySecurityRepository(),
       passwordState,
-      new MemoryUserRepository(),
+      passwordUsers,
       issuer,
       new PasswordChangeRevocations(generations, {
         acquireBlock: acquireOidcAccountBlock,
         revoke: (accountId) => SqliteOidcAdapter.revokeByAccountId(database, accountId),
       }),
     );
-    const invalidate = async () => {
+    const invalidate = async (otherUser = false) => {
       if (passwordChange) {
         try {
           await passwordSecurity.changePassword(
-            { id: "record-1", sub: "user-1", username: "test-user" } as UserInfo,
+            {
+              id: otherUser ? "record-2" : "record-1",
+              sub: otherUser ? "user-2" : "user-1",
+              username: "test-user",
+            } as UserInfo,
             "Test-Changed-Password-123!",
             { passwordFile: "test.htpasswd", passwordFormat: "bcrypt" },
           );
@@ -114,7 +133,9 @@ describe("OIDC 认证撤销请求边界", () => {
       generations.allowUser("user-1");
     };
     const proof = () => ({
-      generation: generations.captureLoginGeneration(),
+      generation: passwordChange
+        ? JSON.stringify({ login: generations.captureLoginGeneration(), security: 0 })
+        : generations.captureLoginGeneration(),
       userId: "user-1",
       recordId: "record-1",
     });
@@ -146,7 +167,15 @@ describe("OIDC 认证撤销请求边界", () => {
         authTime: Math.floor(Date.now() / 1000),
         claims: {},
       });
-      return { code: await code.save(), grantId };
+      const refresh = await new oidc.RefreshToken({
+        accountId: "user-1",
+        clientId,
+        grantId,
+        scope: "openid",
+        authTime: Math.floor(Date.now() / 1000),
+        claims: {},
+      }).save();
+      return { code: await code.save(), grantId, refresh };
     };
     const createInteraction = async (
       result: Record<string, unknown>,
@@ -287,6 +316,46 @@ describe("OIDC 认证撤销请求边界", () => {
       db.prepare("SELECT count(*) AS count FROM oidc_store WHERE name = 'AccessToken'").get(),
     ).toEqual({ count: 0 });
     db.close();
+  });
+
+  it.each(["resume", "code"])("其他账号改密不干扰真实 OIDC %s 请求或删除既有授权", async (kind) => {
+    let release!: () => void;
+    let entered!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fixture = await setup(async () => {
+      entered();
+      await pending;
+    }, true);
+    const { code, grantId, refresh } = await fixture.createCode();
+    let responsePromise: Promise<Response>;
+    if (kind === "resume") {
+      const {
+        interaction,
+        grantId: loginGrant,
+        resume,
+      } = await fixture.createInteraction({
+        login: { accountId: "user-1" },
+        x_oidc_authentication: fixture.proof(),
+      });
+      interaction.result!.consent = { grantId: loginGrant };
+      await interaction.persist();
+      responsePromise = resume();
+    } else responsePromise = fixture.requestToken(code);
+    await paused;
+    try {
+      await fixture.invalidate(true);
+    } finally {
+      release();
+    }
+    const response = await responsePromise;
+    expect(response.status).toBe(kind === "resume" ? 303 : 200);
+    expect(await fixture.oidc.Grant.find(grantId)).toBeDefined();
+    expect(await fixture.oidc.RefreshToken.find(refresh)).toBeDefined();
   });
 
   it.each(["resume", "code"])("真实 OIDC %s 请求跨越改密后不返回旧认证凭据", async (kind) => {

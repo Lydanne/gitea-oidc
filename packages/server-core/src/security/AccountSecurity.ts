@@ -56,6 +56,27 @@ export class AccountSecurity {
     return (await this.record(user)).value?.passwordHash;
   }
 
+  captureAuthenticationVersion(): Promise<number> {
+    return this.repository.captureAuthenticationVersion();
+  }
+
+  async assertAuthenticationVersion(version: unknown, userId?: string): Promise<void> {
+    if (
+      !Number.isSafeInteger(version) ||
+      (version as number) < 0 ||
+      (version as number) > (await this.captureAuthenticationVersion())
+    )
+      throw fail();
+    if (userId !== undefined) {
+      const user = await this.users.findById(userId);
+      if (
+        !user ||
+        ((await this.record(user)).value?.authenticationVersion ?? 0) > (version as number)
+      )
+        throw fail();
+    }
+  }
+
   async bootstrap(
     config: LocalAuthConfig,
     passwordUsers: Set<string>,
@@ -180,7 +201,7 @@ export class AccountSecurity {
       mustChangePassword: false,
       bootstrapPassword: undefined,
     };
-    const persist = () => this.save(record.key, record.value, saved);
+    const persist = () => this.save(record.key, record.value, saved, true);
     if (this.passwordChanges) await this.passwordChanges.run(user.sub, persist);
     else await persist();
     if (record.key === "bootstrap") await this.removeBootstrapFile();
@@ -191,9 +212,18 @@ export class AccountSecurity {
     key: string,
     previous: SecurityRecord | null,
     next: SecurityRecord,
+    invalidateAuthentication = false,
   ): Promise<void> {
     next.revision = randomUUID();
-    if (!(await this.repository.compareAndSet(key, previous?.revision ?? null, next))) throw fail();
+    if (
+      !(await this.repository.compareAndSet(
+        key,
+        previous?.revision ?? null,
+        next,
+        invalidateAuthentication,
+      ))
+    )
+      throw fail();
   }
 
   private assertRevision(record: SecurityRecord | null, expectedRevision?: string | null): void {
@@ -306,12 +336,17 @@ export class AccountSecurity {
     )
       throw fail();
     const codes = Array.from({ length: 10 }, () => randomBytes(8).toString("hex"));
-    await this.save(record.key, record.value, {
-      ...(record.value ?? newSecurityRecord(user.id, user.username)),
-      totpSecret: pending.secret,
-      totpLastCounter: counter,
-      recoveryCodeHashes: codes.map(digest),
-    });
+    await this.save(
+      record.key,
+      record.value,
+      {
+        ...(record.value ?? newSecurityRecord(user.id, user.username)),
+        totpSecret: pending.secret,
+        totpLastCounter: counter,
+        recoveryCodeHashes: codes.map(digest),
+      },
+      true,
+    );
     return { recoveryCodes: codes };
   }
 
@@ -319,12 +354,17 @@ export class AccountSecurity {
     const record = await this.record(user);
     this.assertRevision(record.value, expectedRevision);
     if (!record.value) throw fail();
-    await this.save(record.key, record.value, {
-      ...record.value,
-      totpSecret: undefined,
-      totpLastCounter: undefined,
-      recoveryCodeHashes: undefined,
-    });
+    await this.save(
+      record.key,
+      record.value,
+      {
+        ...record.value,
+        totpSecret: undefined,
+        totpLastCounter: undefined,
+        recoveryCodeHashes: undefined,
+      },
+      true,
+    );
   }
 
   private assertPasskeyOrigin(): void {
@@ -406,30 +446,40 @@ export class AccountSecurity {
     }
     if (owner?.ownerId !== user.id) throw fail();
     if (record.value?.passkeys.some((item) => item.id === credential.id)) throw fail();
-    await this.save(record.key, record.value, {
-      ...(record.value ?? newSecurityRecord(user.id, user.username)),
-      passkeys: [
-        ...(record.value?.passkeys ?? []),
-        {
-          id: credential.id,
-          publicKey: Buffer.from(credential.publicKey).toString("base64url"),
-          counter: credential.counter,
-          transports: credential.transports,
-          name: name.trim().slice(0, 80) || "我的 Passkey",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    });
+    await this.save(
+      record.key,
+      record.value,
+      {
+        ...(record.value ?? newSecurityRecord(user.id, user.username)),
+        passkeys: [
+          ...(record.value?.passkeys ?? []),
+          {
+            id: credential.id,
+            publicKey: Buffer.from(credential.publicKey).toString("base64url"),
+            counter: credential.counter,
+            transports: credential.transports,
+            name: name.trim().slice(0, 80) || "我的 Passkey",
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      true,
+    );
   }
 
   async deletePasskey(user: UserInfo, id: string, expectedRevision?: string | null): Promise<void> {
     const record = await this.record(user);
     this.assertRevision(record.value, expectedRevision);
     if (!record.value || !record.value.passkeys.some((item) => item.id === id)) throw fail();
-    await this.save(record.key, record.value, {
-      ...record.value,
-      passkeys: record.value.passkeys.filter((item) => item.id !== id),
-    });
+    await this.save(
+      record.key,
+      record.value,
+      {
+        ...record.value,
+        passkeys: record.value.passkeys.filter((item) => item.id !== id),
+      },
+      true,
+    );
   }
 
   async createLoginFlow(
@@ -457,32 +507,23 @@ export class AccountSecurity {
     return flow;
   }
 
-  async beginAuthentication(
-    username: string,
-    binding: string,
-    interactionUid: string,
-    generation?: string,
-  ) {
+  async beginAuthentication(binding: string, interactionUid: string, generation?: string) {
     this.assertPasskeyOrigin();
-    const user = await this.users.findByUsername(username);
-    const record = user ? await this.record(user) : null;
-    // 空列表也生成同形挑战，验证阶段统一失败，避免直接暴露账号是否存在。
+    const authenticationVersion = await this.captureAuthenticationVersion();
+    // 使用可发现凭据，匿名挑战不查询账号，也不返回任何账号的 credential ID。
     const options = await generateAuthenticationOptions({
       rpID: this.rpID,
       userVerification: "required",
-      allowCredentials: record?.value?.passkeys.map(({ id, transports }) => ({ id, transports })),
     });
     const id = randomBytes(32).toString("hex");
     await this.stateStore.set(
       `account-security:authenticate:${id}`,
       {
-        ownerId: user?.id,
-        sub: user?.sub,
         binding: digest(binding),
         interactionUid,
         generation,
         challenge: options.challenge,
-        revision: record?.value?.revision ?? null,
+        authenticationVersion,
       },
       TTL,
     );
@@ -499,30 +540,22 @@ export class AccountSecurity {
     if (
       !pending ||
       pending.binding !== digest(binding) ||
-      pending.interactionUid !== interactionUid ||
-      !pending.sub
+      pending.interactionUid !== interactionUid
     )
       throw fail();
-    const user = await this.users.findById(pending.sub);
-    if (
-      !user ||
-      user.id !== pending.ownerId ||
-      user.authProvider !== "local" ||
-      (user.status && user.status !== "active")
-    )
+    if (typeof response?.id !== "string") throw fail();
+    const owner = await this.repository.get(`passkey:${digest(response.id)}`);
+    const user = owner ? await this.users.findByRecordId(owner.ownerId) : null;
+    if (!user || user.authProvider !== "local" || (user.status && user.status !== "active"))
       throw fail();
     const record = await this.record(user);
-    if (
-      !record.value ||
-      record.value.revision !== pending.revision ||
-      record.value.mustChangePassword
-    )
-      throw fail();
+    if (!record.value || record.value.mustChangePassword) throw fail();
+    // 挑战本身也绑定策略快照，删除凭据、启用 OTP 或改密后不能重用旧挑战。
+    await this.assertAuthenticationVersion(pending.authenticationVersion, user.sub);
     const credential = record.value.passkeys.find((item) => item.id === response.id);
     if (!credential) throw fail();
     const expectedHandle = createHash("sha256").update(user.id).digest("base64url");
-    if (response.response.userHandle && response.response.userHandle !== expectedHandle)
-      throw fail();
+    if (response.response?.userHandle !== expectedHandle) throw fail();
     let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
     try {
       verification = await verifyAuthenticationResponse({

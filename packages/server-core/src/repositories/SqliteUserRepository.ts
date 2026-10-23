@@ -123,6 +123,10 @@ export class SqliteUserRepository implements UserRepository {
   async findById(sub: string): Promise<UserInfo | null> {
     return this.findByIdSync(sub);
   }
+  async findByRecordId(id: string): Promise<UserInfo | null> {
+    const row = this.db.prepare("SELECT * FROM users WHERE id = ?").get(id);
+    return row ? this.userFromRow(row) : null;
+  }
 
   async findByUsername(username: string): Promise<UserInfo | null> {
     const stmt = this.db.prepare("SELECT * FROM users WHERE username = ?");

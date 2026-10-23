@@ -18,6 +18,7 @@ export interface SecurityRecord {
   ownerId: string;
   username: string;
   revision: string;
+  authenticationVersion?: number;
   passwordHash?: string;
   mustChangePassword?: boolean;
   bootstrapPassword?: string;
@@ -31,7 +32,13 @@ export interface SecurityRecord {
 
 export interface SecurityRepository {
   get(key: string): Promise<SecurityRecord | null>;
-  compareAndSet(key: string, expected: string | null, record: SecurityRecord): Promise<boolean>;
+  compareAndSet(
+    key: string,
+    expected: string | null,
+    record: SecurityRecord,
+    invalidateAuthentication?: boolean,
+  ): Promise<boolean>;
+  captureAuthenticationVersion(): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -63,6 +70,10 @@ class SecurityPayloadCipher {
 
 export class MemorySecurityRepository implements SecurityRepository {
   private records = new Map<string, SecurityRecord>();
+  private authenticationVersion = 0;
+  async captureAuthenticationVersion(): Promise<number> {
+    return this.authenticationVersion;
+  }
   async get(key: string): Promise<SecurityRecord | null> {
     return structuredClone(this.records.get(key) ?? null);
   }
@@ -70,8 +81,14 @@ export class MemorySecurityRepository implements SecurityRepository {
     key: string,
     expected: string | null,
     record: SecurityRecord,
+    invalidateAuthentication = false,
   ): Promise<boolean> {
     if ((this.records.get(key)?.revision ?? null) !== expected) return false;
+    if (invalidateAuthentication) {
+      if (this.authenticationVersion >= Number.MAX_SAFE_INTEGER)
+        throw new Error("Account security clock exhausted");
+      record.authenticationVersion = ++this.authenticationVersion;
+    }
     this.records.set(key, structuredClone(record));
     return true;
   }
@@ -88,7 +105,7 @@ export class SqliteSecurityRepository implements SecurityRepository {
     this.db = new Database(path);
     this.db.pragma("busy_timeout = 5000");
     this.db.exec(
-      "CREATE TABLE IF NOT EXISTS account_security (id TEXT PRIMARY KEY, revision TEXT NOT NULL, payload TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS account_security (id TEXT PRIMARY KEY, revision TEXT NOT NULL, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_security_clock (id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL); INSERT OR IGNORE INTO account_security_clock VALUES (1, 0)",
     );
     try {
       for (const row of this.db.prepare("SELECT id, payload FROM account_security").all() as {
@@ -112,25 +129,54 @@ export class SqliteSecurityRepository implements SecurityRepository {
       | undefined;
     return row ? JSON.parse(this.encryptor.decrypt(row.payload).plaintext) : null;
   }
+  async captureAuthenticationVersion(): Promise<number> {
+    return (
+      this.db.prepare("SELECT version FROM account_security_clock WHERE id = 1").get() as {
+        version: number;
+      }
+    ).version;
+  }
   async compareAndSet(
     key: string,
     expected: string | null,
     record: SecurityRecord,
+    invalidateAuthentication = false,
   ): Promise<boolean> {
-    const payload = this.encryptor.encrypt(JSON.stringify(record));
-    const result =
-      expected === null
-        ? this.db
+    // 凭据版本与顺序时钟在同一事务中提交，避免改密与在途请求之间出现可见性间隙。
+    try {
+      return this.db.transaction(() => {
+        if (invalidateAuthentication) {
+          const row = this.db
             .prepare(
-              "INSERT INTO account_security (id, revision, payload) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+              "UPDATE account_security_clock SET version = version + 1 WHERE id = 1 AND version < 9007199254740991 RETURNING version",
             )
-            .run(key, record.revision, payload)
-        : this.db
-            .prepare(
-              "UPDATE account_security SET revision = ?, payload = ? WHERE id = ? AND revision = ?",
-            )
-            .run(record.revision, payload, key, expected);
-    return result.changes === 1;
+            .get() as { version: number } | undefined;
+          if (!row) throw new Error("Account security clock exhausted");
+          record.authenticationVersion = row.version;
+        }
+        const payload = this.encryptor.encrypt(JSON.stringify(record));
+        const result =
+          expected === null
+            ? this.db
+                .prepare(
+                  "INSERT INTO account_security (id, revision, payload) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+                )
+                .run(key, record.revision, payload)
+            : this.db
+                .prepare(
+                  "UPDATE account_security SET revision = ?, payload = ? WHERE id = ? AND revision = ?",
+                )
+                .run(record.revision, payload, key, expected);
+        if (result.changes !== 1) {
+          if (invalidateAuthentication) throw new SecurityCompareConflict();
+          return false;
+        }
+        return true;
+      })();
+    } catch (error) {
+      if (error instanceof SecurityCompareConflict) return false;
+      throw error;
+    }
   }
   async close(): Promise<void> {
     this.db.close();
@@ -163,6 +209,9 @@ export class PgsqlSecurityRepository implements SecurityRepository {
     await this.pool.query(
       "CREATE TABLE IF NOT EXISTS account_security (id TEXT PRIMARY KEY, revision TEXT NOT NULL, payload TEXT NOT NULL)",
     );
+    await this.pool.query(
+      "CREATE TABLE IF NOT EXISTS account_security_clock (id INTEGER PRIMARY KEY CHECK(id = 1), version BIGINT NOT NULL); INSERT INTO account_security_clock VALUES (1, 0) ON CONFLICT(id) DO NOTHING",
+    );
     const result = await this.pool.query("SELECT id, payload FROM account_security");
     for (const row of result.rows) {
       const { rotated } = this.encryptor.decrypt(row.payload);
@@ -182,12 +231,54 @@ export class PgsqlSecurityRepository implements SecurityRepository {
       ? JSON.parse(this.encryptor.decrypt(result.rows[0].payload).plaintext)
       : null;
   }
+  async captureAuthenticationVersion(): Promise<number> {
+    await this.ready;
+    const result = await this.pool.query("SELECT version FROM account_security_clock WHERE id = 1");
+    const version = Number(result.rows[0]?.version);
+    if (!Number.isSafeInteger(version) || version < 0)
+      throw new Error("Invalid account security clock");
+    return version;
+  }
   async compareAndSet(
     key: string,
     expected: string | null,
     record: SecurityRecord,
+    invalidateAuthentication = false,
   ): Promise<boolean> {
     await this.ready;
+    if (invalidateAuthentication) {
+      const client = await this.pool.connect();
+      try {
+        await client.query("BEGIN");
+        const clock = await client.query(
+          "UPDATE account_security_clock SET version = version + 1 WHERE id = 1 AND version < 9007199254740991 RETURNING version",
+        );
+        if (!clock.rows[0]) throw new Error("Account security clock exhausted");
+        record.authenticationVersion = Number(clock.rows[0].version);
+        const payload = this.encryptor.encrypt(JSON.stringify(record));
+        const result =
+          expected === null
+            ? await client.query(
+                "INSERT INTO account_security (id, revision, payload) VALUES ($1, $2, $3) ON CONFLICT(id) DO NOTHING",
+                [key, record.revision, payload],
+              )
+            : await client.query(
+                "UPDATE account_security SET revision = $1, payload = $2 WHERE id = $3 AND revision = $4",
+                [record.revision, payload, key, expected],
+              );
+        if (result.rowCount !== 1) {
+          await client.query("ROLLBACK");
+          return false;
+        }
+        await client.query("COMMIT");
+        return true;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
     const payload = this.encryptor.encrypt(JSON.stringify(record));
     const result =
       expected === null
@@ -206,6 +297,8 @@ export class PgsqlSecurityRepository implements SecurityRepository {
     await this.pool.end();
   }
 }
+
+class SecurityCompareConflict extends Error {}
 
 export function createSecurityRepository(
   config: UserRepositoryConfig,

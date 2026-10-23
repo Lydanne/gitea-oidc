@@ -9,7 +9,10 @@ export interface PasswordChangeLifecycle {
 export class PasswordChangeRevocations implements PasswordChangeLifecycle {
   constructor(
     private readonly sessions: {
-      blockUser(accountId: string): BffSessionBlockLease | Promise<BffSessionBlockLease>;
+      blockUser(
+        accountId: string,
+        invalidateAllLogins?: boolean,
+      ): BffSessionBlockLease | Promise<BffSessionBlockLease>;
     },
     private readonly oidc: {
       acquireBlock(accountId: string): OidcAccountBlockLease | Promise<OidcAccountBlockLease>;
@@ -22,8 +25,8 @@ export class PasswordChangeRevocations implements PasswordChangeLifecycle {
     let sessionLease: BffSessionBlockLease | undefined;
     const errors: unknown[] = [];
     try {
-      // 轮换登录代际使旧 OAuth state、认证结果和在途请求在解除封锁后仍然失效。
-      sessionLease = await this.sessions.blockUser(accountId);
+      // 只撤销当前账号的 BFF 会话；凭据版本随密码原子提交，不轮换其他账号的登录代际。
+      sessionLease = await this.sessions.blockUser(accountId, false);
       await this.oidc.revoke(accountId);
       await persistPassword();
     } catch (error) {

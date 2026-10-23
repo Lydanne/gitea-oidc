@@ -2,7 +2,7 @@ import type { KoaContextWithOIDC, Provider } from "oidc-provider";
 
 export interface OidcAuthenticationGuardCoordinator {
   captureAuthenticationGeneration(): Promise<string | undefined>;
-  assertAuthenticationGeneration(generation: unknown): Promise<void>;
+  assertAuthenticationGeneration(generation: unknown, userId?: string): Promise<void>;
   validateInteractionAuthentication(proof: unknown, accountId: string): Promise<void>;
 }
 
@@ -48,7 +48,9 @@ export function registerOidcAuthenticationGuard(
       requestError = error;
     }
     try {
-      await coordinator.assertAuthenticationGeneration(generation);
+      const accountId =
+        ctx.oidc?.account?.accountId ?? ctx.oidc?.grant?.accountId ?? ctx.oidc?.session?.accountId;
+      await coordinator.assertAuthenticationGeneration(generation, accountId);
     } catch {
       await cleanupInvalidatedRequest(oidc, ctx);
       rejectInvalidatedRequest(ctx);

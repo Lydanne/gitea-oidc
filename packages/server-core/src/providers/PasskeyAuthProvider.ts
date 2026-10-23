@@ -129,14 +129,7 @@ export class PasskeyAuthProvider implements AuthProvider {
               const pending = await this.security.readLoginFlow(body.flow, binding);
               await this.coordinator.assertAuthenticationGeneration(pending.generation);
               if (action === "options") {
-                if (
-                  typeof body.username !== "string" ||
-                  !body.username ||
-                  body.username.length > 200
-                )
-                  return reply.code(400).send({ error: "请输入用户名" });
                 return await this.security.beginAuthentication(
-                  body.username,
                   binding,
                   pending.interactionUid,
                   pending.generation,
@@ -151,7 +144,10 @@ export class PasskeyAuthProvider implements AuthProvider {
                 body.response,
               );
               await this.security.readLoginFlow(body.flow, binding, true);
-              await this.coordinator.assertAuthenticationGeneration(result.generation);
+              await this.coordinator.assertAuthenticationGeneration(
+                result.generation,
+                result.user.sub,
+              );
               await this.coordinator.storeAuthResult(
                 pending.interactionUid,
                 result.user.sub,

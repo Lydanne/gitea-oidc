@@ -70,17 +70,28 @@ export class MemoryBffSessionRevocations {
     return !!entry && entry.expiresAt > Date.now() && !entry.blocked && entry.id === generation;
   }
 
-  blockUser(userId: string): BffSessionBlockLease {
+  blockUser(userId: string, invalidateAllLogins = true): BffSessionBlockLease {
     const token = randomBytes(32).toString("hex");
-    this.updateBlocks(userId, (blocks) => [...blocks, { token, committed: false }]);
+    this.updateBlocks(
+      userId,
+      (blocks) => [...blocks, { token, committed: false }],
+      invalidateAllLogins,
+    );
     return {
       commit: () => {
-        this.updateBlocks(userId, (blocks) =>
-          blocks.map((block) => (block.token === token ? { ...block, committed: true } : block)),
+        this.updateBlocks(
+          userId,
+          (blocks) =>
+            blocks.map((block) => (block.token === token ? { ...block, committed: true } : block)),
+          invalidateAllLogins,
         );
       },
       release: () => {
-        this.updateBlocks(userId, (blocks) => blocks.filter((block) => block.token !== token));
+        this.updateBlocks(
+          userId,
+          (blocks) => blocks.filter((block) => block.token !== token),
+          invalidateAllLogins,
+        );
       },
     };
   }
@@ -93,8 +104,9 @@ export class MemoryBffSessionRevocations {
   private updateBlocks(
     userId: string,
     transform: (blocks: NonNullable<Generation["blocks"]>) => NonNullable<Generation["blocks"]>,
+    invalidateAllLogins = true,
   ): void {
-    this.loginGeneration = randomBytes(32).toString("hex");
+    if (invalidateAllLogins) this.loginGeneration = randomBytes(32).toString("hex");
     const blocks = transform(this.users.get(userId)?.blocks ?? []);
     this.users.set(userId, {
       id: randomBytes(32).toString("hex"),
@@ -146,18 +158,27 @@ export class DistributedBffSessionRevocations {
     );
   }
 
-  async blockUser(userId: string): Promise<BffSessionBlockLease> {
+  async blockUser(userId: string, invalidateAllLogins = true): Promise<BffSessionBlockLease> {
     const token = randomBytes(32).toString("hex");
-    await this.updateBlocks(userId, (blocks) => [...blocks, { token, committed: false }]);
+    await this.updateBlocks(
+      userId,
+      (blocks) => [...blocks, { token, committed: false }],
+      invalidateAllLogins,
+    );
     return {
       commit: async () => {
-        await this.updateBlocks(userId, (blocks) =>
-          blocks.map((block) => (block.token === token ? { ...block, committed: true } : block)),
+        await this.updateBlocks(
+          userId,
+          (blocks) =>
+            blocks.map((block) => (block.token === token ? { ...block, committed: true } : block)),
+          invalidateAllLogins,
         );
       },
       release: async () => {
-        await this.updateBlocks(userId, (blocks) =>
-          blocks.filter((block) => block.token !== token),
+        await this.updateBlocks(
+          userId,
+          (blocks) => blocks.filter((block) => block.token !== token),
+          invalidateAllLogins,
         );
       },
     };
@@ -170,8 +191,9 @@ export class DistributedBffSessionRevocations {
   private async updateBlocks(
     userId: string,
     transform: (blocks: NonNullable<Generation["blocks"]>) => NonNullable<Generation["blocks"]>,
+    invalidateAllLogins = true,
   ): Promise<void> {
-    await this.rotate("bff:login-generation", false);
+    if (invalidateAllLogins) await this.rotate("bff:login-generation", false);
     const key = this.userKey(userId);
     for (let attempt = 0; attempt < 32; attempt++) {
       const current = await this.store.get(key);

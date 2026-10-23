@@ -1,5 +1,5 @@
 import type { LocalAuthProvider } from "../providers/LocalAuthProvider.js";
-import type { AccountSecurity } from "../security/AccountSecurity.js";
+import { type AccountSecurity, SecurityInputError } from "../security/AccountSecurity.js";
 import { registerAccountSecurityRoutes } from "./accountSecurityRoutes.js";
 /**
  * 内置普通用户门户路由。
@@ -234,6 +234,7 @@ export function registerPortalRoutes(options: PortalRoutesOptions): PortalSessio
     }
 
     const loginGeneration = await sessionStore.captureLoginGeneration();
+    const securityVersion = await options.accountSecurity?.captureAuthenticationVersion();
     let user: UserInfo | null = null;
     let accessToken: PortalAccessTokenLike | null = null;
     try {
@@ -290,9 +291,17 @@ export function registerPortalRoutes(options: PortalRoutesOptions): PortalSessio
 
     let session: Awaited<ReturnType<PortalSessionStoreLike["createSession"]>>;
     try {
+      await options.accountSecurity?.assertAuthenticationVersion(securityVersion, user.sub);
       session = await sessionStore.createSession(user.sub, loginGeneration);
+      try {
+        await options.accountSecurity?.assertAuthenticationVersion(securityVersion, user.sub);
+      } catch (error) {
+        await sessionStore.deleteSession(session.id);
+        throw error;
+      }
     } catch (error) {
-      if (error instanceof BffSessionRevokedError) return reply.code(403).send("Login was revoked");
+      if (error instanceof BffSessionRevokedError || error instanceof SecurityInputError)
+        return reply.code(403).send("Login was revoked");
       throw error;
     }
     await appendPortalAuditSafely(auditLogRepository, {

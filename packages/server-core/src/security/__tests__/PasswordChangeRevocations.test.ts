@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hash } from "bcrypt";
 import Fastify from "fastify";
+import { TOTP } from "otpauth";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OidcAdapterFactory } from "../../adapters/OidcAdapterFactory.js";
 import { AuthCoordinator } from "../../core/AuthCoordinator.js";
@@ -169,6 +170,64 @@ async function setup(distributed: boolean) {
 
 for (const distributed of [false, true]) {
   describe(`${distributed ? "共享" : "内存"} 改密撤销`, () => {
+    it("OTP 启用拒绝旧单因素证明与迟到登录，但不影响其他账号或后续正常验证码消费", async () => {
+      const f = await setup(distributed);
+      const old = await f.coordinator.captureAuthenticationGeneration();
+      const proof = await f.coordinator.createInteractionAuthentication(old, f.user.sub);
+      await f.coordinator.storeAuthResult("before-otp", f.user.sub, undefined, old);
+      let entered!: () => void;
+      let resume!: () => void;
+      const checked = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const pending = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      const authenticate = f.local.authenticate.bind(f.local);
+      vi.spyOn(f.local, "authenticate").mockImplementationOnce(async (context) => {
+        const result = await authenticate(context);
+        expect(result.success).toBe(true);
+        entered();
+        await pending;
+        return result;
+      });
+      const login = f.coordinator.handleAuthentication({
+        authMethod: "local",
+        interactionUid: "otp-race",
+        body: { username: "alice", password: oldPassword },
+        params: {},
+        query: {},
+        request: { ip: "127.0.0.1", headers: {} },
+        reply: {},
+      } as AuthContext);
+      await checked;
+      const otpSetup = await f.security.beginOtp(f.user, "session");
+      let codes: { recoveryCodes: string[] };
+      try {
+        codes = await f.security.confirmOtp(
+          f.user,
+          "session",
+          otpSetup.id,
+          new TOTP({ secret: otpSetup.secret }).generate(),
+        );
+      } finally {
+        resume();
+      }
+      expect((await login).success).toBe(false);
+      expect(await f.coordinator.consumeAuthResult("before-otp")).toBeNull();
+      await expect(
+        f.coordinator.validateInteractionAuthentication(proof, f.user.sub),
+      ).rejects.toThrow();
+      await expect(
+        f.coordinator.assertAuthenticationGeneration(old, f.other.sub),
+      ).resolves.toBeUndefined();
+      const fresh = await f.coordinator.captureAuthenticationGeneration();
+      expect(await f.security.verifyOtp(f.user, codes.recoveryCodes[0])).toBe(true);
+      await expect(
+        f.coordinator.assertAuthenticationGeneration(fresh, f.user.sub),
+      ).resolves.toBeUndefined();
+    });
+
     it.each([
       "admin",
       "portal",
@@ -227,7 +286,16 @@ for (const distributed of [false, true]) {
       expect(await f.admin.getSession(f.otherAdmin.id)).not.toBeNull();
       expect(await f.portal.getSession(f.otherPortal.id)).not.toBeNull();
       expect(await f.coordinator.consumeAuthResult("old-login")).toBeNull();
-      expect(await f.coordinator.verifyOAuthState(oauthState)).toBeNull();
+      const verifiedState = await f.coordinator.verifyOAuthState(oauthState);
+      await expect(
+        f.coordinator.assertAuthenticationGeneration(
+          verifiedState?.authenticationGeneration,
+          f.user.sub,
+        ),
+      ).rejects.toThrow();
+      await expect(
+        f.coordinator.assertAuthenticationGeneration(generation, f.other.sub),
+      ).resolves.toBeUndefined();
       await expect(
         f.coordinator.validateInteractionAuthentication(proof, f.user.sub),
       ).rejects.toThrow();
@@ -235,7 +303,9 @@ for (const distributed of [false, true]) {
         f.coordinator.storeAuthResult("late-login", f.user.sub, undefined, generation),
       ).rejects.toThrow();
       const flow = await f.security.readLoginFlow(passkeyFlow, "browser");
-      await expect(f.coordinator.assertAuthenticationGeneration(flow.generation)).rejects.toThrow();
+      await expect(
+        f.coordinator.assertAuthenticationGeneration(flow.generation, f.user.sub),
+      ).rejects.toThrow();
       for (const model of records) {
         expect(await OidcAdapterFactory.create(model).find(`victim-${model}`)).toBeFalsy();
         expect(await OidcAdapterFactory.create(model).find(`other-${model}`)).toBeTruthy();
@@ -245,7 +315,7 @@ for (const distributed of [false, true]) {
       const freshGeneration = await f.coordinator.captureAuthenticationGeneration();
       await f.coordinator.storeAuthResult("new-login", f.user.sub, undefined, freshGeneration);
       expect(await f.coordinator.consumeAuthResult("new-login")).not.toBeNull();
-      expect(await f.admin.createSession(f.user.sub, freshGeneration)).toBeTruthy();
+      expect(await f.admin.createSession(f.user.sub)).toBeTruthy();
       expect((await f.users.findById(f.user.sub))?.status).toBe("active");
     });
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "X OIDC Docs Quality"
+  short_description: "Write and maintain clear project docs"
+  default_prompt: "Use $x-oidc-docs-quality to write, organize, or clean documentation in this repository."

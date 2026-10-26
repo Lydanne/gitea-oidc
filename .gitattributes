@@ -1,0 +1,2 @@
+# Vite 生成的依赖 chunk 内含第三方 CSS 模板字符串，不对构建产物执行空白检查。
+packages/server-core/public/admin/assets/*.js -whitespace

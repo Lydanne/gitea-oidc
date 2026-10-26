@@ -160,20 +160,20 @@ await repository.create({ ...baseData, username: 'user2', externalId: 'ext2' });
 
 ### 实现位置
 
-- **工具函数**: `src/utils/userIdGenerator.ts`
+- **工具函数**: `packages/server-core/src/utils/userIdGenerator.ts`
   - 导出 `generateUserId(authProvider: string, externalId: string): string` 函数
   - 可在任何需要生成确定性用户 ID 的地方使用
 
 - **Repository 实现**:
-  - `src/repositories/MemoryUserRepository.ts`
-  - `src/repositories/SqliteUserRepository.ts`
-  - `src/repositories/PgsqlUserRepository.ts`
+  - `packages/server-core/src/repositories/MemoryUserRepository.ts`
+  - `packages/server-core/src/repositories/SqliteUserRepository.ts`
+  - `packages/server-core/src/repositories/PgsqlUserRepository.ts`
   
 所有 repository 都使用统一的 `generateUserId` 工具函数。
 
 ### 测试覆盖
 
-**工具函数测试**: `src/utils/__tests__/userIdGenerator.test.ts` (17 个测试)
+**工具函数测试**: `packages/server-core/src/utils/__tests__/userIdGenerator.test.ts` (17 个测试)
 
 - 确定性测试 - 相同输入生成相同输出
 - 唯一性测试 - 不同输入生成不同输出
@@ -182,7 +182,7 @@ await repository.create({ ...baseData, username: 'user2', externalId: 'ext2' });
 - 碰撞测试 - 10000 个不同输入无碰撞
 - 性能测试 - 1000 次调用在 100ms 内完成
 
-**集成测试**: `src/repositories/__tests__/hash-id-generation.test.ts` (6 个测试)
+**集成测试**: `packages/server-core/src/repositories/__tests__/hash-id-generation.test.ts` (6 个测试)
 
 - Repository 层的确定性测试
 - 不同 `externalId` 生成不同 ID

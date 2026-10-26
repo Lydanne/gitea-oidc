@@ -1,0 +1,4 @@
+interface:
+  display_name: "X OIDC Engineering Quality"
+  short_description: "Guide feature work and code quality"
+  default_prompt: "Use $x-oidc-engineering-quality to implement a high-quality change in this repository."

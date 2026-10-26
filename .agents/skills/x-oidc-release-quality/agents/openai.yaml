@@ -1,0 +1,4 @@
+interface:
+  display_name: "X OIDC Release Quality"
+  short_description: "Validate build, Docker, CI, and release work"
+  default_prompt: "Use $x-oidc-release-quality to prepare or validate a release change."

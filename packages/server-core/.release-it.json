@@ -1,0 +1,26 @@
+{
+  "$schema": "https://unpkg.com/release-it@20/schema/release-it.json",
+  "plugins": {
+    "@release-it/conventional-changelog": {
+      "preset": "angular",
+      "infile": "../../CHANGELOG.md"
+    }
+  },
+  "git": {
+    "commit": false,
+    "tag": false,
+    "push": false,
+    "requireBranch": "main",
+    "requireCleanWorkingDir": true
+  },
+  "github": {
+    "release": false
+  },
+  "npm": {
+    "publish": false
+  },
+  "hooks": {
+    "before:init": "pnpm --dir ../.. release:verify",
+    "after:bump": "node ../../scripts/release/sync-version.mjs ${version}"
+  }
+}

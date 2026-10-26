@@ -1,18 +1,18 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ES2022",
-    "lib": ["ES2022"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "moduleResolution": "bundler",
-    "types": ["vitest/globals"]
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "files": [],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/application-templates" },
+    { "path": "./packages/applications" },
+    { "path": "./packages/oidc-client" },
+    { "path": "./packages/oidc-client-sqlite" },
+    { "path": "./packages/connector-core" },
+    { "path": "./packages/connector-testkit" },
+    { "path": "./packages/express" },
+    { "path": "./packages/fastify" },
+    { "path": "./packages/nestjs" },
+    { "path": "./packages/cli" },
+    { "path": "./packages/server-core" },
+    { "path": "./apps/idp-server" }
+  ]
 }

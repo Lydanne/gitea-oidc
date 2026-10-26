@@ -1,0 +1,4 @@
+interface:
+  display_name: "X OIDC Config Safety"
+  short_description: "Keep config, schema, and deployment safe"
+  default_prompt: "Use $x-oidc-config-safety to update config or production settings."
